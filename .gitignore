@@ -1,0 +1,66 @@
+# =====================
+# ENVIRONMENT FILES
+# =====================
+.env
+.env.*
+*.env
+
+# =====================
+# PYTHON
+# =====================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environment
+venv/
+.venv/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# =====================
+# DATABASE
+# =====================
+*.sqlite3
+*.db
+
+# =====================
+# VS CODE
+# =====================
+.vscode/
+
+# =====================
+# OS FILES
+# =====================
+.DS_Store
+Thumbs.db
+
+# =====================
+# NODE / FRONTEND (React)
+# =====================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+frontend/build/
+frontend/dist/
+
+# =====================
+# TEST / TEMP FILES
+# =====================
+*.tmp
+*.bak
+
+# =====================
+# SECURITY (IMPORTANT FOR YOU)
+# =====================
+# never commit secrets or API keys
+config.py
+credentials.json
