@@ -53,6 +53,11 @@ class AuthUser(db.Model):
     def check_password(self, password):
         """Check if the provided password matches the hash."""
         return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+    
+    @property
+    def handle(self):
+        """Display name for the inbox — platform name if known, else external_id."""
+        return self.name or self.external_id
 
     def to_dict(self):
         """Return user data as dictionary (for JSON responses)."""

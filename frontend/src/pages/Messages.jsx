@@ -18,6 +18,7 @@ const TikTokIcon = () => (
     style={{ background: '#000000' }}>♪</span>
 )
 
+// Conversations carry `platform` (an alias of the DB `channel`) for display.
 const platformIcon = (p) => {
   if (p === 'instagram_dm')      return <Instagram size={12} className="text-pink-500" />
   if (p === 'instagram_comment') return <MessageCircle size={12} className="text-pink-500" />
@@ -50,7 +51,7 @@ const statusBadge = (s) => {
 export default function Messages() {
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
-  const [platformFilter, setPlatformFilter] = useState('all')
+  const [channelFilter, setChannelFilter] = useState('all') // filters by DB `channel`
   const [search, setSearch]             = useState('')
 
   const [conversations, setConversations] = useState([])
@@ -64,8 +65,8 @@ export default function Messages() {
   const [replyText, setReplyText]       = useState('')
   const [sending, setSending]           = useState(false)
 
-  // Platforms available for the filter row (derived from what we loaded).
-  const platforms = ['all', ...new Set(conversations.map(c => c.platform))]
+  // Channels available for the filter row (derived from what we loaded).
+  const channels = ['all', ...new Set(conversations.map(c => c.platform))]
 
   const aiDisabled = activeConv ? !activeConv.ai_enabled : false
 
@@ -74,14 +75,21 @@ export default function Messages() {
     setLoadingList(true)
     setListError(null)
     try {
-      const data = await listConversations({ platform: platformFilter, search })
+      // Canonical contract: send `channel` (not `platform`); response is
+      // { conversations, total, page, per_page }.
+      const data = await listConversations({
+        channel: channelFilter,
+        search,
+        page: 1,
+        per_page: 20,
+      })
       setConversations(data.conversations || [])
     } catch (err) {
       setListError(err.message)
     } finally {
       setLoadingList(false)
     }
-  }, [platformFilter, search])
+  }, [channelFilter, search])
 
   useEffect(() => {
     // Debounce search a little so we don't fire on every keystroke.
@@ -96,7 +104,7 @@ export default function Messages() {
     setConvError(null)
     setActiveConv(null)
     try {
-      const data = await getConversation(conv.id)
+      const data = await getConversation(conv.id)   // { conversation: {...} }
       setActiveConv(data.conversation)
       if (conv.unread) {
         markRead(conv.id).catch(() => {})
@@ -121,7 +129,7 @@ export default function Messages() {
     const next = !activeConv.ai_enabled
     setActiveConv(c => ({ ...c, ai_enabled: next }))   // optimistic
     try {
-      const data = await toggleAI(activeConv.id, next)
+      const data = await toggleAI(activeConv.id, next) // { conversation: {...} }
       setActiveConv(c => ({ ...c, ...data.conversation }))
     } catch {
       setActiveConv(c => ({ ...c, ai_enabled: !next })) // revert
@@ -130,11 +138,13 @@ export default function Messages() {
 
   // ── Send a manual reply ───────────────────────────────────────────────────
   const handleSend = async () => {
-    const text = replyText.trim()
-    if (!text || !activeConv || sending) return
+    const content = replyText.trim()
+    if (!content || !activeConv || sending) return
     setSending(true)
     try {
-      const data = await sendReply(activeConv.id, text)
+      // Canonical: sendReply(id, content, sender='human')
+      // -> { message, conversation }
+      const data = await sendReply(activeConv.id, content, 'human')
       setActiveConv(c => ({
         ...c,
         ...data.conversation,
@@ -143,7 +153,12 @@ export default function Messages() {
       // Reflect the new last message + status in the list.
       setConversations(prev => prev.map(c =>
         c.id === activeConv.id
-          ? { ...c, lastMessage: data.conversation.lastMessage, status: data.conversation.status, time: data.conversation.time }
+          ? {
+              ...c,
+              lastMessage: data.conversation.lastMessage,
+              status: data.conversation.status,
+              time: data.conversation.time,
+            }
           : c))
       setReplyText('')
     } catch (err) {
@@ -168,13 +183,13 @@ export default function Messages() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <div className="flex gap-1 flex-wrap">
-          {platforms.map(p => (
+          {channels.map(p => (
             <button
               key={p}
-              onClick={() => setPlatformFilter(p)}
+              onClick={() => setChannelFilter(p)}
               className={clsx(
                 'text-xs px-2 py-1 rounded-md font-medium transition-colors',
-                platformFilter === p
+                channelFilter === p
                   ? 'bg-brand-500 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               )}
