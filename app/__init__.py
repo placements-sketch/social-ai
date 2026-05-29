@@ -24,7 +24,7 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    
+
     # Enable CORS for frontend
     CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
@@ -48,9 +48,11 @@ def create_app():
     from app.routes import bp
     from app.auth import auth_bp
     from app.messages import messages_bp
+    from app.channels import channels_bp
     app.register_blueprint(bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(messages_bp)
+    app.register_blueprint(channels_bp)
 
     # Import models so Flask-Migrate can detect them
     with app.app_context():

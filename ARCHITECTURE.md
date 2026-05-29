@@ -215,3 +215,10 @@ to avoid drift. Pick one label set and document it here.
 - Change the **contract here first**, then the code. PRs that change an endpoint must update §4.
 - When you resolve a ⚠️, delete the warning and move the fact into the stable section.
 - Re-sync the GitHub connector before a session that depends on current code, and bump the date in the header.
+
+
+
+
+
+can i copy and run the channels.sql file on pg4Admin query tool?
+also what exactly do i do with that postman collection file?

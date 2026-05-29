@@ -1,7 +1,7 @@
 import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
-  AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag,
+  AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -11,6 +11,7 @@ const statCards = [
   { label: 'Human Overrides',      value: stats.humanOverrides,     icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
   { label: 'Failed Responses',     value: stats.failedResponses,    icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
   { label: 'Out-of-Stock Queries', value: stats.outOfStockQueries,  icon: PackageX,      color: 'text-orange-500',  bg: 'bg-orange-50'      },
+  { label: 'Escalated',            value: 12,                       icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
 ]
 
 const alertStyles = {
@@ -40,7 +41,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {statCards.map(({ label, value, icon: Icon, color, bg }) => (
           <div key={label} className="stat-card">
             <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', bg)}>
@@ -50,6 +51,59 @@ export default function Dashboard() {
             <p className="text-xs text-gray-500 font-medium">{label}</p>
           </div>
         ))}
+      </div>
+
+      {/* Channel Performance */}
+      <div className="card p-6">
+        <div className="mb-6">
+          <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
+          <p className="text-xs text-gray-500 mt-1">Message throughput across platforms</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            { name: 'Instagram', icon: Instagram, color: 'text-pink-500', bg: 'bg-pink-50', border: 'border-pink-100', messages: 24, total: 30 },
+            { name: 'WhatsApp', icon: Smartphone, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-100', messages: 18, total: 25 },
+            { name: 'Facebook', icon: null, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', messages: 12, total: 20, fbIcon: true },
+            { name: 'TikTok', icon: null, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-200', messages: 8, total: 15, tikIcon: true },
+          ].map((channel) => {
+            const percentage = Math.round((channel.messages / channel.total) * 100)
+            let Icon = channel.icon
+            return (
+              <div key={channel.name} className={clsx('rounded-xl border p-4 transition-all hover:shadow-md', channel.border, 'bg-white')}>
+                {/* Header */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={clsx('w-10 h-10 rounded-lg flex items-center justify-center', channel.bg)}>
+                    {channel.fbIcon ? (
+                      <span className="inline-flex items-center justify-center w-full h-full rounded text-white font-black text-[11px]" style={{ background: '#1877F2' }}>f</span>
+                    ) : channel.tikIcon ? (
+                      <span className="inline-flex items-center justify-center w-full h-full rounded text-white font-black text-[11px]" style={{ background: '#000000' }}>♪</span>
+                    ) : (
+                      <Icon size={18} className={channel.color} />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900">{channel.name}</p>
+                    <p className="text-xs text-gray-400 font-medium">{channel.messages} of {channel.total}</p>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="space-y-2">
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-gray-900 to-gray-700 rounded-full transition-all duration-500"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500 font-medium">Processed</span>
+                    <span className="text-sm font-bold text-gray-900">{percentage}%</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -105,6 +159,37 @@ export default function Dashboard() {
                 <div key={label} className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">{label}</span>
                   <span className={clsx('text-sm font-bold', color)}>{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <p className="section-title">Conversion Rate</p>
+              <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">↑ 12%</span>
+            </div>
+            <div className="space-y-3">
+              {[
+                { label: 'Conversations', value: 42, total: 156, color: 'bg-orange-500' },
+                { label: 'Purchases', value: 42, total: 156, color: 'bg-gray-900' },
+                { label: 'Conversion', value: '26.9%', total: null, color: 'bg-orange-600' },
+              ].map(({ label, value, total, color }) => (
+                <div key={label}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-medium text-gray-600">{label}</span>
+                    <span className="text-xs font-bold text-gray-900">
+                      {total ? `${value}/${total}` : value}
+                    </span>
+                  </div>
+                  {total && (
+                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={clsx('h-full rounded-full transition-all', color)}
+                        style={{ width: `${(value / total) * 100}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
