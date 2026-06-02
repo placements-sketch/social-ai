@@ -228,7 +228,7 @@ def _real_get_product_info(keyword: str) -> dict:
             "shopify_id": str(product['id']),
             "name": product.get('title', keyword),
             "description": product.get('body_html', '')[:200],
-            "price": f"${product['variants'][0].get('price', 'N/A')}" if product.get('variants') else "N/A",
+            "price": f"KES{product['variants'][0].get('price', 'N/A')}" if product.get('variants') else "N/A",
             "variants": [v.get('title', '') for v in product.get('variants', [])],
             "stock_quantity": stock_quantity,
         }
