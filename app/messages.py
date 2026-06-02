@@ -257,6 +257,9 @@ def toggle_ai(conversation_id):
         return jsonify({'error': 'ai_enabled (boolean) is required'}), 400
 
     conv.ai_enabled = bool(data['ai_enabled'])
+    # Re-enabling AI clears the stale handoff reason
+    if conv.ai_enabled:
+        conv.handoff_reason = None
     conv.updated_at = datetime.utcnow()
     db.session.commit()
 

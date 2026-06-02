@@ -37,6 +37,14 @@ def get_stock_level(keyword: str) -> dict:
         }
     return _real_get_stock_level(keyword)
 
+def list_all_products() -> list[dict]:
+    """
+    Returns the FULL catalog from Shopify — used by the Products page sync.
+    Each dict has the same shape as get_product_info() returns.
+    """
+    if USE_MOCK:
+        return _mock_list_all_products()
+    return _real_list_all_products()
 
 # ─────────────────────────────────────────────
 # Mock implementation
@@ -84,6 +92,11 @@ _MOCK_PRODUCTS = [
         "stock_quantity": 23,
     },
 ]
+
+def _mock_list_all_products() -> list[dict]:
+    """Returns the entire mock catalog."""
+    log_event("info", "integrations.shopify", f"Mock catalog: {len(_MOCK_PRODUCTS)} products")
+    return list(_MOCK_PRODUCTS)
 
 
 def _mock_get_product_info(keyword: str) -> dict:
@@ -133,3 +146,11 @@ def _real_get_stock_level(keyword: str) -> dict:
     """
     raise NotImplementedError("Real Shopify stock fetch not yet implemented.")
 
+def _real_list_all_products() -> list[dict]:
+    """
+    TODO: Page through Shopify's full product catalog.
+
+    Endpoint: GET /admin/api/2024-01/products.json?limit=250&page_info=...
+    Shopify paginates by cursor (page_info header) — loop until no next cursor.
+    """
+    raise NotImplementedError("Real Shopify catalog fetch not yet implemented.")

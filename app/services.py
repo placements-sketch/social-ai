@@ -23,6 +23,7 @@ from app.integrations.meta import send_instagram_reply, send_whatsapp_reply, sen
 from app.integrations.tiktok import send_tiktok_reply
 from app.utils.intent import detect_intents, intents_to_label
 from app.utils.logger import log_event
+from app.handoff import check_handoff
 
 
 # Sentinel returned when the AI is gated off — useful for tests and
@@ -76,6 +77,18 @@ def process_message(message: str, user_id: str, channel: str) -> str:
 
     # Update the inbound record's intent now that we know it.
     _patch_inbound_intent(inbound_record, intents)
+
+    # ── Step 3.5: Handoff check — should this conversation go to a human? ──
+    # If yes: send a bridging reply, flip the conversation to human_override,
+    # and stop. The AI will not respond to subsequent messages on this thread
+    # until ai_enabled is flipped back on.
+    handoff = _check_handoff_for_inbound(message, intents, inbound_record)
+    if handoff:
+        bridging = handoff["bridging_reply"]
+        _dispatch_reply(channel=channel, user_id=user_id, reply=bridging)
+        _save_message(user_id=user_id, channel=channel, content=bridging,
+                      intent=None, direction="outbound")
+        return bridging
 
     # ── Step 4: Fetch data for every relevant intent ───────────────────────
     context_data = {}
@@ -142,9 +155,11 @@ def _ai_should_respond(channel: str, user_id: str) -> bool:
 
         # Find the most recent active conversation for this customer.
         # (Mirrors _save_message's lookup so we're consistent.)
+        # Find the customer's most recent conversation on this channel,
+        # regardless of status (mirrors _save_message's lookup).
         conv = (
             Conversation.query
-            .filter_by(user_id=customer.id, channel=channel, status="active")
+            .filter_by(user_id=customer.id, channel=channel)
             .order_by(Conversation.id.desc())
             .first()
         )
@@ -223,9 +238,13 @@ def _save_message(user_id: str, channel: str, content: str,
             db.session.add(user)
             db.session.flush()
 
+        # Find the customer's most recent conversation on this channel,
+        # regardless of status. A new conversation is only created for a
+        # genuinely new customer — changing status (e.g. active →
+        # human_override) must NOT fork the thread.
         conversation = (
             Conversation.query
-            .filter_by(user_id=user.id, channel=channel, status="active")
+            .filter_by(user_id=user.id, channel=channel)
             .order_by(Conversation.id.desc())
             .first()
         )
@@ -275,3 +294,21 @@ def _patch_inbound_intent(inbound_record, intents):
         db.session.commit()
     except Exception as e:
         log_event("error", "services._patch_inbound_intent", str(e))
+
+
+def _check_handoff_for_inbound(message, intents, inbound_record):
+    """
+    Resolve the conversation from the freshly-persisted inbound message
+    and run the handoff check against it. Returns the handoff dict, or None.
+    """
+    if inbound_record is None:
+        return None
+    try:
+        from app.models import Conversation
+        conv = Conversation.query.get(inbound_record.conversation_id)
+        if conv is None:
+            return None
+        return check_handoff(message, intents, conv)
+    except Exception as e:
+        log_event("error", "services._check_handoff_for_inbound", str(e))
+        return None 

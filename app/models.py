@@ -169,6 +169,12 @@ class Conversation(db.Model):
     resolved_at = db.Column(db.DateTime, nullable=True)
     resolved_by = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
 
+    # ── Handoff (AI → human) ─────────────────────────────────────────────
+    # Latest reason the AI handed this conversation to humans.
+    # Possible values: 'keyword', 'intent', 'rule', or null.
+    # Full history lives in the logs table.
+    handoff_reason = db.Column(db.String(64), nullable=True)
+
     # Relationships use explicit foreign_keys because there are 3 FKs to auth_users
     assignee   = db.relationship("AuthUser", foreign_keys=[assigned_to])
     assigner   = db.relationship("AuthUser", foreign_keys=[assigned_by])
@@ -202,6 +208,7 @@ class Conversation(db.Model):
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'resolved_by': self.resolved_by,
             'resolver': self.resolver.to_brief() if self.resolver else None,
+            'handoff_reason': self.handoff_reason,
         }
         if include_messages:
             data['messages'] = [m.to_dict() for m in self.messages]
