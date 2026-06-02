@@ -13,13 +13,18 @@ Authentication:
 """
 
 import os
+from datetime import datetime, timedelta
 import requests
 from app.utils.logger import log_event
 
-USE_MOCK = True  # Flip to False once Shopify credentials are configured
+USE_MOCK = False  # Flip to False once Shopify credentials are configured
 
-# Token cache (in production, store in DB or Redis)
+# Token cache (in production, store in DB or Redis).
+# Tokens expire after 24h per Shopify docs; we refresh proactively
+# with a small safety buffer to avoid using one that's about to expire.
 _SHOPIFY_ACCESS_TOKEN = None
+_SHOPIFY_TOKEN_EXPIRES_AT = None  # datetime | None
+_TOKEN_REFRESH_BUFFER = timedelta(minutes=5)
 
 
 def _get_shopify_access_token():
@@ -33,10 +38,12 @@ def _get_shopify_access_token():
     
     Response: {"access_token": "shpat_xxxxx", "scope": "read_products,...", "expires_in": 86399}
     """
-    global _SHOPIFY_ACCESS_TOKEN
+    global _SHOPIFY_ACCESS_TOKEN, _SHOPIFY_TOKEN_EXPIRES_AT
     
-    if _SHOPIFY_ACCESS_TOKEN:
-        return _SHOPIFY_ACCESS_TOKEN
+    # Return the cached token only if it's not about to expire.
+    if _SHOPIFY_ACCESS_TOKEN and _SHOPIFY_TOKEN_EXPIRES_AT:
+        if datetime.utcnow() < (_SHOPIFY_TOKEN_EXPIRES_AT - _TOKEN_REFRESH_BUFFER):
+            return _SHOPIFY_ACCESS_TOKEN
     
     store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
     client_id = os.getenv('SHOPIFY_CLIENT_ID')
@@ -66,9 +73,12 @@ def _get_shopify_access_token():
         if not _SHOPIFY_ACCESS_TOKEN:
             raise ValueError(f"No access_token in Shopify response: {data}")
         
-        expires_in = data.get('expires_in', 86399)
-        log_event("info", "integrations.shopify", f"Access token obtained (expires in {expires_in}s)")
+        expires_in = int(data.get('expires_in', 86399))
+        _SHOPIFY_TOKEN_EXPIRES_AT = datetime.utcnow() + timedelta(seconds=expires_in)
+        log_event("info", "integrations.shopify",
+                  f"Access token obtained (expires at {_SHOPIFY_TOKEN_EXPIRES_AT.isoformat()})")
         return _SHOPIFY_ACCESS_TOKEN
+    
     except requests.RequestException as e:
         log_event("error", "integrations.shopify", f"Failed to get access token: {str(e)}")
         raise
@@ -217,11 +227,13 @@ def _real_get_product_info(keyword: str) -> dict:
         
         product = products[0]
         
-        # Extract first variant's inventory (simple approach)
-        stock_quantity = 0
-        if product.get('variants'):
-            # Note: inventory_quantity is on variants in the full API
-            stock_quantity = product['variants'][0].get('inventory_quantity', 0)
+        # Sum inventory across ALL variants — a product with size S/M/L has
+        # inventory tracked per variant; taking [0] alone undercounts.
+        # `inventory_quantity` may be null if the variant isn't tracked
+        # or your token lacks read_inventory scope; treat null as 0.
+        stock_quantity = sum(
+            (v.get('inventory_quantity') or 0) for v in product.get('variants', [])
+        )
         
         log_event("info", "integrations.shopify", f"Product found: {product['title']}")
         return {
@@ -278,9 +290,10 @@ def _real_list_all_products() -> list[dict]:
             
             products = response.json().get('products', [])
             for product in products:
-                stock_quantity = 0
-                if product.get('variants'):
-                    stock_quantity = product['variants'][0].get('inventory_quantity', 0)
+                # Sum across all variants (see _real_get_product_info for rationale).
+                stock_quantity = sum(
+                    (v.get('inventory_quantity') or 0) for v in product.get('variants', [])
+                )
                 
                 all_products.append({
                     "shopify_id": str(product['id']),
