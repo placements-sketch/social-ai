@@ -61,9 +61,11 @@ export default function Messages() {
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
   const [channelFilter, setChannelFilter] = useState('all') // filters by DB `channel`
+  const [attentionFilter, setAttentionFilter] = useState(false) // show only conversations needing attention
   const [search, setSearch]             = useState('')
 
   const [conversations, setConversations] = useState([])
+  const [allChannels, setAllChannels] = useState(['all']) // Track all channels - only set once
   const [activeConv, setActiveConv]       = useState(null) // full conv w/ messages
 
   const [loadingList, setLoadingList]   = useState(true)
@@ -75,7 +77,8 @@ export default function Messages() {
   const [sending, setSending]           = useState(false)
 
   // Channels available for the filter row (derived from what we loaded).
-  const channels = ['all', ...new Set(conversations.map(c => c.platform))]
+  // Keep all channels even when filtering, so filters don't disappear
+  const channels = allChannels
 
   const aiDisabled = activeConv ? !activeConv.ai_enabled : false
 
@@ -106,6 +109,32 @@ export default function Messages() {
     return () => clearTimeout(t)
   }, [loadList, search, channelFilter])
 
+  // Load all channels on mount
+  useEffect(() => {
+    const loadAllChannels = async () => {
+      try {
+        const data = await listConversations({
+          channel: 'all',
+          page: 1,
+          per_page: 100,
+        })
+        const uniqueChannels = new Set(['all'])
+        data.conversations?.forEach(c => uniqueChannels.add(c.platform))
+        setAllChannels(Array.from(uniqueChannels))
+      } catch (err) {
+        console.error('Failed to load channels:', err)
+      }
+    }
+    loadAllChannels()
+  }, [])
+
+  // Auto-select first conversation when conversations load
+  useEffect(() => {
+    if (conversations.length > 0 && !selected) {
+      openConversation(conversations[0])
+    }
+  }, [conversations, selected])
+
   // ── Load a single conversation's full thread ──────────────────────────────
   const openConversation = useCallback(async (conv) => {
     setSelected(conv.id)
@@ -115,7 +144,7 @@ export default function Messages() {
     try {
       const data = await getConversation(conv.id)   // { conversation: {...} }
       setActiveConv(data.conversation)
-      if (conv.unread) {
+      if (conv.unread_count > 0) {
         markRead(conv.id).catch(() => {})
         setConversations(prev =>
           prev.map(c => (c.id === conv.id ? { ...c, unread: false, unread_count: 0 } : c)))
@@ -131,6 +160,11 @@ export default function Messages() {
     setSelected(null)
     setActiveConv(null)
   }
+
+  // Filter conversations based on attention flag
+  const filteredConversations = attentionFilter
+    ? conversations.filter(c => !c.ai_enabled)
+    : conversations
 
   // ── Toggle AI for the active conversation ─────────────────────────────────
   const handleToggleAI = async () => {
@@ -199,7 +233,7 @@ export default function Messages() {
               className={clsx(
                 'text-xs px-2 py-1 rounded-md font-medium transition-colors',
                 channelFilter === p
-                  ? 'bg-brand-500 text-white'
+                  ? 'bg-gray-900 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               )}
             >
@@ -207,6 +241,17 @@ export default function Messages() {
             </button>
           ))}
         </div>
+        <button
+          onClick={() => setAttentionFilter(!attentionFilter)}
+          className={clsx(
+            'w-full text-xs px-2 py-2 rounded-md font-medium transition-colors border-2',
+            attentionFilter
+              ? 'bg-amber-50 border-amber-300 text-amber-700'
+              : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+          )}
+        >
+          ⚠️ Needs Attention
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto">
         {loadingList && (
@@ -217,21 +262,26 @@ export default function Messages() {
         {listError && !loadingList && (
           <div className="px-3 py-6 text-center">
             <p className="text-xs text-red-500 mb-2">{listError}</p>
-            <button onClick={loadList} className="text-xs text-brand-600 font-medium">Retry</button>
+            <button onClick={loadList} className="text-xs text-gray-900 font-medium">Retry</button>
           </div>
         )}
-        {!loadingList && !listError && conversations.length === 0 && (
-          <p className="px-3 py-10 text-center text-xs text-gray-400">No conversations yet.</p>
+        {!loadingList && !listError && filteredConversations.length === 0 && (
+          <p className="px-3 py-10 text-center text-xs text-gray-400">
+            {attentionFilter ? 'No conversations needing attention.' : 'No conversations yet.'}
+          </p>
         )}
-        {!loadingList && !listError && conversations.map((conv) => (
+        {!loadingList && !listError && filteredConversations.map((conv) => (
           <button
             key={conv.id}
             onClick={() => openConversation(conv)}
             className={clsx(
-              'w-full text-left px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
-              activeConv?.id === conv.id && 'bg-brand-50 border-l-2 border-l-brand-500'
+              'w-full text-left px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors relative',
+              activeConv?.id === conv.id && 'bg-gray-100 border-l-2 border-l-gray-900'
             )}
           >
+            {!conv.ai_enabled && (
+              <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-500" title="Needs attention" />
+            )}
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5">
                 {platformIcon(conv.platform)}
@@ -245,7 +295,7 @@ export default function Messages() {
             <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
               {statusBadge(conv.status)}
               {handlerBadge(conv)}
-              {conv.unread && <span className="w-2 h-2 rounded-full bg-brand-500" />}
+              {conv.unread_count > 0 && <span className="text-xs font-semibold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">{conv.unread_count}</span>}
             </div>
           </button>
         ))}

@@ -285,7 +285,7 @@ def _real_list_all_products() -> list[dict]:
         url = f"{store_url}/admin/api/2024-01/products.json?limit=250"
         
         while url:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             
             products = response.json().get('products', [])

@@ -50,11 +50,13 @@ def create_app():
     from app.messages import messages_bp
     from app.channels import channels_bp
     from app.products import products_bp
+    from app.ai_settings import ai_settings_bp
     app.register_blueprint(bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(channels_bp)
     app.register_blueprint(products_bp)
+    app.register_blueprint(ai_settings_bp)
 
     # Import models so Flask-Migrate can detect them
     with app.app_context():

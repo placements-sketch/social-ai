@@ -371,19 +371,29 @@ class StockCache(db.Model):
 class AISettings(db.Model):
     __tablename__ = "ai_settings"
 
-    id            = db.Column(db.Integer, primary_key=True)
-    tone          = db.Column(db.String(32), default="friendly", nullable=False)
-    system_prompt = db.Column(db.Text, nullable=False)
-    slider_formal = db.Column(db.Integer, default=40, nullable=False)
-    slider_length = db.Column(db.Integer, default=50, nullable=False)
-    slider_sales  = db.Column(db.Integer, default=60, nullable=False)
+    id             = db.Column(db.Integer, primary_key=True)
+    tone           = db.Column(db.String(32), default="friendly", nullable=False)
+    system_prompt  = db.Column(db.Text, nullable=False)
+    slider_formal  = db.Column(db.Integer, default=40, nullable=False)
+    slider_length  = db.Column(db.Integer, default=50, nullable=False)
+    slider_sales   = db.Column(db.Integer, default=60, nullable=False)
     response_rules = db.Column(db.JSON, nullable=True)
-    model         = db.Column(db.String(64), default="gpt-4o", nullable=False)
-    max_tokens    = db.Column(db.Integer, default=200, nullable=False)
-    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at     = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'tone': self.tone,
+            'system_prompt': self.system_prompt,
+            'slider_formal': self.slider_formal,
+            'slider_length': self.slider_length,
+            'slider_sales': self.slider_sales,
+            'response_rules': self.response_rules or {},
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
 
     def __repr__(self):
-        return f"<AISettings tone={self.tone} model={self.model}>"
+        return f"<AISettings tone={self.tone}>"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

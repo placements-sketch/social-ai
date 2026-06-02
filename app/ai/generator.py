@@ -107,6 +107,7 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
 
         client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
         model  = current_app.config.get("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+        max_tokens = current_app.config.get("CLAUDE_MAX_TOKENS", 400)
 
         # Build context block from Shopify data
         context_lines = []
@@ -162,7 +163,7 @@ Reply guidelines:
 
         response = client.messages.create(
             model=model,
-            max_tokens=300,
+            max_tokens=max_tokens,
             system=system_prompt,
             messages=[
                 {"role": "user", "content": message}
