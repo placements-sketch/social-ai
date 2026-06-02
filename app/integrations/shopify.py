@@ -286,7 +286,7 @@ def _real_list_all_products() -> list[dict]:
                     "shopify_id": str(product['id']),
                     "name": product.get('title', 'Unknown'),
                     "description": product.get('body_html', '')[:200],
-                    "price": f"${product['variants'][0].get('price', 'N/A')}" if product.get('variants') else "N/A",
+                    "price": f"KES{product['variants'][0].get('price', 'N/A')}" if product.get('variants') else "N/A",
                     "variants": [v.get('title', '') for v in product.get('variants', [])],
                     "stock_quantity": stock_quantity,
                 })
