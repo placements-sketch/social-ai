@@ -41,20 +41,20 @@ const platformLabel = (p) => {
 }
 
 const statusBadge = (s) => {
-  if (s === 'ai_replied')     return <span className="badge bg-brand-50 text-brand-600 border border-brand-200">AI Replied</span>
-  if (s === 'active')         return <span className="badge bg-brand-50 text-brand-600 border border-brand-200">Active</span>
-  if (s === 'human_override') return <span className="badge bg-amber-50 text-amber-600 border border-amber-200">Human</span>
-  if (s === 'resolved')       return <span className="badge bg-gray-100 text-gray-500 border border-gray-200">Resolved</span>
-  if (s === 'pending')        return <span className="badge bg-red-50 text-red-600 border border-red-200">Pending</span>
+  if (s === 'ai_replied')     return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-200">AI Replied</span>
+  if (s === 'active')         return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-200">Active</span>
+  if (s === 'human_override') return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">Human</span>
+  if (s === 'resolved')       return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">Resolved</span>
+  if (s === 'pending')        return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">Pending</span>
 }
 
 const handlerBadge = (conv) => {
   // If AI is disabled, it's being handled by a human agent
   if (!conv.ai_enabled) {
-    return <span className="badge bg-amber-50 text-amber-600 border border-amber-200">Human Agent</span>
+    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">Human Agent</span>
   }
   // Otherwise it's being handled by Claude AI
-  return <span className="badge bg-brand-50 text-brand-600 border border-brand-200">Claude</span>
+  return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-200">Claude</span>
 }
 
 export default function Messages() {
