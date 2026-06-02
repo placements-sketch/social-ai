@@ -11,7 +11,7 @@ const allNav = [
   // All users can access these
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',   roles: ['admin', 'agent', 'supervisor'] },
   { to: '/messages',   icon: MessageSquare,   label: 'Messages',    roles: ['admin', 'agent', 'supervisor'], badge: 4 },
-  { to: '/products',   icon: Package,         label: 'Products',    roles: ['admin', 'agent', 'supervisor'] },
+  { to: '/products',   icon: Package,         label: 'Products',    roles: ['admin', 'supervisor'] },
   { to: '/analytics',  icon: BarChart2,       label: 'Analytics',   roles: ['admin', 'agent', 'supervisor'] },
   { to: '/logs',       icon: ScrollText,      label: 'Logs',        roles: ['admin', 'agent', 'supervisor'] },
 

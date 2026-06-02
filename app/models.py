@@ -58,6 +58,10 @@ class AuthUser(db.Model):
             'last_login': self.last_login.isoformat() if self.last_login else None,
         }
 
+    def to_brief(self):
+        """Light dict for embedding inside other resources (assigned_to, sender, etc.)."""
+        return {'id': self.id, 'email': self.email, 'full_name': self.full_name, 'role': self.role}
+
     def __repr__(self):
         return f"<AuthUser {self.email} role={self.role}>"
 
@@ -156,6 +160,20 @@ class Conversation(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # ── Assignment foundations ───────────────────────────────────────────
+    assigned_to = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
+    assigned_at = db.Column(db.DateTime, nullable=True)
+    assigned_by = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
+
+    # ── Resolution foundations ───────────────────────────────────────────
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    resolved_by = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
+
+    # Relationships use explicit foreign_keys because there are 3 FKs to auth_users
+    assignee   = db.relationship("AuthUser", foreign_keys=[assigned_to])
+    assigner   = db.relationship("AuthUser", foreign_keys=[assigned_by])
+    resolver   = db.relationship("AuthUser", foreign_keys=[resolved_by])
+
     messages = db.relationship("Message", backref="conversation", lazy=True,
                                order_by="Message.created_at")
 
@@ -175,6 +193,15 @@ class Conversation(db.Model):
             'time': self.last_message_at.strftime('%H:%M') if self.last_message_at else '',
             'unread': self.unread_count > 0,
             'unread_count': self.unread_count,
+            # Assignment fields
+            'assigned_to': self.assigned_to,
+            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
+            'assigned_by': self.assigned_by,
+            'assignee': self.assignee.to_brief() if self.assignee else None,
+            # Resolution fields
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'resolved_by': self.resolved_by,
+            'resolver': self.resolver.to_brief() if self.resolver else None,
         }
         if include_messages:
             data['messages'] = [m.to_dict() for m in self.messages]
@@ -197,6 +224,8 @@ class Message(db.Model):
     channel   = db.Column(db.String(32), nullable=False)
     direction = db.Column(db.String(8), nullable=False)
     sender    = db.Column(db.String(16), nullable=True)
+    # Which staff member sent this — NULL for AI/system and for inbound messages.
+    sender_id = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
     content   = db.Column(db.Text, nullable=False)
     intent    = db.Column(db.String(64), nullable=True)
     product_keyword = db.Column(db.String(128), nullable=True)
@@ -205,6 +234,8 @@ class Message(db.Model):
     ai_model            = db.Column(db.String(64), nullable=True)
     platform_message_id = db.Column(db.String(256), nullable=True, unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    sender_user = db.relationship("AuthUser", foreign_keys=[sender_id])
 
     def to_dict(self):
         if self.direction == 'inbound':
@@ -228,6 +259,8 @@ class Message(db.Model):
             'from': frm,
             'direction': self.direction,
             'sender': self.sender,
+            'sender_id': self.sender_id,
+            'sender_user': self.sender_user.to_brief() if self.sender_user else None,
             'text': self.content,
             'content': self.content,
             'time': self.created_at.strftime('%H:%M') if self.created_at else '',
@@ -243,8 +276,6 @@ class Message(db.Model):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CHANNELS
-# One row per supported social channel. Operational state only —
-# credentials live in .env.
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Channel(db.Model):

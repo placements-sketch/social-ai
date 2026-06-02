@@ -3,7 +3,7 @@
 // Contract: see ARCHITECTURE.md §4.2 (canonical).
 // Assumes the JWT from login is stored in localStorage under 'authToken'.
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000/api'
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const TOKEN_KEY = 'authToken'
 
 function authHeaders() {
@@ -14,12 +14,18 @@ function authHeaders() {
   }
 }
 
-async function handle(res) {
+async function handle(fetchPromise) {
+  const res = await fetchPromise
   let body = null
   try {
-    body = await res.json()
-  } catch {
-    /* no body */
+    const text = await res.text()
+    if (text) {
+      body = JSON.parse(text)
+    }
+  } catch (err) {
+    if (!res.ok) {
+      throw new Error(`Request failed (${res.status}): ${err.message}`)
+    }
   }
   if (!res.ok) {
     const msg = (body && body.error) || `Request failed (${res.status})`

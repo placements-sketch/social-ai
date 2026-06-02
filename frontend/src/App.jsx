@@ -36,7 +36,14 @@ export default function App() {
           {/* All users can access these */}
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="messages" element={<Messages />} />
-          <Route path="products" element={<Products />} />
+          <Route
+            path="products"
+            element={
+              <ProtectedRoute requiredRole={['admin', 'supervisor']}>
+                <Products />
+              </ProtectedRoute>
+            }
+          />
           <Route path="analytics" element={<Analytics />} />
           <Route path="logs" element={<Logs />} />
 

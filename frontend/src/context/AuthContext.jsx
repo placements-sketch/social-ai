@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext()
 
-const API_URL = 'http://127.0.0.1:5000'
+const API_URL = ''  // Use relative paths to leverage vite proxy in dev
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)

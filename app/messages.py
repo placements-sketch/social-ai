@@ -2,12 +2,6 @@
 app/messages.py
 Messages / Inbox routes — list conversations, read a thread, send manual replies.
 
-Data source: real DB queries against models (User, Conversation, Message).
-Reply scope for this pass: persist outbound message to DB only.
-Actually pushing the reply to the social platform is a later TODO (handled
-by the integrations layer), so the reply endpoint does NOT call any external
-API yet.
-
 Contract: see ARCHITECTURE.md §4.2 (canonical).
   - Pagination: page / per_page  (response echoes total, page, per_page)
   - Channel filter param: `channel`  (mirrors the DB column)
@@ -15,6 +9,10 @@ Contract: see ARCHITECTURE.md §4.2 (canonical).
   - Single conv:    { conversation: { ..., messages: [...] } }   (wrapped)
   - Send reply:     POST /conversations/<id>/messages  { content, sender }
                     -> { message, conversation }
+
+Foundation fields stamped here:
+  - Message.sender_id  ← authed staff id when sender=='human'
+  - Conversation.resolved_at / resolved_by  ← stamped when status flips to 'resolved'
 """
 
 from datetime import datetime
@@ -31,14 +29,12 @@ messages_bp = Blueprint('messages', __name__, url_prefix='/api')
 VALID_STATUSES = {'active', 'resolved', 'human_override', 'pending'}
 VALID_SENDERS = {'human', 'ai', 'system'}
 
-# Pagination guard rails
 DEFAULT_PER_PAGE = 20
 MAX_PER_PAGE = 100
 
 
 def _current_user():
-    """Resolve the AuthUser making this request, or None.
-    JWT identity is stored as a string; cast back to int for the PK lookup."""
+    """Resolve the AuthUser making this request, or None."""
     identity = get_jwt_identity()
     try:
         return AuthUser.query.get(int(identity))
@@ -49,31 +45,13 @@ def _current_user():
 @messages_bp.route('/conversations', methods=['GET'])
 @jwt_required()
 def list_conversations():
-    """
-    List conversations for the inbox.
-
-    Query parameters:
-    - page:     1-based page number (default 1)
-    - per_page: page size (default 20, max 100)
-    - channel:  filter by channel (e.g. instagram_dm). 'all' or omitted = no filter.
-    - status:   filter by conversation status. 'all' or omitted = no filter.
-    - search:   case-insensitive match against the customer handle / last message.
-
-    Response:
-    {
-        "conversations": [ { ...conversation, no messages... } ],
-        "total": 12,
-        "page": 1,
-        "per_page": 20
-    }
-    """
+    """List conversations for the inbox."""
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=DEFAULT_PER_PAGE, type=int)
     channel = request.args.get('channel', type=str)
     status = request.args.get('status', type=str)
     search = request.args.get('search', type=str)
 
-    # Clamp pagination inputs to sane bounds.
     if page < 1:
         page = 1
     if per_page < 1:
@@ -91,7 +69,6 @@ def list_conversations():
 
     if search:
         like = f"%{search.strip()}%"
-        # Join users so we can search the customer handle as well as last_message.
         query = query.join(User, Conversation.user_id == User.id).filter(
             db.or_(
                 Conversation.last_message.ilike(like),
@@ -120,35 +97,18 @@ def list_conversations():
 @messages_bp.route('/conversations/<int:conversation_id>', methods=['GET'])
 @jwt_required()
 def get_conversation(conversation_id):
-    """
-    Get a single conversation with its full message thread.
-
-    Response:
-    {
-        "conversation": { ...conversation, "messages": [ ... ] }
-    }
-    """
+    """Get a single conversation with its full message thread."""
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
 
-    return jsonify({
-        'conversation': conv.to_dict(include_messages=True)
-    }), 200
+    return jsonify({'conversation': conv.to_dict(include_messages=True)}), 200
 
 
 @messages_bp.route('/conversations/<int:conversation_id>/messages', methods=['GET'])
 @jwt_required()
 def list_messages(conversation_id):
-    """
-    List just the messages for a conversation (thread refresh without re-fetching
-    the conversation envelope).
-
-    Response:
-    {
-        "messages": [ ... ]
-    }
-    """
+    """List just the messages for a conversation."""
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
@@ -165,23 +125,13 @@ def list_messages(conversation_id):
 @jwt_required()
 def send_reply(conversation_id):
     """
-    Send a manual reply (canonical reply endpoint).
+    Send a manual reply.
 
-    Scope for this pass: persist the outbound message to the DB and update the
-    conversation's last_message fields. Does NOT push to the social platform —
-    that is wired in later by the integrations layer.
+    Body:
+      { "content": "...", "sender": "human" | "ai" | "system"   (default: human) }
 
-    Request body:
-    {
-        "content": "Hi! Yes, that's in stock.",
-        "sender": "human"   # optional; one of human | ai | system. Default: human.
-    }
-
-    Response:
-    {
-        "message": { ...the created Message... },
-        "conversation": { ...updated conversation envelope... }
-    }
+    When sender == 'human' we stamp Message.sender_id with the authed user
+    so audits can recover who replied.
     """
     current_user = _current_user()
     if not current_user:
@@ -208,13 +158,12 @@ def send_reply(conversation_id):
         channel=conv.channel,
         direction='outbound',
         sender=sender,
+        sender_id=(current_user.id if sender == 'human' else None),
         content=content,
         created_at=now,
     )
     db.session.add(reply)
 
-    # Update conversation envelope. A human reply implies an override; an AI
-    # reply leaves the conversation active.
     conv.last_message = content
     conv.last_message_at = now
     if sender == 'human':
@@ -242,17 +191,10 @@ def send_reply(conversation_id):
 @jwt_required()
 def update_conversation(conversation_id):
     """
-    Update mutable fields on a conversation. Currently supports `status`.
+    Update mutable fields on a conversation. Supports `status`.
 
-    Request body:
-    {
-        "status": "resolved"   # one of active | resolved | human_override | pending
-    }
-
-    Response:
-    {
-        "conversation": { ... }
-    }
+    When status flips to 'resolved' we stamp resolved_at / resolved_by.
+    Flipping it back to a non-resolved status clears those fields.
     """
     current_user = _current_user()
     if not current_user:
@@ -269,8 +211,17 @@ def update_conversation(conversation_id):
         new_status = (data['status'] or '').lower()
         if new_status not in VALID_STATUSES:
             return jsonify({'error': f'Invalid status. Must be one of: {", ".join(sorted(VALID_STATUSES))}'}), 400
+        previous = conv.status
         conv.status = new_status
         changes['status'] = new_status
+
+        if new_status == 'resolved' and previous != 'resolved':
+            conv.resolved_at = datetime.utcnow()
+            conv.resolved_by = current_user.id
+        elif new_status != 'resolved' and previous == 'resolved':
+            # Re-opened — clear the resolution stamp.
+            conv.resolved_at = None
+            conv.resolved_by = None
 
     if not changes:
         return jsonify({'error': 'No updatable fields provided'}), 400
@@ -292,19 +243,7 @@ def update_conversation(conversation_id):
 @messages_bp.route('/conversations/<int:conversation_id>/ai', methods=['PATCH'])
 @jwt_required()
 def toggle_ai(conversation_id):
-    """
-    Enable or disable AI auto-reply for a single conversation.
-
-    Request body:
-    {
-        "ai_enabled": false
-    }
-
-    Response:
-    {
-        "conversation": { ... }
-    }
-    """
+    """Enable or disable AI auto-reply for a single conversation."""
     current_user = _current_user()
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -335,14 +274,7 @@ def toggle_ai(conversation_id):
 @messages_bp.route('/conversations/<int:conversation_id>/read', methods=['PATCH'])
 @jwt_required()
 def mark_read(conversation_id):
-    """
-    Mark a conversation as read (zero out unread_count).
-
-    Response:
-    {
-        "conversation": { ... }
-    }
-    """
+    """Mark a conversation as read (zero out unread_count)."""
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404

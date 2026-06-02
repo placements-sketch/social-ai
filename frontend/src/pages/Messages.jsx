@@ -48,6 +48,15 @@ const statusBadge = (s) => {
   if (s === 'pending')        return <span className="badge bg-red-50 text-red-600 border border-red-200">Pending</span>
 }
 
+const handlerBadge = (conv) => {
+  // If AI is disabled, it's being handled by a human agent
+  if (!conv.ai_enabled) {
+    return <span className="badge bg-amber-50 text-amber-600 border border-amber-200">Human Agent</span>
+  }
+  // Otherwise it's being handled by Claude AI
+  return <span className="badge bg-brand-50 text-brand-600 border border-brand-200">Claude</span>
+}
+
 export default function Messages() {
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
@@ -92,14 +101,14 @@ export default function Messages() {
   }, [channelFilter, search])
 
   useEffect(() => {
-    // Debounce search a little so we don't fire on every keystroke.
+    // Load conversations on initial mount and when filters change
     const t = setTimeout(loadList, search ? 300 : 0)
     return () => clearTimeout(t)
-  }, [loadList, search])
+  }, [loadList, search, channelFilter])
 
   // ── Load a single conversation's full thread ──────────────────────────────
   const openConversation = useCallback(async (conv) => {
-    setSelected(conv)
+    setSelected(conv.id)
     setLoadingConv(true)
     setConvError(null)
     setActiveConv(null)
@@ -220,7 +229,7 @@ export default function Messages() {
             onClick={() => openConversation(conv)}
             className={clsx(
               'w-full text-left px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
-              activeConv?.id === conv.id && selected && 'bg-brand-50 border-l-2 border-l-brand-500'
+              activeConv?.id === conv.id && 'bg-brand-50 border-l-2 border-l-brand-500'
             )}
           >
             <div className="flex items-center justify-between mb-1">
@@ -233,8 +242,9 @@ export default function Messages() {
               <span className="text-xs text-gray-400">{conv.time}</span>
             </div>
             <p className="text-xs text-gray-500 truncate">{conv.lastMessage}</p>
-            <div className="flex items-center justify-between mt-1.5">
+            <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
               {statusBadge(conv.status)}
+              {handlerBadge(conv)}
               {conv.unread && <span className="w-2 h-2 rounded-full bg-brand-500" />}
             </div>
           </button>

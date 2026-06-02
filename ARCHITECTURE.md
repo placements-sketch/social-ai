@@ -220,5 +220,10 @@ to avoid drift. Pick one label set and document it here.
 
 
 
-can i copy and run the channels.sql file on pg4Admin query tool?
 also what exactly do i do with that postman collection file?
+
+
+
+
+can we remove the 'Products' section for agents users? they should be able to access that page
+dont change anything else. just this
