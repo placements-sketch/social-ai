@@ -41,20 +41,22 @@ const platformLabel = (p) => {
 }
 
 const statusBadge = (s) => {
-  if (s === 'ai_replied')     return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-200">AI Replied</span>
-  if (s === 'active')         return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-200">Active</span>
-  if (s === 'human_override') return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">Human</span>
-  if (s === 'resolved')       return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">Resolved</span>
-  if (s === 'pending')        return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">Pending</span>
+  const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+  if (s === 'ai_replied')     return <span className={`${baseClass} bg-brand-100 text-brand-600`}>AI Replied</span>
+  if (s === 'active')         return <span className={`${baseClass} bg-brand-100 text-brand-600`}>Active</span>
+  if (s === 'human_override') return <span className={`${baseClass} bg-amber-100 text-amber-600`}>Human</span>
+  if (s === 'resolved')       return <span className={`${baseClass} bg-gray-100 text-gray-600`}>Resolved</span>
+  if (s === 'pending')        return <span className={`${baseClass} bg-red-100 text-red-600`}>Pending</span>
 }
 
 const handlerBadge = (conv) => {
+  const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
   // If AI is disabled, it's being handled by a human agent
   if (!conv.ai_enabled) {
-    return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">Human Agent</span>
+    return <span className={`${baseClass} bg-amber-100 text-amber-600`}>Human Agent</span>
   }
   // Otherwise it's being handled by Claude AI
-  return <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-200">Claude</span>
+  return <span className={`${baseClass} bg-brand-100 text-brand-600`}>Claude</span>
 }
 
 export default function Messages() {
@@ -241,17 +243,21 @@ export default function Messages() {
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setAttentionFilter(!attentionFilter)}
-          className={clsx(
-            'w-full text-xs px-2 py-2 rounded-md font-medium transition-colors border-2',
-            attentionFilter
-              ? 'bg-amber-50 border-amber-300 text-amber-700'
-              : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-          )}
-        >
-          ⚠️ Needs Attention
-        </button>
+        <div className="w-full flex items-center justify-between px-2 py-1.5">
+          <span className="text-xs font-medium text-gray-600">⚠️ Needs Attention</span>
+          <button
+            onClick={() => setAttentionFilter(!attentionFilter)}
+            className={clsx(
+              'relative inline-flex w-8 h-5 rounded-full transition-colors duration-200',
+              attentionFilter ? 'bg-gray-900' : 'bg-gray-300'
+            )}
+          >
+            <span
+              className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+              style={{ transform: attentionFilter ? 'translateX(12px)' : 'translateX(0px)' }}
+            />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {loadingList && (
@@ -292,10 +298,10 @@ export default function Messages() {
               <span className="text-xs text-gray-400">{conv.time}</span>
             </div>
             <p className="text-xs text-gray-500 truncate">{conv.lastMessage}</p>
-            <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               {statusBadge(conv.status)}
               {handlerBadge(conv)}
-              {conv.unread_count > 0 && <span className="text-xs font-semibold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">{conv.unread_count}</span>}
+              {conv.unread_count > 0 && <span className="text-[10px] font-semibold text-brand-600 bg-brand-100 px-1.5 py-0.5 rounded-md">{conv.unread_count}</span>}
             </div>
           </button>
         ))}

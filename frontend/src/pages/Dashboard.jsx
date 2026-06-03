@@ -55,51 +55,46 @@ export default function Dashboard() {
 
       {/* Channel Performance */}
       <div className="card p-6">
-        <div className="mb-6">
+        <div className="mb-5">
           <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
           <p className="text-xs text-gray-500 mt-1">Message throughput across platforms</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { name: 'Instagram', icon: Instagram, color: 'text-pink-500', bg: 'bg-pink-50', border: 'border-pink-100', messages: 24, total: 30 },
-            { name: 'WhatsApp', icon: Smartphone, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-100', messages: 18, total: 25 },
-            { name: 'Facebook', icon: null, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', messages: 12, total: 20, fbIcon: true },
-            { name: 'TikTok', icon: null, color: 'text-gray-900', bg: 'bg-gray-50', border: 'border-gray-200', messages: 8, total: 15, tikIcon: true },
+            { name: 'Instagram', icon: Instagram, color: 'text-pink-500', messages: 24, total: 30 },
+            { name: 'WhatsApp', icon: Smartphone, color: 'text-green-500', messages: 18, total: 25 },
+            { name: 'Facebook', icon: null, color: 'text-blue-600', messages: 12, total: 20, fbIcon: true },
+            { name: 'TikTok', icon: null, color: 'text-gray-900', messages: 8, total: 15, tikIcon: true },
           ].map((channel) => {
             const percentage = Math.round((channel.messages / channel.total) * 100)
             let Icon = channel.icon
             return (
-              <div key={channel.name} className={clsx('rounded-xl border p-4 transition-all hover:shadow-md', channel.border, 'bg-white')}>
-                {/* Header */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className={clsx('w-10 h-10 rounded-lg flex items-center justify-center', channel.bg)}>
+              <div key={channel.name} className="p-3 rounded-lg bg-white border border-gray-100 transition-all hover:border-gray-200">
+                {/* Channel name + percentage */}
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-2">
                     {channel.fbIcon ? (
-                      <span className="inline-flex items-center justify-center w-full h-full rounded text-white font-black text-[11px]" style={{ background: '#1877F2' }}>f</span>
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded text-white font-black text-[8px]" style={{ background: '#1877F2' }}>f</span>
                     ) : channel.tikIcon ? (
-                      <span className="inline-flex items-center justify-center w-full h-full rounded text-white font-black text-[11px]" style={{ background: '#000000' }}>♪</span>
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded text-white font-black text-[7px]" style={{ background: '#000000' }}>♪</span>
                     ) : (
-                      <Icon size={18} className={channel.color} />
+                      <Icon size={14} className={channel.color} />
                     )}
+                    <span className="text-xs font-semibold text-gray-900">{channel.name}</span>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-gray-900">{channel.name}</p>
-                    <p className="text-xs text-gray-400 font-medium">{channel.messages} of {channel.total}</p>
-                  </div>
+                  <span className="text-xs font-bold text-gray-900">{percentage}%</span>
                 </div>
 
                 {/* Progress bar */}
-                <div className="space-y-2">
-                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-gray-900 to-gray-700 rounded-full transition-all duration-500"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500 font-medium">Processed</span>
-                    <span className="text-sm font-bold text-gray-900">{percentage}%</span>
-                  </div>
+                <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-gray-900 rounded-full transition-all duration-500"
+                    style={{ width: `${percentage}%` }}
+                  />
                 </div>
+
+                {/* Message count */}
+                <p className="text-xs text-gray-500 font-medium">{channel.messages} of {channel.total}</p>
               </div>
             )
           })}
