@@ -97,7 +97,7 @@ def get_product_info(keyword: str) -> dict:
 def get_stock_level(keyword: str) -> dict:
     """
     Returns stock level for a product from Shopify inventory.
-    Shopify is the source of truth — Odoo is no longer used.
+    Shopify is the single source of truth for all inventory data.
     """
     if USE_MOCK:
         product = _mock_get_product_info(keyword)

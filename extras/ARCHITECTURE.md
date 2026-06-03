@@ -21,7 +21,7 @@ and a human-override inbox.
 - **DB:** PostgreSQL (SQLite fallback for dev via `DATABASE_URL`)
 - **Frontend:** React, React Router, Tailwind CSS, Vite, lucide-react, clsx
 - **AI:** Anthropic Claude API (`config.CLAUDE_MODEL`)
-- **Integrations:** Meta Graph API (IG/WA/FB), Shopify (products + stock), TikTok, Odoo (stock)
+- **Integrations:** Meta Graph API (IG/WA/FB), Shopify (products + stock), TikTok
 
 ---
 
@@ -75,7 +75,7 @@ frontend/src/
 | `conversations` | `Conversation` | one thread = one customer on one channel |
 | `messages` | `Message` | `direction` inbound/outbound; `sender` ai/human/system |
 | `products_cache` | `ProductCache` | Shopify metadata; **never** store stock here |
-| `stock_cache` | `StockCache` | short-TTL Odoo stock |
+| `stock_cache` | `StockCache` | short-TTL Shopify stock |
 | `ai_settings` | `AISettings` | single active row (id=1) |
 | `automation_rules` | `AutomationRule` | IF/THEN rules; `trigger_config`/`action_config` JSON |
 | `logs` | `Log` | pipeline audit trail (separate from `audit_logs`) |
@@ -222,8 +222,38 @@ to avoid drift. Pick one label set and document it here.
 
 also what exactly do i do with that postman collection file?
 
+Conversation history → passed as previous messages in the Claude API call
+Image URLs from Meta → passed as image content blocks (Claude handles vision)
+Shared post metadata → enriched with a Shopify lookup if the post URL matches a product
+
+Then (one focused milestone): "wire up real Claude" — and that milestone includes: history context, image support, shared-post extraction. It's all one coherent piece of work because it's all about giving the model what it needs.
+Defer indefinitely: voice notes (rare, transcription cost, low value for fashion/beauty MVP), stickers/reactions (low signal).
 
 
+The token will cache in memory for the lifetime of the Flask app. Since tokens expire after 24 hours, for production you'd want to:
+Store the token expiry time
+Refresh before it expires
+Handle refresh gracefully if a token is rejected
 
-can we remove the 'Products' section for agents users? they should be able to access that page
-dont change anything else. just this
+
+Every customer message that mentions a product triggers a Shopify API call. At Shopify's 2 calls/sec rate limit, you'd start hitting throttling around 100+ messages/minute. Not a current problem; future problem.
+The products_cache we just synced isn't being used by the AI pipeline — only the Products page reads it. The AI still goes direct to Shopify. Eventually it'd be smarter to have the AI read from products_cache (instant, no rate limit) and just keep the cache fresh on a schedule. That's a future optimization, not now.
+
+
+⚠️ Latent issue from earlier: real Shopify's `_real_get_product_info` and `_real_list_all_products` return prices as `f"..."‘(dollar−prefixed).Your‘formatprice‘stripsnon−digitswhenparsingforthecache,sothecached‘price‘columnisnumericallyhonest,thendisplaysas‘"KESX,XXX"‘viatheformatter.Soend−to−endit∗appears∗correct—butifyourstoreisactuallyinKES,the‘{...}"` (dollar-prefixed). Your `_format_price` strips non-digits when parsing for the cache, so the cached `price` column is numerically honest, then displays as `"KES X,XXX"` via the formatter. So end-to-end it *appears* correct — but if your store is actually in KES, the `
+..."‘(dollar−prefixed).Your‘f​ormatp​rice‘stripsnon−digitswhenparsingforthecache,sothecached‘price‘columnisnumericallyhonest,thendisplaysas‘"KESX,XXX"‘viatheformatter.Soend−to−endit∗appears∗correct—butifyourstoreisactuallyinKES,the‘` from Shopify is being silently dropped, and if it ever isn't KES, the display would be lying. Worth fixing for real later by either dropping the prefix in the Shopify functions or making `_format_price` currency-aware. Not blocking now.
+⚠️ Same caveat: stock counts are summed correctly (issue #6 fix) but if read_inventory scope is missing, they'd all read 0. You haven't said either way — worth a glance at a product or two in GET /api/products to see if stock_quantity looks plausible.
+
+
+One thing worth flagging: Test 7's response_rules behavior is "replace, don't merge" — sending {"use_emoji": false} will wipe the other rules and leave only that one. If you'd rather "merge" semantics (partial updates within response_rules), say so and it's a small change.
+
+ one noteworthy thing: row id=1 already existed from your earlier seed (still has the old response_rules)
+
+
+implement sweet alert for notifications!
+
+So my honest revised recommendation:
+
+Build Logs now with this role-aware shape, querying audit_logs (everyone) and logs (admin-only). Works perfectly today for agent personal-action logs and admin pipeline logs.
+Build Analytics next — same role model, but the agent view will be a bit thin until assignment endpoints exist.
+Then add assignment endpoints as a small milestone — finally giving the foundation columns we added weeks ago a way to be populated. After this, agent analytics gets richer (per-agent conversation counts, response times, etc.).

@@ -15,8 +15,15 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 from datetime import datetime, timedelta
 from app import db
 from app.models import AuthUser, AuditLog
+import re
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+
+def is_valid_email(email):
+    """Validate email format."""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
 
 
 def current_user_id():
@@ -113,17 +120,28 @@ def signup():
     if not data or not all(field in data for field in required_fields):
         return jsonify({'error': 'Missing required fields: email, password, full_name, role'}), 400
 
-    email = data.get('email').lower().strip()
-    password = data.get('password')
-    full_name = data.get('full_name').strip()
-    role = data.get('role').lower()
+    email = data.get('email', '').lower().strip()
+    password = data.get('password', '').strip()
+    full_name = data.get('full_name', '').strip()
+    role = data.get('role', '').lower().strip()
 
-    if role not in ['admin', 'agent', 'supervisor']:
-        return jsonify({'error': 'Invalid role. Must be: admin, agent, or supervisor'}), 400
+    # Validate email format
+    if not email or not is_valid_email(email):
+        return jsonify({'error': 'Invalid email address format'}), 400
 
+    # Validate full name
+    if not full_name or len(full_name) < 2:
+        return jsonify({'error': 'Full name must be at least 2 characters'}), 400
+
+    # Validate password
     if len(password) < 8:
         return jsonify({'error': 'Password must be at least 8 characters long'}), 400
 
+    # Validate role
+    if role not in ['admin', 'agent', 'supervisor']:
+        return jsonify({'error': 'Invalid role. Must be: admin, agent, or supervisor'}), 400
+
+    # Check if email already exists
     if AuthUser.query.filter_by(email=email).first():
         return jsonify({'error': 'Email already exists'}), 409
 
@@ -138,7 +156,7 @@ def signup():
         'create_user',
         resource_type='user',
         resource_id=str(new_user.id),
-        changes={'email': email, 'role': role}
+        changes={'email': email, 'role': role, 'full_name': full_name}
     )
 
     return jsonify({'user': new_user.to_dict()}), 201

@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, MessageSquare, Package, Bot,
   Zap, Radio, BarChart2, ScrollText, Settings, Sparkles,
-  ChevronLeft, ChevronRight, X,
+  ChevronLeft, ChevronRight, X, Users,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
@@ -19,6 +19,7 @@ const allNav = [
   { to: '/ai',         icon: Bot,             label: 'AI Settings', roles: ['admin'] },
   { to: '/automation', icon: Zap,             label: 'Automation',  roles: ['admin'] },
   { to: '/channels',   icon: Radio,           label: 'Channels',    roles: ['admin'] },
+  { to: '/users',      icon: Users,           label: 'Users',       roles: ['admin'] },
   { to: '/settings',   icon: Settings,        label: 'Settings',    roles: ['admin'] },
 ]
 

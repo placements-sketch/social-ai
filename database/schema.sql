@@ -138,7 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_intent          ON messages (intent);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PRODUCTS CACHE
--- Shopify product metadata. Odoo is source of truth for stock — never store
+-- Shopify product metadata. Shopify is the single source of truth for stock — never store
 -- stock quantities here. Refresh TTL: 1 hour.
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,26 +176,26 @@ CREATE INDEX IF NOT EXISTS idx_products_cache_cached_at ON products_cache (cache
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STOCK CACHE
--- Short-lived Odoo stock level cache. Separate from products_cache because
+-- Short-lived Shopify stock level cache. Separate from products_cache because
 -- stock changes frequently. Refresh TTL: 5–10 minutes.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS stock_cache (
     id           SERIAL PRIMARY KEY,
 
-    -- Product name or SKU used to query Odoo
+    -- Product name or SKU used to query Shopify
     product_key  VARCHAR(256)  NOT NULL UNIQUE,
 
-    -- Current quantity from Odoo
+    -- Current quantity from Shopify
     quantity     INTEGER       NOT NULL DEFAULT 0,
 
     -- Unit of measure
     unit         VARCHAR(32)   DEFAULT 'pcs',
 
-    -- Warehouse name from Odoo
+    -- Location name from Shopify
     warehouse    VARCHAR(128),
 
-    -- When this was last fetched from Odoo
+    -- When this was last fetched from Shopify
     cached_at    TIMESTAMP     NOT NULL DEFAULT NOW()
 );
 
@@ -245,12 +245,12 @@ VALUES (
 You help customers with product inquiries, pricing, stock availability, and order status.
 
 Rules:
-- Always check Odoo for stock levels before confirming availability
+- Always check Shopify for stock levels before confirming availability
 - Never guess or invent stock quantities
 - Keep replies concise (2–4 sentences)
 - Be warm, on-brand, and helpful
 - If you don''t know something, say so honestly and offer to find out',
-    '{"no_invent_stock": true, "odoo_first": true, "include_price": true, "hide_errors": true, "use_emojis": true, "suggest_similar": true, "ask_order_number": true, "notify_oos": false}'
+    '{"no_invent_stock": true, "shopify_first": true, "include_price": true, "hide_errors": true, "use_emojis": true, "suggest_similar": true, "ask_order_number": true, "notify_oos": false}'
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS automation_rules (
     -- Machine-readable trigger config
     -- e.g. {"type": "keyword", "keywords": ["price", "how much"]}
     -- e.g. {"type": "intent", "intent": "stock_inquiry"}
-    -- e.g. {"type": "odoo_stock", "condition": "eq", "value": 0}
+    -- e.g. {"type": "shopify_stock", "condition": "eq", "value": 0}
     trigger_config JSONB,
 
     -- Machine-readable action config
@@ -300,20 +300,20 @@ CREATE INDEX IF NOT EXISTS idx_automation_rules_sort_order ON automation_rules (
 -- Insert the default rules that match the frontend mock data
 INSERT INTO automation_rules (name, trigger, action, trigger_config, action_config, enabled, sort_order) VALUES
 (
-    'Price Reply',
+    'Price Reply (KE)',
     'Message contains: "price", "how much", "bei", "ksh"',
     'Always include price from Shopify in reply',
     '{"type": "keyword", "keywords": ["price", "how much", "bei", "ksh"]}',
     '{"type": "include_price"}',
-    TRUE, 1
+    TRUE, 2
 ),
 (
     'Out of Stock',
-    'Odoo stock = 0',
+    'Shopify stock = 0',
     'Reply: "Currently out of stock" + suggest similar product',
-    '{"type": "odoo_stock", "condition": "eq", "value": 0}',
+    '{"type": "shopify_stock", "condition": "eq", "value": 0}',
     '{"type": "reply_template", "template": "This item is currently out of stock. Would you like to be notified when it''s back? 📦", "suggest_similar": true}',
-    TRUE, 2
+    TRUE, 3
 ),
 (
     'Comment → DM',
@@ -321,7 +321,7 @@ INSERT INTO automation_rules (name, trigger, action, trigger_config, action_conf
     'Reply publicly: "Check your DMs!" + trigger DM flow',
     '{"type": "keyword", "keywords": ["price?", "how much?"], "channels": ["instagram_comment", "facebook_comment"]}',
     '{"type": "trigger_dm_flow", "public_reply": "Hey! 👋 We''ve sent you a DM with all the details. Check your inbox! 💌"}',
-    TRUE, 3
+    TRUE, 4
 ),
 (
     'After Hours',
@@ -329,7 +329,7 @@ INSERT INTO automation_rules (name, trigger, action, trigger_config, action_conf
     'Auto-reply normally — no after-hours delay',
     '{"type": "always"}',
     '{"type": "normal_reply"}',
-    TRUE, 4
+    TRUE, 5
 ),
 (
     'Complaint Escalate',
@@ -337,7 +337,7 @@ INSERT INTO automation_rules (name, trigger, action, trigger_config, action_conf
     'Flag for human review + send empathy reply',
     '{"type": "intent", "intent": "complaint"}',
     '{"type": "human_escalate", "empathy_reply": true}',
-    FALSE, 5
+    TRUE, 6
 ),
 (
     'Order Status',
@@ -345,7 +345,7 @@ INSERT INTO automation_rules (name, trigger, action, trigger_config, action_conf
     'Ask for order number + flag for human follow-up',
     '{"type": "intent", "intent": "order_status"}',
     '{"type": "ask_order_number", "flag_human": true}',
-    TRUE, 6
+    TRUE, 7
 )
 ON CONFLICT DO NOTHING;
 
@@ -363,7 +363,7 @@ CREATE TABLE IF NOT EXISTS logs (
     level           VARCHAR(16)   NOT NULL,
 
     -- Which module produced this log
-    -- e.g. services | integrations.odoo | ai.generator | webhook.instagram
+    -- e.g. services | integrations.shopify | ai.generator | webhook.instagram
     source          VARCHAR(64)   NOT NULL,
 
     -- The log message

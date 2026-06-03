@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: social_ai_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: social_ai_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend Flask App
+  backend:
+    build: .
+    container_name: social_ai_backend
+    environment:
+      FLASK_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/social_ai_db
+      SECRET_KEY: dev-secret-key-12345
+      JWT_SECRET_KEY: dev-jwt-secret-key-12345
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-ant-your-key-here}
+      CLAUDE_MODEL: claude-3-5-sonnet-20241022
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN:-your-meta-webhook-verify-token}
+      META_APP_ID: ${META_APP_ID:-your-app-id}
+      META_APP_SECRET: ${META_APP_SECRET:-your-meta-app-secret}
+      META_PAGE_ACCESS_TOKEN: ${META_PAGE_ACCESS_TOKEN:-your-page-access-token}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-your-whatsapp-phone-number-id}
+      SHOPIFY_STORE_URL: ${SHOPIFY_STORE_URL:-https://shopzetudev.myshopify.com}
+      SHOPIFY_CLIENT_ID: ${SHOPIFY_CLIENT_ID:-your-client-id}
+      SHOPIFY_CLIENT_SECRET: ${SHOPIFY_CLIENT_SECRET:-your-client-secret}
+      SHOPIFY_SCOPES: read_products,read_inventory
+      TIKTOK_APP_ID: ${TIKTOK_APP_ID:-your-tiktok-app-id}
+      TIKTOK_ACCESS_TOKEN: ${TIKTOK_ACCESS_TOKEN:-your-tiktok-access-token}
+      TIKTOK_VERIFY_TOKEN: ${TIKTOK_VERIFY_TOKEN:-your-tiktok-verify-token}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: flask run --host=0.0.0.0
+
+volumes:
+  postgres_data:

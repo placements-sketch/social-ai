@@ -82,7 +82,17 @@ export default function Messages() {
   // Keep all channels even when filtering, so filters don't disappear
   const channels = allChannels
 
-  const aiDisabled = activeConv ? !activeConv.ai_enabled : false
+  // Debug: log active conversation state
+  useEffect(() => {
+    if (activeConv) {
+      console.log('Active conversation updated:', {
+        id: activeConv.id,
+        ai_enabled: activeConv.ai_enabled,
+        status: activeConv.status,
+        handle: activeConv.handle
+      })
+    }
+  }, [activeConv])
 
   // ── Load the conversation list (re-runs on filter / search change) ────────
   const loadList = useCallback(async () => {
@@ -354,20 +364,28 @@ export default function Messages() {
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
+              <div 
+                className={clsx(
+                  'hidden sm:flex text-xs font-semibold px-2 md:px-3 py-1.5 rounded-lg border items-center gap-1',
+                  activeConv.ai_enabled
+                    ? 'border-gray-200 bg-gray-50 text-gray-600'
+                    : 'border-blue-300 bg-blue-50 text-blue-600'
+                )}
+                title={activeConv.ai_enabled ? 'AI is handling this conversation' : 'Human agent is in charge'}
+              >
+                <UserCheck size={13} />
+                <span className="hidden md:inline">{activeConv.ai_enabled ? 'AI Handling' : 'Human Override'}</span>
+              </div>
               <button
                 onClick={handleToggleAI}
                 className={clsx(
                   'text-xs font-semibold px-2 md:px-3 py-1.5 rounded-lg border transition-colors',
-                  aiDisabled
-                    ? 'border-amber-300 bg-amber-50 text-amber-600'
-                    : 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                  activeConv.ai_enabled
+                    ? 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                    : 'border-amber-300 bg-amber-50 text-amber-600'
                 )}
               >
-                {aiDisabled ? '⚠ AI Off' : 'Disable AI'}
-              </button>
-              <button className="hidden sm:flex btn-ghost text-xs px-2 md:px-3 py-1.5 items-center gap-1">
-                <UserCheck size={13} />
-                <span className="hidden md:inline">Take Over</span>
+                {activeConv.ai_enabled ? 'Disable AI' : '⚠ AI Off'}
               </button>
               <button
                 onClick={() => setShowContext(s => !s)}
@@ -423,7 +441,7 @@ export default function Messages() {
           </div>
 
           {/* Manual reply bar — shown when AI is disabled for this conversation */}
-          {aiDisabled && (
+          {activeConv && !activeConv.ai_enabled && (
             <div className="px-3 md:px-4 py-3 border-t border-gray-100 bg-white flex gap-2">
               <input
                 className="input flex-1 text-sm"
@@ -475,6 +493,10 @@ export default function Messages() {
 
   return (
     <>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
+      </div>
       {MobileContextDrawer}
       <div className="flex h-[calc(100vh-8rem)] gap-0 card overflow-hidden border border-gray-100">
         {ConvList}

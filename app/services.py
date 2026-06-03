@@ -79,9 +79,6 @@ def process_message(message: str, user_id: str, channel: str) -> str:
     _patch_inbound_intent(inbound_record, intents)
 
     # ── Step 3.5: Handoff check — should this conversation go to a human? ──
-    # If yes: send a bridging reply, flip the conversation to human_override,
-    # and stop. The AI will not respond to subsequent messages on this thread
-    # until ai_enabled is flipped back on.
     handoff = _check_handoff_for_inbound(message, intents, inbound_record)
     if handoff:
         bridging = handoff["bridging_reply"]
@@ -89,6 +86,17 @@ def process_message(message: str, user_id: str, channel: str) -> str:
         _save_message(user_id=user_id, channel=channel, content=bridging,
                       intent=None, direction="outbound")
         return bridging
+
+    # ── Step 3.6: Template-reply rule check ────────────────────────────────
+    # Some automation rules short-circuit the AI with a canned reply
+    # (e.g. "Out of stock"). First matching rule wins.
+    template = _check_template_rule(message, intents, channel)
+    if template:
+        _dispatch_reply(channel=channel, user_id=user_id, reply=template)
+        _save_message(user_id=user_id, channel=channel, content=template,
+                      intent=None, direction="outbound")
+        log_event("info", "services", f"Template-rule reply used for [{channel}] {user_id}")
+        return template
 
     # ── Step 4: Fetch data for every relevant intent ───────────────────────
     context_data = {}
@@ -312,3 +320,64 @@ def _check_handoff_for_inbound(message, intents, inbound_record):
     except Exception as e:
         log_event("error", "services._check_handoff_for_inbound", str(e))
         return None 
+    
+def _check_template_rule(message, intents, channel):
+    """
+    Look for an enabled AutomationRule whose action_config.type is
+    'reply_template' and whose trigger matches this message.
+
+    Returns the template string to send, or None if no rule applies.
+
+    Match logic mirrors handoff.py: keyword rules match if any keyword is
+    in the message; intent rules match if the intent is in `intents`;
+    channel rules match if the channel is in the rule's `channels` list.
+    Rules are evaluated in sort_order (lowest first) — first match wins.
+    """
+    try:
+        from app.models import AutomationRule
+
+        text = (message or "").lower()
+        rules = (AutomationRule.query
+                 .filter_by(enabled=True)
+                 .order_by(AutomationRule.sort_order.asc(), AutomationRule.id.asc())
+                 .all())
+
+        for rule in rules:
+            ac = rule.action_config or {}
+            if ac.get("type") != "reply_template":
+                continue
+            template = ac.get("template")
+            if not template:
+                continue
+
+            tc = rule.trigger_config or {}
+            ttype = tc.get("type")
+
+            # Optional channel scope on any rule
+            allowed_channels = tc.get("channels")
+            if allowed_channels and channel not in allowed_channels:
+                continue
+
+            matched = False
+            if ttype == "keyword":
+                keywords = [k.lower() for k in (tc.get("keywords") or [])]
+                matched = any(k in text for k in keywords)
+            elif ttype == "intent":
+                target = tc.get("intent")
+                matched = target in (intents or [])
+            elif ttype == "always":
+                matched = True
+            elif ttype == "channel":
+                matched = channel in (tc.get("channels") or [])
+            # Note: shopify_stock triggers (e.g. "stock = 0") aren't handled
+            # here — they need product context, which requires the Shopify
+            # fetch we haven't done yet at this step. That will come in the
+            # real-Claude milestone where the full execution engine lives.
+
+            if matched:
+                return template
+
+        return None
+    except Exception as e:
+        log_event("error", "services._check_template_rule", str(e))
+        return None

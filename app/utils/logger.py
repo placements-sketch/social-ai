@@ -22,7 +22,7 @@ def log_event(level: str, source: str, message: str):
 
     Args:
         level:   'info', 'warning', or 'error'
-        source:  Module or function name (e.g. 'services', 'integrations.odoo')
+        source:  Module or function name (e.g. 'services', 'integrations.shopify')
         message: Human-readable description of the event
     """
     # 1. Write to standard logger

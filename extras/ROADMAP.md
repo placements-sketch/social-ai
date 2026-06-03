@@ -36,18 +36,7 @@
 
 ---
 
-## Phase 4 — Odoo
-
-- [ ] Get Odoo URL, database name, username, password → `.env`
-- [ ] Create a read-only API user in Odoo (access to `stock.quant` only)
-- [ ] Implement `_real_get_stock_level()` in `app/integrations/odoo.py`
-- [ ] Test stock query by product name
-- [ ] Add short-lived stock cache (5–10 min TTL) to handle Odoo slowness
-- [ ] Add fallback to cached value on Odoo timeout
-
----
-
-## Phase 5 — Instagram + Facebook Webhooks
+## Phase 4 — Instagram + Facebook Webhooks
 
 - [ ] Install ngrok for local development (`ngrok http 5000`)
 - [ ] Create app in Meta Developer Console (developers.facebook.com)
@@ -68,7 +57,7 @@
 
 ---
 
-## Phase 6 — WhatsApp
+## Phase 5 — WhatsApp
 
 > ⚠ Start the Meta business verification process early — approval takes days.
 
@@ -83,7 +72,7 @@
 
 ---
 
-## Phase 7 — Wire Frontend to Real Backend
+## Phase 6 — Wire Frontend to Real Backend
 
 - [ ] Add Flask API endpoints:
   - [ ] `GET /api/stats`
@@ -100,7 +89,7 @@
 
 ---
 
-## Phase 8 — Production Deployment
+## Phase 7 — Production Deployment
 
 - [ ] Choose hosting platform (Railway / Render / DigitalOcean)
 - [ ] Set up production PostgreSQL database on host
@@ -119,9 +108,9 @@
 ## Recommended Order
 
 ```
-Phase 1 → 2 → 3 → 4 → 5 → 7 → 8 → 6
+Phase 1 → 2 → 3 → 4 → 6 → 7 → 5
 ```
-Start WhatsApp (Phase 6) verification in parallel with Phase 3 — don't wait.
+Start WhatsApp (Phase 5) verification in parallel with Phase 3 — don't wait.
 
 ---
 ---
@@ -134,9 +123,6 @@ Start WhatsApp (Phase 6) verification in parallel with Phase 3 — don't wait.
 |---|---|---|
 | Shopify store URL | Shopify Admin → Settings → Domains | e.g. `yourstore.myshopify.com` |
 | Shopify Admin API token | Shopify Admin → Settings → Apps → Develop apps | Needs `read_products`, `read_inventory` scopes |
-| Odoo instance URL | IT / whoever manages Odoo | e.g. `https://yourcompany.odoo.com` |
-| Odoo database name | IT / Odoo admin | Found in Odoo Settings |
-| Odoo username + password | IT / Odoo admin | Create a dedicated read-only API user |
 | Facebook Page admin access | Social media manager | Must be Admin role on the Page |
 | Instagram Business account | Social media manager | Must be linked to the Facebook Page |
 | Meta Developer Console access | IT or create at developers.facebook.com | Needs to be linked to the company Facebook account |
@@ -153,7 +139,6 @@ Start WhatsApp (Phase 6) verification in parallel with Phase 3 — don't wait.
 |---|---|---|
 | OpenAI API | ~$0.01–0.03 per conversation | GPT-4o; budget ~$20–50/month for moderate volume |
 | Shopify | Already paying | Just needs API access enabled, no extra cost |
-| Odoo | Already paying | Just needs API user created, no extra cost |
 | Meta (Instagram/Facebook) | Free | Graph API is free |
 | WhatsApp Business API | Free for inbound + first 1000 conversations/month | Outbound template messages cost ~$0.005 each after free tier |
 | Hosting (backend) | $5–20/month | Railway or Render free tier works for MVP |

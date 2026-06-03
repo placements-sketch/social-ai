@@ -9,7 +9,7 @@ Turn incoming messages (IG/WhatsApp/comments) into safe, controlled, inventory-a
 🏗️ HIGH-LEVEL ARCHITECTURE
 ┌─────────────────────────────┐
 │ Instagram / WhatsApp │
-│ Shopify / Odoo Events │
+│ Shopify Events              │
 └────────────┬────────────────┘
 │ Webhooks
 ▼
@@ -29,8 +29,8 @@ Turn incoming messages (IG/WhatsApp/comments) into safe, controlled, inventory-a
 └───────┬─────────┬──────────┘
 │ │
 ┌──────────▼─┐ ┌──▼──────────┐
-│ AI LAYER │ │ BUSINESS LOGIC│
-│ (OpenAI) │ │ Shopify/Odoo │
+│ AI LAYER   │ │ BUSINESS LOGIC│
+│ (Claude)   │ │ Shopify      │
 └──────┬─────┘ └─────┬────────┘
 ▼ ▼
 ┌─────────────────────────────┐
@@ -109,7 +109,7 @@ stock
 prices
 orders
 delivery truth
-5. 📦 BUSINESS LOGIC LAYER (Shopify + Odoo)
+5. 📦 BUSINESS LOGIC LAYER (Shopify)
 This is the “truth engine”.
 
 Handles:
@@ -197,7 +197,7 @@ Phase 2 (next build)
 👉 Routing Engine
 
 Phase 3
-👉 Shopify/Odoo integration
+👉 Shopify integration (already complete)
 
 Phase 4
 👉 Delivery adapters (IG, WhatsApp, comments)
@@ -406,7 +406,6 @@ Instagram DMs
 Instagram comments
 WhatsApp
 Shopify inventory
-Odoo stock sync
 AI hallucination prevention
 
 3. Prompt engineering

@@ -414,6 +414,20 @@ class AutomationRule(db.Model):
     created_at  = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'trigger': self.trigger,
+            'action': self.action,
+            'trigger_config': self.trigger_config or {},
+            'action_config': self.action_config or {},
+            'enabled': self.enabled,
+            'sort_order': self.sort_order,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
     def __repr__(self):
         return f"<AutomationRule '{self.name}' enabled={self.enabled}>"
 
@@ -432,6 +446,17 @@ class Log(db.Model):
     conversation_id = db.Column(db.Integer, db.ForeignKey("conversations.id"), nullable=True)
     payload    = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'level': self.level,
+            'source': self.source,
+            'message': self.message,
+            'conversation_id': self.conversation_id,
+            'payload': self.payload,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
     def __repr__(self):
         return f"<Log [{self.level}] {self.source}: {self.message[:60]}>"

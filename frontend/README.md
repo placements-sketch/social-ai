@@ -24,7 +24,7 @@ npm run dev        # starts on http://localhost:3000
 |---|---|
 | `/dashboard` | Live stats, activity feed, alerts |
 | `/messages` | 3-panel inbox — conversations, chat, AI context |
-| `/products` | Shopify + Odoo inventory with mismatch detector |
+| `/products` | Shopify inventory with sync capabilities |
 | `/ai` | Brand tone, system prompt, response rules |
 | `/automation` | IF/THEN rule builder |
 | `/channels` | Instagram + WhatsApp connection status |
