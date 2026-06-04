@@ -156,22 +156,22 @@ export default function Automation() {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-3xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Automation Rules</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Define how the AI handles specific scenarios</p>
+    <div className="space-y-4 sm:space-y-6 w-full px-0">
+      <div className="px-0 sm:px-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+        <div className="w-full sm:w-auto">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Automation Rules</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Define how the AI handles specific scenarios</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="btn-primary flex items-center gap-1.5 text-xs py-1.5 px-2.5"
+          className="btn-primary flex items-center gap-1.5 text-xs py-2 px-3 sm:py-1.5 sm:px-2.5 w-full sm:w-auto justify-center sm:justify-start shrink-0"
         >
           <Plus size={13} /> New Rule
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600 mx-0">
           {error}
         </div>
       )}
@@ -181,7 +181,7 @@ export default function Automation() {
           <Loader2 size={20} className="animate-spin text-brand-500" />
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2 sm:space-y-3">
           {rules.map((rule, i) => (
             <div
               key={rule.id}
@@ -192,57 +192,57 @@ export default function Automation() {
               onDrop={(e) => handleDrop(e, rule.id)}
               onDragEnd={handleDragEnd}
               className={clsx(
-                'card p-4 transition-all cursor-grab active:cursor-grabbing',
+                'card p-2 sm:p-4 transition-all cursor-grab active:cursor-grabbing',
                 draggedId === rule.id && 'opacity-40 scale-95',
                 dragOverId === rule.id && draggedId !== rule.id && 'border-2 border-brand-400 bg-brand-50'
               )}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="flex items-center gap-2 shrink-0 self-center">
-                    <GripVertical size={16} className="text-gray-400 hover:text-gray-600" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-3">
+                <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0 w-full">
+                  <div className="flex items-center gap-2 shrink-0 self-start sm:self-center mt-1 sm:mt-0">
+                    <GripVertical size={14} className="text-gray-400 hover:text-gray-600 hidden sm:block" />
                   </div>
                   <div className={clsx(
-                    'w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold',
+                    'w-6 h-6 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center text-xs sm:text-sm font-bold shrink-0',
                     rule.enabled ? 'bg-brand-50 text-brand-600' : 'bg-gray-100 text-gray-400'
                   )}>
                     {i + 1}
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <Zap size={13} className={rule.enabled ? 'text-brand-500' : 'text-gray-400'} />
-                      <span className="text-sm font-bold text-gray-900">{rule.name}</span>
+                    <div className="flex items-start gap-2 mb-2 sm:mb-2.5">
+                      <Zap size={12} className={`${rule.enabled ? 'text-brand-500' : 'text-gray-400'} shrink-0 mt-0.5`} />
+                      <span className="text-xs sm:text-sm font-bold text-gray-900 break-words">{rule.name}</span>
                     </div>
 
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <span className="text-xs font-bold text-gray-400 w-10 shrink-0 mt-1">IF</span>
-                        <span className="text-xs text-gray-700 bg-gray-50 border border-gray-200 px-2.5 py-1.5 rounded-lg font-medium">{rule.trigger}</span>
+                    <div className="space-y-1.5 sm:space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2">
+                        <span className="text-xs font-bold text-gray-400 shrink-0">IF</span>
+                        <span className="text-xs text-gray-700 bg-gray-50 border border-gray-200 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg font-medium break-words">{rule.trigger}</span>
                       </div>
-                      <div className="flex items-start gap-2">
-                        <span className="text-xs font-bold text-gray-400 w-10 shrink-0 mt-1">THEN</span>
-                        <span className="text-xs text-brand-700 bg-brand-50 border border-brand-100 px-2.5 py-1.5 rounded-lg font-medium">{rule.action}</span>
+                      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2">
+                        <span className="text-xs font-bold text-gray-400 shrink-0">THEN</span>
+                        <span className="text-xs text-brand-700 bg-brand-50 border border-brand-100 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg font-medium break-words">{rule.action}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button className="btn-ghost p-1.5" title="Edit"><Pencil size={13} /></button>
+                <div className="flex items-center gap-1 shrink-0 w-full sm:w-auto justify-end">
+                  <button className="btn-ghost p-1.5 text-xs sm:text-sm" title="Edit"><Pencil size={13} /></button>
                   <button
                     onClick={() => deleteRule(rule.id)}
-                    className="btn-ghost p-1.5 hover:text-red-500" title="Delete"
+                    className="btn-ghost p-1.5 hover:text-red-500 text-xs sm:text-sm" title="Delete"
                   >
                     <Trash2 size={13} />
                   </button>
                   <button
                     onClick={() => toggleRule(rule.id, rule.enabled)}
-                    className={`relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 ${rule.enabled ? 'bg-brand-500' : 'bg-gray-300'}`}
+                    className={`relative inline-flex w-10 sm:w-11 h-5 sm:h-6 rounded-full transition-colors duration-200 shrink-0 ${rule.enabled ? 'bg-brand-500' : 'bg-gray-300'}`}
                   >
                     <span
-                      className="absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-200"
-                      style={{ transform: rule.enabled ? 'translateX(20px)' : 'translateX(0px)' }}
+                      className="absolute top-0.5 sm:top-1 left-0.5 sm:left-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-200"
+                      style={{ transform: rule.enabled ? 'translateX(18px)' : 'translateX(0px)' }}
                     />
                   </button>
                 </div>
@@ -252,7 +252,7 @@ export default function Automation() {
         </div>
       )}
 
-      <div className="bg-brand-50 border border-brand-100 rounded-xl p-4">
+      <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 sm:p-4 mx-0">
         <p className="text-xs text-brand-700 leading-relaxed font-medium">
           <strong>Rules run in order</strong> — the first matching rule wins.
           Disabled rules are skipped entirely.
@@ -262,9 +262,9 @@ export default function Automation() {
 
       {/* New Rule Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-lg w-full sm:max-w-md sm:w-full p-4 sm:p-6 space-y-4 max-h-[90vh] sm:max-h-none overflow-y-auto sm:overflow-y-visible">
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
               <h2 className="text-lg font-bold text-gray-900">Create New Rule</h2>
               <button
                 onClick={() => {
@@ -318,7 +318,7 @@ export default function Automation() {
                 />
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 flex-col-reverse sm:flex-row">
                 <button
                   type="button"
                   onClick={() => {

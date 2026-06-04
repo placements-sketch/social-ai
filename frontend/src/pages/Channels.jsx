@@ -172,34 +172,36 @@ export default function Channels() {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-3xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Channels</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Connected platforms and webhook status</p>
+    <div className="space-y-4 sm:space-y-6 w-full px-0">
+      <div className="px-0">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Channels</h1>
+        <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Connected platforms and webhook status</p>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         {channels.map(ch => {
           const config = channelConfig[ch.channel] || { name: ch.display_name, Icon: MessageCircle, iconBg: 'bg-gray-50' }
           const testResult = testResults[ch.id]
           return (
-            <div key={ch.id} className="card p-5">
-              <div className="flex items-start justify-between mb-4 gap-2">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={clsx('w-11 h-11 rounded-xl flex items-center justify-center shrink-0', config.iconBg)}>
-                    <config.Icon size={22} />
+            <div key={ch.id} className="card p-3 sm:p-5">
+              <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-2 mb-3 sm:mb-4">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full sm:w-auto">
+                  <div className={clsx('w-9 sm:w-11 h-9 sm:h-11 rounded-xl flex items-center justify-center shrink-0', config.iconBg)}>
+                    <config.Icon size={18} />
                   </div>
                   <div className="min-w-0">
-                    <h2 className="text-sm font-bold text-gray-900">{config.name}</h2>
+                    <h2 className="text-xs sm:text-sm font-bold text-gray-900">{config.name}</h2>
                     <p className="text-xs text-gray-500 mt-0.5 leading-snug">{ch.display_name}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {statusBadge(ch.connected, ch.enabled)}
+                <div className="flex items-center gap-1 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
+                  <div className="hidden sm:flex">
+                    {statusBadge(ch.connected, ch.enabled)}
+                  </div>
                   <button
                     onClick={() => testConnection(ch.id)}
                     disabled={testingChannelId === ch.id}
-                    className="btn-ghost p-1.5 hover:text-brand-600"
+                    className="btn-ghost p-1.5 hover:text-brand-600 text-xs sm:text-sm"
                     title="Test connection"
                   >
                     {testingChannelId === ch.id ? <Loader2 size={13} className="animate-spin" /> : <ExternalLink size={13} />}
@@ -207,41 +209,46 @@ export default function Channels() {
                   <button
                     onClick={() => toggleChannel(ch.id, ch.enabled)}
                     className={clsx(
-                      'relative inline-flex w-11 h-6 rounded-full transition-colors duration-200',
+                      'relative inline-flex w-10 sm:w-11 h-5 sm:h-6 rounded-full transition-colors duration-200 shrink-0',
                       ch.enabled ? 'bg-brand-500' : 'bg-gray-300'
                     )}
                     title={ch.enabled ? 'Disable channel' : 'Enable channel'}
                   >
                     <span
-                      className="absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-200"
-                      style={{ transform: ch.enabled ? 'translateX(20px)' : 'translateX(0px)' }}
+                      className="absolute top-0.5 sm:top-1 left-0.5 sm:left-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-200"
+                      style={{ transform: ch.enabled ? 'translateX(18px)' : 'translateX(0px)' }}
                     />
                   </button>
                 </div>
               </div>
 
-              {/* Status details - 2 column layout with borders like original */}
-              <div className="space-y-2 mb-3">
+              {/* Mobile status badge */}
+              <div className="flex sm:hidden mb-3 w-full">
+                {statusBadge(ch.connected, ch.enabled)}
+              </div>
+
+              {/* Status details - responsive grid */}
+              <div className="space-y-1.5 sm:space-y-2 mb-3">
                 {/* Row 1 */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                     <span className="text-xs text-gray-500 font-medium">{config.accountLabel}</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 mt-1 sm:mt-0">
                       {ch.connected
-                        ? <CheckCircle size={11} className="text-green-500" />
-                        : <AlertTriangle size={11} className="text-amber-500" />
+                        ? <CheckCircle size={11} className="text-green-500 shrink-0" />
+                        : <AlertTriangle size={11} className="text-amber-500 shrink-0" />
                       }
-                      <span className={clsx('text-xs font-semibold', ch.connected ? 'text-green-600' : 'text-amber-600')}>
+                      <span className={clsx('text-xs font-semibold truncate', ch.connected ? 'text-green-600' : 'text-amber-600')}>
                         {ch.connected ? config.accountValue : 'Not connected'}
                       </span>
                     </div>
                   </div>
-                  <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                     <span className="text-xs text-gray-500 font-medium">Webhook status</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 mt-1 sm:mt-0">
                       {ch.connected
-                        ? <CheckCircle size={11} className="text-green-500" />
-                        : <AlertTriangle size={11} className="text-amber-500" />
+                        ? <CheckCircle size={11} className="text-green-500 shrink-0" />
+                        : <AlertTriangle size={11} className="text-amber-500 shrink-0" />
                       }
                       <span className={clsx('text-xs font-semibold', ch.connected ? 'text-green-600' : 'text-amber-600')}>
                         {ch.connected ? 'Active' : 'Inactive'}
@@ -251,25 +258,25 @@ export default function Channels() {
                 </div>
 
                 {/* Row 2 */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                     <span className="text-xs text-gray-500 font-medium">Message permission</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 mt-1 sm:mt-0">
                       {ch.connected
-                        ? <CheckCircle size={11} className="text-green-500" />
-                        : <AlertTriangle size={11} className="text-amber-500" />
+                        ? <CheckCircle size={11} className="text-green-500 shrink-0" />
+                        : <AlertTriangle size={11} className="text-amber-500 shrink-0" />
                       }
                       <span className={clsx('text-xs font-semibold', ch.connected ? 'text-green-600' : 'text-amber-600')}>
                         {ch.connected ? 'Granted' : 'Pending'}
                       </span>
                     </div>
                   </div>
-                  <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                     <span className="text-xs text-gray-500 font-medium">Page access token</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 mt-1 sm:mt-0">
                       {ch.credentials_set
-                        ? <CheckCircle size={11} className="text-green-500" />
-                        : <AlertTriangle size={11} className="text-red-500" />
+                        ? <CheckCircle size={11} className="text-green-500 shrink-0" />
+                        : <AlertTriangle size={11} className="text-red-500 shrink-0" />
                       }
                       <span className={clsx('text-xs font-semibold', ch.credentials_set ? 'text-green-600' : 'text-red-600')}>
                         {ch.credentials_set ? 'Valid (expires 47d)' : 'Invalid'}
@@ -280,25 +287,25 @@ export default function Channels() {
 
                 {/* WhatsApp Phone Number */}
                 {ch.channel === 'whatsapp' && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                       <span className="text-xs text-gray-500 font-medium">Phone number</span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1 mt-1 sm:mt-0">
                         {ch.connected
-                          ? <CheckCircle size={11} className="text-green-500" />
-                          : <AlertTriangle size={11} className="text-amber-500" />
+                          ? <CheckCircle size={11} className="text-green-500 shrink-0" />
+                          : <AlertTriangle size={11} className="text-amber-500 shrink-0" />
                         }
-                        <span className={clsx('text-xs font-semibold', ch.connected ? 'text-green-600' : 'text-amber-600')}>
+                        <span className={clsx('text-xs font-semibold truncate', ch.connected ? 'text-green-600' : 'text-amber-600')}>
                           {ch.connected ? config.accountValue : 'Not configured'}
                         </span>
                       </div>
                     </div>
-                    <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                       <span className="text-xs text-gray-500 font-medium">API status</span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1 mt-1 sm:mt-0">
                         {ch.connected
-                          ? <CheckCircle size={11} className="text-green-500" />
-                          : <AlertTriangle size={11} className="text-amber-500" />
+                          ? <CheckCircle size={11} className="text-green-500 shrink-0" />
+                          : <AlertTriangle size={11} className="text-amber-500 shrink-0" />
                         }
                         <span className={clsx('text-xs font-semibold', ch.connected ? 'text-green-600' : 'text-amber-600')}>
                           {ch.connected ? 'Active' : 'Inactive'}
@@ -310,10 +317,10 @@ export default function Channels() {
 
                 {/* Additional rows if data exists */}
                 {ch.last_verified_at && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                       <span className="text-xs text-gray-500 font-medium">Last verified</span>
-                      <span className="text-xs font-semibold text-green-600">
+                      <span className="text-xs font-semibold text-green-600 mt-1 sm:mt-0">
                         {new Date(ch.last_verified_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -321,25 +328,25 @@ export default function Channels() {
                 )}
 
                 {ch.message_count !== undefined && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                       <span className="text-xs text-gray-500 font-medium">Messages</span>
-                      <span className="text-xs font-semibold text-green-600">{ch.message_count}</span>
+                      <span className="text-xs font-semibold text-green-600 mt-1 sm:mt-0">{ch.message_count}</span>
                     </div>
                     {ch.unread_count !== undefined && (
-                      <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                         <span className="text-xs text-gray-500 font-medium">Unread</span>
-                        <span className="text-xs font-semibold text-amber-600">{ch.unread_count}</span>
+                        <span className="text-xs font-semibold text-amber-600 mt-1 sm:mt-0">{ch.unread_count}</span>
                       </div>
                     )}
                   </div>
                 )}
 
                 {ch.last_message_at && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 rounded-lg px-2.5 sm:px-3 py-1.5 sm:py-2 border border-gray-100">
                       <span className="text-xs text-gray-500 font-medium">Last message</span>
-                      <span className="text-xs font-semibold text-green-600">
+                      <span className="text-xs font-semibold text-green-600 mt-1 sm:mt-0">
                         {new Date(ch.last_message_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -365,18 +372,18 @@ export default function Channels() {
 
       {/* Webhook URLs */}
       {publicBaseUrl && (
-        <div className="card p-5 space-y-3">
-          <h2 className="text-sm font-bold text-gray-900">Webhook URLs</h2>
+        <div className="card p-3 sm:p-5 space-y-3">
+          <h2 className="text-sm sm:text-base font-bold text-gray-900">Webhook URLs</h2>
           <p className="text-xs text-gray-500">Register these in your respective Developer Consoles</p>
           {channels.map(ch => (
-            <div key={ch.id} className="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-lg px-3 py-2.5">
-              <div>
+            <div key={ch.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-50 border border-gray-100 rounded-lg px-2.5 sm:px-3 py-2 sm:py-2.5 gap-2 sm:gap-3">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs text-gray-500 font-medium">{channelConfig[ch.channel]?.name || ch.display_name}</p>
-                <p className="text-xs font-mono text-brand-600 mt-0.5 font-semibold">{ch.webhook_url}</p>
+                <p className="text-xs font-mono text-brand-600 mt-1 sm:mt-0.5 font-semibold break-all sm:break-normal">{ch.webhook_url}</p>
               </div>
               <button
                 onClick={() => copyToClipboard(ch.webhook_url)}
-                className="btn-ghost text-xs px-2 py-1"
+                className="btn-ghost text-xs px-2 py-1.5 sm:py-1 w-full sm:w-auto shrink-0"
               >
                 Copy
               </button>

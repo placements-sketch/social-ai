@@ -141,10 +141,14 @@ export default function Messages() {
     loadAllChannels()
   }, [])
 
-  // Auto-select first conversation when conversations load (initial load only)
+  // Auto-select first conversation on desktop only (initial load only)
   useEffect(() => {
-    if (conversations.length > 0 && !selected && isInitialLoad) {
+    const isDesktop = window.innerWidth >= 768 // md breakpoint
+    if (conversations.length > 0 && !selected && isInitialLoad && isDesktop) {
       openConversation(conversations[0])
+      setIsInitialLoad(false)
+    } else if (isInitialLoad && !isDesktop) {
+      // On mobile, just mark initial load as complete without auto-selecting
       setIsInitialLoad(false)
     }
   }, [conversations, selected, isInitialLoad])
