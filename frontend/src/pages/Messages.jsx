@@ -227,23 +227,23 @@ export default function Messages() {
   const ConvList = (
     <div className={clsx(
       'border-r border-gray-100 flex flex-col bg-[#fafafa]',
-      'w-full md:w-64 md:shrink-0',
+      'w-full sm:w-72 md:w-64 md:shrink-0',
       selected ? 'hidden md:flex' : 'flex',
     )}>
-      <div className="p-3 border-b border-gray-100 space-y-3">
+      <div className="p-2 sm:p-3 border-b border-gray-100 space-y-2 sm:space-y-3">
         <input
           className="input w-full text-xs"
-          placeholder="Search conversations…"
+          placeholder="Search…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex gap-1 overflow-x-auto pb-1 -mx-2 px-2 sm:mx-0 sm:px-0 sm:flex-wrap sm:pb-0">
           {channels.map(p => (
             <button
               key={p}
               onClick={() => setChannelFilter(p)}
               className={clsx(
-                'text-xs px-2 py-1 rounded-md font-medium transition-colors',
+                'text-xs px-2 py-1 rounded-md font-medium transition-colors whitespace-nowrap shrink-0 sm:shrink',
                 channelFilter === p
                   ? 'bg-gray-900 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -253,14 +253,16 @@ export default function Messages() {
             </button>
           ))}
         </div>
-        <div className="w-full flex items-center justify-between px-2 py-1.5">
-          <span className="text-xs font-medium text-gray-600">⚠️ Needs Attention</span>
+        <div className="w-full flex items-center justify-between px-2 sm:px-0 py-1.5">
+          <span className="text-xs font-medium text-gray-600 truncate">⚠️ Needs Attention</span>
           <button
             onClick={() => setAttentionFilter(!attentionFilter)}
             className={clsx(
-              'relative inline-flex w-8 h-5 rounded-full transition-colors duration-200',
-              attentionFilter ? 'bg-gray-900' : 'bg-gray-300'
+              'relative inline-flex w-8 h-5 rounded-full transition-colors duration-200 shrink-0 ml-2'
             )}
+            style={{
+              backgroundColor: attentionFilter ? '#1f2937' : '#d1d5db'
+            }}
           >
             <span
               className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
@@ -291,24 +293,24 @@ export default function Messages() {
             key={conv.id}
             onClick={() => openConversation(conv)}
             className={clsx(
-              'w-full text-left px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors relative',
+              'w-full text-left px-2 sm:px-3 py-2 sm:py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors relative',
               activeConv?.id === conv.id && 'bg-gray-100 border-l-2 border-l-gray-900'
             )}
           >
             {!conv.ai_enabled && (
               <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-500" title="Needs attention" />
             )}
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between mb-1 gap-1">
+              <div className="flex items-center gap-1.5 min-w-0">
                 {platformIcon(conv.platform)}
-                <span className="text-xs font-semibold text-gray-800 truncate max-w-[140px] md:max-w-[100px]">
+                <span className="text-xs font-semibold text-gray-800 truncate">
                   {conv.handle}
                 </span>
               </div>
-              <span className="text-xs text-gray-400">{conv.time}</span>
+              <span className="text-xs text-gray-400 shrink-0 ml-auto">{conv.time}</span>
             </div>
             <p className="text-xs text-gray-500 truncate">{conv.lastMessage}</p>
-            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
               {statusBadge(conv.status)}
               {handlerBadge(conv)}
               {conv.unread_count > 0 && <span className="text-[10px] font-semibold text-brand-600 bg-brand-100 px-1.5 py-0.5 rounded-md">{conv.unread_count}</span>}
@@ -347,8 +349,8 @@ export default function Messages() {
       {selected && !loadingConv && activeConv && (
         <>
           {/* Chat header */}
-          <div className="flex items-center justify-between px-3 md:px-4 py-3 border-b border-gray-100 bg-white gap-2">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center justify-between px-2 sm:px-3 md:px-4 py-2 sm:py-3 border-b border-gray-100 bg-white gap-1 sm:gap-2 min-h-[56px] sm:min-h-auto">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
               <button
                 onClick={backToList}
                 className="md:hidden btn-ghost p-1.5 shrink-0"
@@ -363,29 +365,18 @@ export default function Messages() {
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              <div 
-                className={clsx(
-                  'hidden sm:flex text-xs font-semibold px-2 md:px-3 py-1.5 rounded-lg border items-center gap-1',
-                  activeConv.ai_enabled
-                    ? 'border-gray-200 bg-gray-50 text-gray-600'
-                    : 'border-blue-300 bg-blue-50 text-blue-600'
-                )}
-                title={activeConv.ai_enabled ? 'AI is handling this conversation' : 'Human agent is in charge'}
-              >
-                <UserCheck size={13} />
-                <span className="hidden md:inline">{activeConv.ai_enabled ? 'AI Handling' : 'Human Override'}</span>
-              </div>
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={handleToggleAI}
                 className={clsx(
-                  'text-xs font-semibold px-2 md:px-3 py-1.5 rounded-lg border transition-colors',
+                  'text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap',
                   activeConv.ai_enabled
                     ? 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
                     : 'border-amber-300 bg-amber-50 text-amber-600'
                 )}
               >
-                {activeConv.ai_enabled ? 'Disable AI' : '⚠ AI Off'}
+                <span className="sm:hidden">{activeConv.ai_enabled ? '⚙️' : '⚠️'}</span>
+                <span className="hidden sm:inline">{activeConv.ai_enabled ? 'Disable AI' : '⚠ AI Off'}</span>
               </button>
               <button
                 onClick={() => setShowContext(s => !s)}
@@ -398,24 +389,24 @@ export default function Messages() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-2 sm:p-3 md:p-4 space-y-3 sm:space-y-4">
             {(activeConv.messages || []).map((msg) => (
               <div key={msg.id} className={clsx('flex', msg.from === 'user' ? 'justify-start' : 'justify-end')}>
                 <div className={clsx(
-                  'max-w-[85%] sm:max-w-[75%] md:max-w-[70%] flex flex-col gap-1',
+                  'max-w-[90%] sm:max-w-[75%] md:max-w-[70%] flex flex-col gap-1',
                   msg.from === 'user' ? 'items-start' : 'items-end'
                 )}>
-                  <div className="flex items-center gap-1.5 px-1">
+                  <div className="flex items-center gap-1 px-1 text-xs">
                     {msg.from === 'user'  && <User size={11} className="text-gray-400" />}
                     {msg.from === 'ai'    && <Bot size={11} className="text-brand-500" />}
                     {msg.from === 'human' && <UserCheck size={11} className="text-amber-500" />}
-                    <span className="text-xs text-gray-400 font-medium">
+                    <span className="text-gray-400 font-medium truncate">
                       {msg.from === 'user' ? 'Customer' : msg.from === 'ai' ? 'AI' : 'Agent'}
                       {' · '}{msg.time}
                     </span>
                   </div>
                   <div className={clsx(
-                    'px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm',
+                    'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
                     msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
                     msg.from === 'ai'    && 'bg-brand-500 text-white rounded-tr-sm',
                     msg.from === 'human' && 'bg-amber-500 text-white rounded-tr-sm',
@@ -423,12 +414,12 @@ export default function Messages() {
                     {msg.text}
                   </div>
                   {msg.from === 'ai' && (
-                    <div className="flex gap-2 px-1">
-                      <button className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 font-medium">
-                        <RefreshCw size={10} /> Resend
+                    <div className="flex gap-2 px-1 text-xs">
+                      <button className="text-gray-400 hover:text-gray-600 flex items-center gap-1 font-medium">
+                        <RefreshCw size={10} /> <span className="hidden sm:inline">Resend</span>
                       </button>
-                      <button className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 font-medium">
-                        <Edit size={10} /> Edit
+                      <button className="text-gray-400 hover:text-gray-600 flex items-center gap-1 font-medium">
+                        <Edit size={10} /> <span className="hidden sm:inline">Edit</span>
                       </button>
                     </div>
                   )}
@@ -442,19 +433,19 @@ export default function Messages() {
 
           {/* Manual reply bar — shown when AI is disabled for this conversation */}
           {activeConv && !activeConv.ai_enabled && (
-            <div className="px-3 md:px-4 py-3 border-t border-gray-100 bg-white flex gap-2">
+            <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 border-t border-gray-100 bg-white flex gap-1.5 sm:gap-2">
               <input
-                className="input flex-1 text-sm"
-                placeholder="Type a manual reply…"
+                className="input flex-1 text-xs sm:text-sm"
+                placeholder="Reply…"
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
                 disabled={sending}
               />
               <button
                 onClick={handleSend}
                 disabled={sending || !replyText.trim()}
-                className="btn-primary flex items-center gap-1.5 disabled:opacity-50"
+                className="btn-primary flex items-center gap-1 px-2 sm:px-4 py-2 disabled:opacity-50 whitespace-nowrap text-xs sm:text-sm"
               >
                 {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                 <span className="hidden sm:inline">Send</span>
