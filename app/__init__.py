@@ -8,7 +8,6 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from config import Config
 
 # Shared instances — imported by models and other modules
 db = SQLAlchemy()
@@ -17,6 +16,9 @@ jwt = JWTManager()
 
 
 def create_app():
+    # Import config here to ensure it's found at runtime
+    from config import Config
+    
     app = Flask(__name__)
     app.config.from_object(Config)
 
