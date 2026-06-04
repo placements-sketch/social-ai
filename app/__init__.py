@@ -45,26 +45,43 @@ def create_app():
         return jsonify({'error': 'Missing authorization token'}), 401
 
     # Register blueprints
-    from app.routes import bp
-    from app.auth import auth_bp
-    from app.messages import messages_bp
-    from app.channels import channels_bp
-    from app.products import products_bp
-    from app.ai_settings import ai_settings_bp
-    from app.automation import automation_bp
-    from app.logs import logs_bp
-    from app.assignment import assignment_bp
-    app.register_blueprint(bp)
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(messages_bp)
-    app.register_blueprint(channels_bp)
-    app.register_blueprint(products_bp)
-    app.register_blueprint(ai_settings_bp)
-    app.register_blueprint(automation_bp)
-    app.register_blueprint(logs_bp)
-    app.register_blueprint(assignment_bp)
+    try:
+        from app.routes import bp
+        from app.auth import auth_bp
+        from app.messages import messages_bp
+        from app.channels import channels_bp
+        from app.products import products_bp
+        from app.ai_settings import ai_settings_bp
+        from app.automation import automation_bp
+        from app.logs import logs_bp
+        from app.assignment import assignment_bp
+        
+        app.register_blueprint(bp)
+        app.register_blueprint(auth_bp)
+        app.register_blueprint(messages_bp)
+        app.register_blueprint(channels_bp)
+        app.register_blueprint(products_bp)
+        app.register_blueprint(ai_settings_bp)
+        app.register_blueprint(automation_bp)
+        app.register_blueprint(logs_bp)
+        app.register_blueprint(assignment_bp)
+        
+        print("[APP] All blueprints registered successfully")
+    except Exception as e:
+        print(f"[APP ERROR] Failed to register blueprints: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise
+    
     # Import models so Flask-Migrate can detect them
     with app.app_context():
-        from app import models  # noqa: F401
+        try:
+            from app import models  # noqa: F401
+            print("[APP] Models imported successfully")
+        except Exception as e:
+            print(f"[APP ERROR] Failed to import models: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     return app
