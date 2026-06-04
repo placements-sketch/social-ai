@@ -17,7 +17,7 @@ jwt = JWTManager()
 
 def create_app():
     # Import config here to ensure it's found at runtime
-    from config import Config
+    from app.config import Config
     
     app = Flask(__name__)
     app.config.from_object(Config)
