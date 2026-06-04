@@ -5,7 +5,7 @@
       "destination": "https://web-production-3bfb6.up.railway.app/api/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
