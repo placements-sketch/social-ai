@@ -28,11 +28,6 @@ from app import db
 from app.models import AuthUser, Channel, Conversation, Message
 from app.auth import log_audit, current_user_id
 
-# UTC-aware datetime helper
-def utc_now():
-    """Return current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
 channels_bp = Blueprint('channels', __name__, url_prefix='/api')
 
 
@@ -201,7 +196,7 @@ def update_channel(channel_id):
     if not changes:
         return jsonify({'error': 'No updatable fields provided'}), 400
 
-    channel.updated_at = utc_now()
+    channel.updated_at = datetime.utcnow()
     db.session.commit()
 
     log_audit(
@@ -244,7 +239,7 @@ def test_channel(channel_id):
         return jsonify({'error': 'Channel not found'}), 404
 
     creds_ok = _credentials_set(channel.channel)
-    now = utc_now()
+    now = datetime.utcnow()
 
     if not creds_ok:
         return jsonify({

@@ -22,11 +22,6 @@ from app import db
 from app.models import AuthUser, AISettings
 from app.auth import log_audit, current_user_id
 
-# UTC-aware datetime helper
-def utc_now():
-    """Return current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
 ai_settings_bp = Blueprint('ai_settings', __name__, url_prefix='/api')
 
 
@@ -135,7 +130,7 @@ def update_settings():
     if not changes:
         return jsonify({'error': 'No updatable fields provided'}), 400
 
-    settings.updated_at = utc_now()
+    settings.updated_at = datetime.utcnow()
     db.session.commit()
 
     log_audit(
@@ -160,7 +155,7 @@ def reset_settings():
     settings = _get_or_create_settings()
     for key, value in DEFAULTS.items():
         setattr(settings, key, value)
-    settings.updated_at = utc_now()
+    settings.updated_at = utcnow()
     db.session.commit()
 
     log_audit(

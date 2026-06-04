@@ -263,11 +263,11 @@ def _save_message(user_id: str, channel: str, content: str,
 
         if direction == "inbound":
             conversation.last_message = content[:200]
-            conversation.last_message_at = utc_now()
+            conversation.last_message_at = datetime.utcnow()
             conversation.unread_count = (conversation.unread_count or 0) + 1
         elif direction == "outbound":
             conversation.last_message = content[:200]
-            conversation.last_message_at = utc_now()
+            conversation.last_message_at = datetime.utcnow()
 
         msg = Message(
             conversation_id=conversation.id,

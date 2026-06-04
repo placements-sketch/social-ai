@@ -81,7 +81,7 @@ def login():
         if user.status != 'active':
             return jsonify({'error': 'User account is not active'}), 403
 
-        user.last_login = utc_now()
+        user.last_login = datetime.utcnow()
         db.session.commit()
 
         # identity MUST be a string for Flask-JWT-Extended 4.x
@@ -267,7 +267,7 @@ def update_user(user_id):
         user.status = new_status
         changes['status'] = user.status
 
-    user.updated_at = utc_now()
+    user.updated_at = datetime.utcnow()
     db.session.commit()
 
     log_audit(

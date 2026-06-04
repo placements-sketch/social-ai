@@ -28,10 +28,6 @@ from app import db
 from app.models import AuthUser, ProductCache
 from app.auth import log_audit, current_user_id
 
-# UTC-aware datetime helper
-def utc_now():
-    """Return current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
 from app.integrations.shopify import list_all_products
 
 products_bp = Blueprint('products', __name__, url_prefix='/api')

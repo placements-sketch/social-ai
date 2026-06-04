@@ -20,11 +20,6 @@ from app import db
 from app.models import AuthUser, AutomationRule
 from app.auth import log_audit, current_user_id
 
-# UTC-aware datetime helper
-def utc_now():
-    """Return current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
 automation_bp = Blueprint('automation', __name__, url_prefix='/api')
 
 
@@ -206,7 +201,7 @@ def update_rule(rule_id):
     if not changes:
         return jsonify({'error': 'No updatable fields provided'}), 400
 
-    rule.updated_at = utc_now()
+    rule.updated_at = datetime.utcnow()
     db.session.commit()
 
     log_audit(
@@ -255,7 +250,7 @@ def toggle_rule(rule_id):
         return jsonify({'error': 'Rule not found'}), 404
 
     rule.enabled = not rule.enabled
-    rule.updated_at = utc_now()
+    rule.updated_at = datetime.utcnow()
     db.session.commit()
 
     log_audit(
@@ -306,7 +301,7 @@ def reorder_rules():
     for position, rid in enumerate(order, start=1):
         rule = AutomationRule.query.get(rid)
         rule.sort_order = position
-        rule.updated_at = utc_now()
+        rule.updated_at = datetime.utcnow()
 
     db.session.commit()
 

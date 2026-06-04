@@ -79,7 +79,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     conversation.ai_enabled = False
     conversation.status = "human_override"
     conversation.handoff_reason = reason
-    conversation.updated_at = datetime.utc_now()
+    conversation.updated_at = datetime.utcnow()
 
     # Auto-assign to the agent with the lightest current load.
     # Skip if already assigned (e.g. agent was already handling it).
@@ -87,7 +87,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
         agent = pick_next_agent()
         if agent is not None:
             conversation.assigned_to = agent.id
-            conversation.assigned_at = datetime.utc_now()
+            conversation.assigned_at = datetime.utcnow()
             conversation.assigned_by = None  # system-assigned, no human actor
             log_event("info", "handoff",
                       f"Auto-assigned conversation {conversation.id} to agent {agent.email}")
