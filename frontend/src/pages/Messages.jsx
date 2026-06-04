@@ -77,6 +77,7 @@ export default function Messages() {
 
   const [replyText, setReplyText]       = useState('')
   const [sending, setSending]           = useState(false)
+  const [isInitialLoad, setIsInitialLoad] = useState(true) // flag for auto-select on first load
 
   // Channels available for the filter row (derived from what we loaded).
   // Keep all channels even when filtering, so filters don't disappear
@@ -140,12 +141,13 @@ export default function Messages() {
     loadAllChannels()
   }, [])
 
-  // Auto-select first conversation when conversations load
+  // Auto-select first conversation when conversations load (initial load only)
   useEffect(() => {
-    if (conversations.length > 0 && !selected) {
+    if (conversations.length > 0 && !selected && isInitialLoad) {
       openConversation(conversations[0])
+      setIsInitialLoad(false)
     }
-  }, [conversations, selected])
+  }, [conversations, selected, isInitialLoad])
 
   // ── Load a single conversation's full thread ──────────────────────────────
   const openConversation = useCallback(async (conv) => {
