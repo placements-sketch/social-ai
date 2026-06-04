@@ -12,7 +12,7 @@ NOTE on JWT identity type:
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from app import db
 from app.models import AuthUser, AuditLog
 import re
@@ -81,7 +81,7 @@ def login():
         if user.status != 'active':
             return jsonify({'error': 'User account is not active'}), 403
 
-        user.last_login = datetime.utcnow()
+        user.last_login = utc_now()
         db.session.commit()
 
         # identity MUST be a string for Flask-JWT-Extended 4.x
@@ -267,7 +267,7 @@ def update_user(user_id):
         user.status = new_status
         changes['status'] = user.status
 
-    user.updated_at = datetime.utcnow()
+    user.updated_at = utc_now()
     db.session.commit()
 
     log_audit(

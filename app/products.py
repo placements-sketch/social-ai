@@ -16,7 +16,7 @@ Cache philosophy:
   deletes rows that no longer exist in Shopify.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 import re
 
@@ -27,6 +27,11 @@ from sqlalchemy import func
 from app import db
 from app.models import AuthUser, ProductCache
 from app.auth import log_audit, current_user_id
+
+# UTC-aware datetime helper
+def utc_now():
+    """Return current UTC time as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 from app.integrations.shopify import list_all_products
 
 products_bp = Blueprint('products', __name__, url_prefix='/api')
@@ -161,7 +166,7 @@ def list_products():
     )
 
     last = _last_synced_at()
-    stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
+    stale = (last is None) or (utc_now() - last) > STALE_AFTER
 
     return jsonify({
         'products': [_serialize_product(p) for p in rows],
@@ -192,7 +197,7 @@ def sync_status():
     """
     last = _last_synced_at()
     count = ProductCache.query.count()
-    stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
+    stale = (last is None) or (utc_now() - last) > STALE_AFTER
     return jsonify({
         'last_synced_at': last.isoformat() if last else None,
         'product_count': count,
@@ -253,7 +258,7 @@ def sync_check():
         'updated': updated,
         'removed': removed,
         'in_sync': in_sync,
-        'checked_at': datetime.utcnow().isoformat(),
+        'checked_at': utc_now().isoformat(),
     }), 200
 
 
@@ -286,7 +291,7 @@ def sync_products():
     snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
     cached = {r.shopify_product_id: r for r in ProductCache.query.all()}
 
-    now = datetime.utcnow()
+    now = utc_now()
     added_count = updated_count = removed_count = 0
     added, updated, removed = [], [], []
 
@@ -350,3 +355,4 @@ def sync_products():
         'synced_at': now.isoformat(),
         'total_products': ProductCache.query.count(),
     }), 201
+

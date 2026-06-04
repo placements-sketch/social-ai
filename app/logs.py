@@ -23,7 +23,7 @@ Common filters (all endpoints):
   ?conversation_id=N           only events on this conversation
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 

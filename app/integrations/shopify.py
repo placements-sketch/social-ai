@@ -13,7 +13,7 @@ Authentication:
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import requests
 from app.utils.logger import log_event
 
@@ -42,7 +42,7 @@ def _get_shopify_access_token():
     
     # Return the cached token only if it's not about to expire.
     if _SHOPIFY_ACCESS_TOKEN and _SHOPIFY_TOKEN_EXPIRES_AT:
-        if datetime.utcnow() < (_SHOPIFY_TOKEN_EXPIRES_AT - _TOKEN_REFRESH_BUFFER):
+        if utc_now() < (_SHOPIFY_TOKEN_EXPIRES_AT - _TOKEN_REFRESH_BUFFER):
             return _SHOPIFY_ACCESS_TOKEN
     
     store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
@@ -74,7 +74,7 @@ def _get_shopify_access_token():
             raise ValueError(f"No access_token in Shopify response: {data}")
         
         expires_in = int(data.get('expires_in', 86399))
-        _SHOPIFY_TOKEN_EXPIRES_AT = datetime.utcnow() + timedelta(seconds=expires_in)
+        _SHOPIFY_TOKEN_EXPIRES_AT = utc_now() + timedelta(seconds=expires_in)
         log_event("info", "integrations.shopify",
                   f"Access token obtained (expires at {_SHOPIFY_TOKEN_EXPIRES_AT.isoformat()})")
         return _SHOPIFY_ACCESS_TOKEN
@@ -320,3 +320,4 @@ def _real_list_all_products() -> list[dict]:
     except requests.RequestException as e:
         log_event("error", "integrations.shopify", f"Failed to fetch catalog: {str(e)}")
         raise
+

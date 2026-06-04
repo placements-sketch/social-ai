@@ -18,7 +18,7 @@ When a trigger fires:
   - Returns the bridging reply text (configurable later)
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app import db
 from app.models import Conversation, AutomationRule, Log
@@ -74,10 +74,23 @@ def check_handoff(message: str, intents: list[str], conversation: Conversation) 
 
 def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     """Flip the conversation into human_override and record the handoff."""
+    from app.assignment import pick_next_agent
+
     conversation.ai_enabled = False
     conversation.status = "human_override"
     conversation.handoff_reason = reason
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.utc_now()
+
+    # Auto-assign to the agent with the lightest current load.
+    # Skip if already assigned (e.g. agent was already handling it).
+    if conversation.assigned_to is None:
+        agent = pick_next_agent()
+        if agent is not None:
+            conversation.assigned_to = agent.id
+            conversation.assigned_at = datetime.utc_now()
+            conversation.assigned_by = None  # system-assigned, no human actor
+            log_event("info", "handoff",
+                      f"Auto-assigned conversation {conversation.id} to agent {agent.email}")
 
     log_row = Log(
         level="info",
@@ -129,3 +142,4 @@ def _match_automation_rule(text: str) -> AutomationRule | None:
             return rule
 
     return None
+

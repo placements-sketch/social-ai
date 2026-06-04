@@ -53,6 +53,7 @@ def create_app():
     from app.ai_settings import ai_settings_bp
     from app.automation import automation_bp
     from app.logs import logs_bp
+    from app.assignment import assignment_bp
     app.register_blueprint(bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(messages_bp)
@@ -61,7 +62,7 @@ def create_app():
     app.register_blueprint(ai_settings_bp)
     app.register_blueprint(automation_bp)
     app.register_blueprint(logs_bp)
-
+    app.register_blueprint(assignment_bp)
     # Import models so Flask-Migrate can detect them
     with app.app_context():
         from app import models  # noqa: F401

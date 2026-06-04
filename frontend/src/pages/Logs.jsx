@@ -20,7 +20,7 @@ const sources = [
 
 export default function Logs() {
   const [userRole, setUserRole] = useState(null)
-  const [logType, setLogType] = useState('system')
+  const [logType, setLogType] = useState(null) // Start as null, set after role check
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -40,7 +40,7 @@ export default function Logs() {
         if (res.ok) {
           const data = await res.json()
           setUserRole(data.role)
-          // Default: admins see system, supervisors/agents see audit/me respectively
+          // Default: admins see system, supervisors see audit, agents see me
           let defaultType = 'me'
           if (data.role === 'admin') {
             defaultType = 'system'
@@ -98,8 +98,13 @@ export default function Logs() {
   }, [logType, search, filter, sourceFilter, daysFilter, fetchLogs])
 
   const filtered = logs.filter(log => {
-    if (filter === 'all') return true
-    return log.level === filter
+    // Only apply level filter for system logs
+    if (logType === 'system') {
+      if (filter === 'all') return true
+      return log.level === filter
+    }
+    // For audit and me logs, show all
+    return true
   })
 
   return (
@@ -110,7 +115,7 @@ export default function Logs() {
       </div>
 
       {/* Log type tabs */}
-      {userRole && (
+      {userRole && logType && (
         <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 w-fit">
           {userRole === 'admin' && (
             <button
@@ -121,7 +126,7 @@ export default function Logs() {
               }}
               className={clsx(
                 'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
-                logType === 'system' ? 'bg-brand-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                logType === 'system' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
               )}
             >
               System
@@ -136,7 +141,7 @@ export default function Logs() {
               }}
               className={clsx(
                 'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
-                logType === 'audit' ? 'bg-brand-500 text-white' : 'text-gray-600 hover:text-gray-900'
+                logType === 'audit' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
               )}
             >
               Audit
@@ -150,7 +155,7 @@ export default function Logs() {
             }}
             className={clsx(
               'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
-              logType === 'me' ? 'bg-brand-500 text-white' : 'text-gray-600 hover:text-gray-900'
+              logType === 'me' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
             )}
           >
             My Logs
@@ -159,11 +164,10 @@ export default function Logs() {
       )}
 
       {/* Filters — stack on mobile, row on sm+ */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-        {/* Level and Source filters only for System and Audit logs */}
-        {(logType === 'system' || logType === 'audit') && (
-          <>
-            {/* Level filter — scrollable on mobile */}
+      {(logType === 'system' || logType === 'audit') && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+          {/* Level filter — only for system logs */}
+          {logType === 'system' && (
             <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm overflow-x-auto shrink-0">
               {levels.map(l => (
                 <button
@@ -178,90 +182,133 @@ export default function Logs() {
                 </button>
               ))}
             </div>
-            {/* Source filter dropdown — only for system logs */}
-            {logType === 'system' && (
-              <div className="relative shrink-0">
-                <button
-                  onClick={() => setSourceOpen(!sourceOpen)}
-                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold text-gray-500 bg-white border border-gray-200 shadow-sm hover:text-gray-800 transition-colors whitespace-nowrap"
-                >
-                  {sources.find(s => s.value === sourceFilter)?.label || 'All Sources'}
-                  <ChevronDown size={12} className={clsx('transition-transform', sourceOpen && 'rotate-180')} />
-                </button>
-                {sourceOpen && (
-                  <div className="absolute top-full mt-1 right-0 bg-white border border-gray-200 rounded-lg shadow-md z-10 min-w-max">
-                    {sources.map(source => (
-                      <button
-                        key={source.value}
-                        onClick={() => {
-                          setSourceFilter(source.value)
-                          setSourceOpen(false)
-                        }}
-                        className={clsx(
-                          'block w-full text-left px-3 py-2 text-xs font-medium transition-colors first:rounded-t-lg last:rounded-b-lg',
-                          sourceFilter === source.value
-                            ? 'bg-brand-50 text-brand-600'
-                            : 'text-gray-700 hover:bg-gray-50'
-                        )}
-                      >
-                        {source.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Date filter presets */}
-            <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm overflow-x-auto shrink-0">
+          )}
+
+          {/* Source filter dropdown — only for system logs */}
+          {logType === 'system' && (
+            <div className="relative shrink-0">
               <button
-                onClick={() => setDaysFilter(null)}
-                className={clsx(
-                  'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
-                  daysFilter === null ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                )}
+                onClick={() => setSourceOpen(!sourceOpen)}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold text-gray-500 bg-white border border-gray-200 shadow-sm hover:text-gray-800 transition-colors whitespace-nowrap"
               >
-                All Time
+                {sources.find(s => s.value === sourceFilter)?.label || 'All Sources'}
+                <ChevronDown size={12} className={clsx('transition-transform', sourceOpen && 'rotate-180')} />
               </button>
-              <button
-                onClick={() => setDaysFilter(1)}
-                className={clsx(
-                  'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
-                  daysFilter === 1 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                )}
-              >
-                24 Hours
-              </button>
-              <button
-                onClick={() => setDaysFilter(7)}
-                className={clsx(
-                  'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
-                  daysFilter === 7 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                )}
-              >
-                7 Days
-              </button>
-              <button
-                onClick={() => setDaysFilter(30)}
-                className={clsx(
-                  'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
-                  daysFilter === 30 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                )}
-              >
-                30 Days
-              </button>
+              {sourceOpen && (
+                <div className="absolute top-full mt-1 right-0 bg-white border border-gray-200 rounded-lg shadow-md z-10 min-w-max">
+                  {sources.map(source => (
+                    <button
+                      key={source.value}
+                      onClick={() => {
+                        setSourceFilter(source.value)
+                        setSourceOpen(false)
+                      }}
+                      className={clsx(
+                        'block w-full text-left px-3 py-2 text-xs font-medium transition-colors first:rounded-t-lg last:rounded-b-lg',
+                        sourceFilter === source.value
+                          ? 'bg-brand-50 text-brand-600'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      )}
+                    >
+                      {source.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          </>
-        )}
-        <div className="relative flex-1 sm:max-w-xs ml-auto">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            className="input w-full pl-8 text-xs"
-            placeholder="Search logs…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          )}
+
+          {/* Date filter presets — show for all log types */}
+          <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm overflow-x-auto shrink-0">
+            <button
+              onClick={() => setDaysFilter(null)}
+              className={clsx(
+                'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+                daysFilter === null ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              )}
+            >
+              All Time
+            </button>
+            <button
+              onClick={() => setDaysFilter(1)}
+              className={clsx(
+                'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+                daysFilter === 1 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              )}
+            >
+              24 Hours
+            </button>
+            <button
+              onClick={() => setDaysFilter(7)}
+              className={clsx(
+                'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+                daysFilter === 7 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              )}
+            >
+              7 Days
+            </button>
+            <button
+              onClick={() => setDaysFilter(30)}
+              className={clsx(
+                'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+                daysFilter === 30 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              )}
+            >
+              30 Days
+            </button>
+          </div>
+
+          <div className="relative flex-1 sm:max-w-xs ml-auto">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              className="input w-full pl-8 text-xs"
+              placeholder="Search logs…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
         </div>
-      </div>
+      )}
+      {logType === 'me' && (
+        <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm overflow-x-auto w-fit">
+          <button
+            onClick={() => setDaysFilter(null)}
+            className={clsx(
+              'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+              daysFilter === null ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+            )}
+          >
+            All Time
+          </button>
+          <button
+            onClick={() => setDaysFilter(1)}
+            className={clsx(
+              'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+              daysFilter === 1 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+            )}
+          >
+            24 Hours
+          </button>
+          <button
+            onClick={() => setDaysFilter(7)}
+            className={clsx(
+              'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+              daysFilter === 7 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+            )}
+          >
+            7 Days
+          </button>
+          <button
+            onClick={() => setDaysFilter(30)}
+            className={clsx(
+              'px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors',
+              daysFilter === 30 ? 'bg-brand-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+            )}
+          >
+            30 Days
+          </button>
+        </div>
+      )}
 
       {/* Log entries */}
       <div className="card overflow-hidden">

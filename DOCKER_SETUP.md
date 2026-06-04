@@ -186,3 +186,153 @@ docker-compose up --build
 - **Frontend** — Still runs locally, connects to backend on `http://localhost:5000`
 
 You're now production-ready! 🎉
+
+
+
+
+
+
+
+
+
+
+
+Let me check the channels.py file to see what endpoints are available:
+
+Analyzed code
+
+channels.py
+Now let me read the full channel endpoints to understand what they do:
+
+Read file(s)
+
+channels.py
+Perfect! Here's a complete guide for testing the channel routes in Postman:
+
+Channel Routes Testing Guide
+Prerequisites
+Get your auth token by logging in first:
+
+POST http://localhost:5000/api/auth/login
+Body (raw JSON):
+{
+  "email": "admin@company.com",
+  "password": "your_password"
+}
+Copy the returned access_token
+In Postman, add the token to all requests:
+
+Go to Authorization tab
+Select type: Bearer Token
+Paste your token
+Endpoint 1: List All Channels
+GET http://localhost:5000/api/channels
+
+Method: GET
+Headers: Authorization: Bearer {your_token}
+Body: None
+Expected Response: Returns all 7 channels with stats:
+{
+  "channels": [
+    {
+      "id": 1,
+      "channel": "instagram_dm",
+      "display_name": "Instagram DM",
+      "enabled": true,
+      "connected": true/false,
+      "credentials_set": true/false,
+      "webhook_url": "https://...",
+      "message_count": 0,
+      "unread_count": 0,
+      "last_message_at": null,
+      "created_at": "...",
+      "updated_at": "..."
+    }
+    // ... 6 more channels
+  ],
+  "public_base_url": "http://localhost:5000"
+}
+Endpoint 2: Get Single Channel Details
+GET http://localhost:5000/api/channels/{channel_id}
+
+Method: GET
+URL: Replace {channel_id} with 1-7
+Example: http://localhost:5000/api/channels/1
+Headers: Authorization: Bearer {your_token}
+Body: None
+Expected Response: Single channel object with full details
+Endpoint 3: Update Channel (Enable/Disable)
+PATCH http://localhost:5000/api/channels/{channel_id}
+
+Method: PATCH
+URL: Replace {channel_id} with 1-7
+Example: http://localhost:5000/api/channels/1
+Headers: Authorization: Bearer {your_token}
+Body (raw JSON):
+{
+  "enabled": false
+}
+Expected Response: Updated channel object with new enabled state
+Note: Creates an audit log entry
+Endpoint 4: Test Channel Connection
+POST http://localhost:5000/api/channels/{channel_id}/test
+
+Method: POST
+URL: Replace {channel_id} with 1-7
+Example: http://localhost:5000/api/channels/1
+Headers: Authorization: Bearer {your_token}
+Body: None (or empty JSON {})
+Expected Response: Mocked test result:
+{
+  "ok": true,
+  "message": "Instagram DM connection healthy (mocked).",
+  "checked_at": "2026-06-04T09:50:00+00:00",
+  "mocked": true,
+  "details": {
+    "token_valid": true,
+    "token_expires_in_days": 47,
+    "webhook_subscribed": true,
+    "permissions_granted": true
+  }
+}
+If credentials missing (should fail gracefully):
+
+{
+  "ok": false,
+  "reason": "credentials_not_set",
+  "message": "Cannot test Instagram DM: required environment variables are not set (...)",
+  "checked_at": "2026-06-04T09:50:00+00:00",
+  "mocked": true
+}
+Test Scenarios
+Scenario 1: List channels (basic test)
+
+GET /api/channels
+Should return 7 channels
+Check that enabled/disabled status is correct
+Scenario 2: Enable/Disable a channel
+
+PATCH /api/channels/2 with {"enabled": false}
+Verify response shows enabled: false
+PATCH again with {"enabled": true} to re-enable
+Check audit logs recorded the change
+Scenario 3: Test connection with missing credentials
+
+POST /api/channels/7 (tiktok_dm - no credentials in .env)
+Should return ok: false with credentials_not_set reason
+Scenario 4: Get single channel
+
+GET /api/channels/1
+Verify all fields present (stats, webhook_url, etc.)
+Quick Postman Steps
+Create folder "Channels" in your collection
+Create 4 requests:
+GET List Channels
+GET Get Channel (with {{channel_id}} variable)
+PATCH Update Channel
+POST Test Channel
+Set Authorization for all to Bearer Token with your token
+Save and run each request
+Let me know if you find any issues with the responses!
+
+i need to test the channel routes...tell me the endpoints to test on postman and how

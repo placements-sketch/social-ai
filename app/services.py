@@ -15,7 +15,7 @@ Pipeline steps:
   8. Persist the outbound message
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.ai.generator import generate_reply
 from app.integrations.shopify import get_product_info, get_stock_level
@@ -263,11 +263,11 @@ def _save_message(user_id: str, channel: str, content: str,
 
         if direction == "inbound":
             conversation.last_message = content[:200]
-            conversation.last_message_at = datetime.utcnow()
+            conversation.last_message_at = utc_now()
             conversation.unread_count = (conversation.unread_count or 0) + 1
         elif direction == "outbound":
             conversation.last_message = content[:200]
-            conversation.last_message_at = datetime.utcnow()
+            conversation.last_message_at = utc_now()
 
         msg = Message(
             conversation_id=conversation.id,
@@ -381,3 +381,4 @@ def _check_template_rule(message, intents, channel):
     except Exception as e:
         log_event("error", "services._check_template_rule", str(e))
         return None
+

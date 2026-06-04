@@ -59,13 +59,38 @@ def list_conversations():
     if per_page > MAX_PER_PAGE:
         per_page = MAX_PER_PAGE
 
+    # Role-aware visibility:
+    #   - admin, supervisor: see all conversations
+    #   - agent: see conversations assigned to them, PLUS unassigned
+    #            conversations in human_override (the available queue)
+    current_user = _current_user()
     query = Conversation.query
+
+    if current_user and current_user.role == 'agent':
+        query = query.filter(
+            db.or_(
+                Conversation.assigned_to == current_user.id,
+                db.and_(
+                    Conversation.assigned_to.is_(None),
+                    Conversation.status == 'human_override',
+                ),
+            )
+        )
 
     if channel and channel != 'all':
         query = query.filter(Conversation.channel == channel)
 
     if status and status != 'all':
         query = query.filter(Conversation.status == status)
+
+    # Optional filters for supervisor/admin dashboards
+    assigned_to = request.args.get('assigned_to', type=str)
+    if assigned_to == 'me' and current_user:
+        query = query.filter(Conversation.assigned_to == current_user.id)
+    elif assigned_to == 'unassigned':
+        query = query.filter(Conversation.assigned_to.is_(None))
+    elif assigned_to and assigned_to.isdigit():
+        query = query.filter(Conversation.assigned_to == int(assigned_to))
 
     if search:
         like = f"%{search.strip()}%"
