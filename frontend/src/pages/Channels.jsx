@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
+import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 
 // Facebook icon component
 const FacebookIcon = ({ size = 22, className = '' }) => (
@@ -157,8 +158,9 @@ export default function Channels() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 size={20} className="animate-spin text-brand-500" />
+      <div className="space-y-4 sm:space-y-6 w-full px-0">
+        <SkeletonHeader />
+        <SkeletonList count={3} />
       </div>
     )
   }

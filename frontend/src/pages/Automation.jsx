@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Zap, Plus, Pencil, Trash2, GripVertical, X, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
+import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 
 export default function Automation() {
   const [rules, setRules] = useState([])
