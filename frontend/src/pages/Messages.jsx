@@ -319,7 +319,7 @@ export default function Messages() {
       'w-full sm:w-80 md:w-72 md:shrink-0',
       selected ? 'hidden md:flex' : 'flex',
     )}>
-      <div className="p-3 sm:p-4 border-b border-gray-100 space-y-3 sm:space-y-4">
+      <div className="p-2 sm:p-2.5 border-b border-gray-100 space-y-2 sm:space-y-2">
         <input
           className="input w-full text-xs rounded-lg border border-gray-200 bg-gray-50 focus:bg-white"
           placeholder="Search conversations…"
@@ -332,7 +332,7 @@ export default function Messages() {
               key={p}
               onClick={() => setChannelFilter(p)}
               className={clsx(
-                'text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 sm:shrink border',
+                'text-xs px-2 py-1 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 sm:shrink border',
                 channelFilter === p
                   ? 'bg-black text-white border-black'
                   : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
@@ -342,32 +342,32 @@ export default function Messages() {
             </button>
           ))}
         </div>
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg p-2 border border-amber-100">
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg p-1.5 border border-amber-100">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-base shrink-0">⚠️</span>
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-sm shrink-0">⚠️</span>
               <span className="text-xs font-semibold text-amber-900">Needs Attention</span>
             </div>
             <button
               onClick={() => setAttentionFilter(!attentionFilter)}
               className={clsx(
-                'relative inline-flex w-8 h-4 rounded-full transition-all duration-300 shrink-0'
+                'relative inline-flex w-7 h-3.5 rounded-full transition-all duration-300 shrink-0'
               )}
               style={{
                 backgroundColor: attentionFilter ? '#000000' : '#e5e7eb'
               }}
             >
               <span
-                className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-300"
-                style={{ transform: attentionFilter ? 'translateX(12px)' : 'translateX(0px)' }}
+                className="absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-all duration-300"
+                style={{ transform: attentionFilter ? 'translateX(10px)' : 'translateX(0px)' }}
               />
             </button>
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto pb-4">
+      <div className="flex-1 overflow-y-auto">
         {loadingList && (
-          <div className="p-3 sm:p-4 space-y-3">
+          <div className="p-2 sm:p-3 space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
               <SkeletonCard key={i} className="h-20" />
             ))}
@@ -389,16 +389,16 @@ export default function Messages() {
             key={conv.id}
             onClick={() => openConversation(conv)}
             className={clsx(
-              'w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-100 hover:bg-gray-50 transition-all relative group',
+              'w-full text-left px-2 sm:px-3 py-1.5 sm:py-2 border-b border-gray-100 hover:bg-gray-50 transition-all relative group',
               activeConv?.id === conv.id && 'bg-blue-50 border-l-3 border-l-black'
             )}
           >
             {!conv.ai_enabled && (
-              <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-amber-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} title="Needs attention" />
+              <div className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-amber-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} title="Needs attention" />
             )}
-            <div className="flex items-start justify-between gap-2 mb-1.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-gray-100 group-hover:bg-gray-200 transition-colors shrink-0">
+            <div className="flex items-start justify-between gap-1.5 mb-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <div className="flex items-center justify-center w-5 h-5 rounded-lg bg-gray-100 group-hover:bg-gray-200 transition-colors shrink-0">
                   {platformIcon(conv.platform)}
                 </div>
                 <span className="text-xs font-semibold text-gray-900 truncate">
@@ -407,12 +407,12 @@ export default function Messages() {
               </div>
               <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.time}</span>
             </div>
-            <p className="text-xs text-gray-600 truncate mb-2 line-clamp-1">{conv.lastMessage}</p>
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-xs text-gray-600 truncate mb-1.5 line-clamp-1">{conv.lastMessage}</p>
+            <div className="flex items-center gap-1 flex-wrap">
               {statusBadge(conv.status)}
               {handlerBadge(conv)}
               {conv.unread_count > 0 && (
-                <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">
                   {conv.unread_count}
                 </span>
               )}
@@ -436,7 +436,7 @@ export default function Messages() {
       )}
 
       {selected && loadingConv && (
-        <div className="flex-1 flex flex-col p-3 sm:p-4 space-y-3">
+        <div className="flex-1 flex flex-col p-2 sm:p-3 space-y-2">
           <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
           <div className="flex-1 space-y-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -597,8 +597,8 @@ export default function Messages() {
                   <div className={clsx(
                     'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
                     msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
-                    msg.from === 'ai'    && 'bg-brand-500 text-white rounded-tr-sm',
-                    msg.from === 'human' && 'bg-amber-500 text-white rounded-tr-sm',
+                    msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
+                    msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
                   )}>
                     {msg.text}
                   </div>
@@ -672,21 +672,26 @@ export default function Messages() {
   )
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] -mx-4 md:-mx-8 -my-4 md:-my-8 bg-white">
-      {/* Header - Fixed */}
-      <div className="px-4 md:px-8 py-4 border-b border-gray-100 bg-white shrink-0">
+    <div className="flex flex-col h-full">
+      {/* Header - Full width with padding */}
+      <div className="px-4 md:px-8 py-2 bg-white shrink-0">
         <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
         <p className="text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
       </div>
 
-      {/* Main content area - flex-1 to fill remaining space, no overflow */}
-      <div className="flex-1 flex gap-0 overflow-hidden">
-        {ConvList}
-        {ChatPanel}
-        {ContextPanel}
-      </div>
+      {/* Main content area with border - fills remaining space */}
+      <div className="flex-1 flex flex-col gap-0 overflow-hidden px-4 md:px-8 pb-2 md:pb-3">
+        <div className="flex-1 flex flex-col gap-0 overflow-hidden rounded-lg border border-gray-200 bg-white min-h-0">
+          {/* Main content area - flex-1 to fill remaining space, no overflow */}
+          <div className="flex-1 flex gap-0 overflow-hidden">
+            {ConvList}
+            {ChatPanel}
+            {ContextPanel}
+          </div>
 
-      {MobileContextDrawer}
+          {MobileContextDrawer}
+        </div>
+      </div>
     </div>
   )
 }

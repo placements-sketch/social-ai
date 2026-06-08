@@ -31,7 +31,7 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
   return (
     <aside className={clsx(
-      'h-full flex flex-col bg-white border-r border-gray-200 transition-all duration-300 ease-in-out',
+      'h-full flex flex-col bg-black border-r border-gray-800 transition-all duration-300 ease-in-out',
       // Mobile: always full-width drawer (w-64)
       // Desktop: w-64 expanded, w-20 collapsed
       'w-64',
@@ -40,16 +40,16 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
       {/* ── Header: logo + close/collapse button ── */}
       <div className={clsx(
-        'flex items-center border-b border-gray-200 h-16 shrink-0',
+        'flex items-center border-b border-gray-800 h-16 shrink-0',
         collapsed ? 'md:justify-center md:px-0 px-4 justify-between' : 'justify-between px-4'
       )}>
         {/* Logo — always show on mobile, hide text when desktop-collapsed */}
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
             <Sparkles size={16} className="text-white" />
           </div>
           <div className={clsx(collapsed && 'md:hidden')}>
-            <p className="text-sm font-bold text-gray-900 leading-none tracking-tight">Social AI</p>
+            <p className="text-sm font-bold text-white leading-none tracking-tight">Social AI</p>
             <p className="text-[10px] text-gray-500 mt-0.5">Dashboard</p>
           </div>
         </div>
@@ -57,7 +57,7 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
         {/* Mobile: X close button */}
         <button
           onClick={onClose}
-          className="md:hidden text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+          className="md:hidden text-gray-400 hover:text-gray-200 p-1 rounded-lg hover:bg-gray-900 transition-colors"
           aria-label="Close menu"
         >
           <X size={18} />
@@ -67,7 +67,7 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
         <button
           onClick={onToggle}
           className={clsx(
-            'hidden md:flex text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100',
+            'hidden md:flex text-gray-400 hover:text-gray-200 transition-colors p-1 rounded-lg hover:bg-gray-900',
             collapsed && 'md:hidden'
           )}
           title="Collapse sidebar"
@@ -92,8 +92,8 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
                 // Desktop collapsed: icon only
                 collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2.5' : 'gap-3 px-3 py-2.5',
                 isActive
-                  ? 'bg-black text-white'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900'
               )
             }
           >
@@ -106,16 +106,16 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
             {/* Badge: always show on mobile, dot on desktop collapsed */}
             {badge && !collapsed && (
-              <span className="bg-black text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none">
+              <span className="bg-brand-600 text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none">
                 {badge}
               </span>
             )}
             {badge && collapsed && (
-              <span className="hidden md:block absolute top-1 right-1 w-2 h-2 rounded-full bg-black" />
+              <span className="hidden md:block absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-600" />
             )}
             {badge && (
               <span className={clsx(
-                'bg-black text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none',
+                'bg-brand-600 text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none',
                 collapsed ? 'md:hidden' : 'hidden'
               )}>
                 {badge}
@@ -127,17 +127,17 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
       {/* ── Footer: user info + desktop expand button ── */}
       <div className={clsx(
-        'border-t border-gray-200 shrink-0',
+        'border-t border-gray-800 shrink-0',
         collapsed ? 'md:px-2 md:py-3 px-4 py-4' : 'px-4 py-4'
       )}>
         {/* Desktop collapsed: avatar + expand */}
         <div className={clsx('flex-col items-center gap-2', collapsed ? 'md:flex hidden' : 'hidden')}>
-          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-xs font-bold text-white">
+          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <button
             onClick={onToggle}
-            className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100"
+            className="text-gray-400 hover:text-gray-200 transition-colors p-1 rounded-lg hover:bg-gray-900"
             title="Expand sidebar"
           >
             <ChevronRight size={14} />
@@ -146,11 +146,11 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
         {/* Expanded (mobile always, desktop when not collapsed) */}
         <div className={clsx('flex items-center gap-2.5', collapsed ? 'md:hidden flex' : 'flex')}>
-          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-xs font-bold text-white shrink-0">
+          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-gray-900 truncate">{user?.full_name || 'User'}</p>
+            <p className="text-xs font-semibold text-white truncate">{user?.full_name || 'User'}</p>
             <p className="text-xs text-gray-500 truncate capitalize">{user?.role || 'user'}</p>
           </div>
           <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} title="Online" />

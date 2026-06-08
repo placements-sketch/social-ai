@@ -379,26 +379,28 @@ export default function Channels() {
       {/* Webhook URLs section */}
       {publicBaseUrl && (
         <section className="pt-2">
-          <h2 className="text-sm font-bold text-gray-900 mb-3">Webhook Configuration</h2>
-          <div className="space-y-2">
-            {channels.map(ch => (
-              <div key={ch.id} className="bg-white rounded-xl border border-gray-200/50 p-3 hover:border-gray-300 hover:shadow-md transition-all">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-500 font-medium mb-1">{channelConfig[ch.channel]?.name || ch.display_name}</p>
-                    <p className="text-xs font-mono text-gray-600 break-all bg-gray-50/50 px-2 py-1.5 rounded-lg border border-gray-100/50">
-                      {ch.webhook_url}
-                    </p>
+          <div className="border border-gray-200 rounded-lg p-5 space-y-4">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Webhook URLs</h2>
+              <p className="text-xs text-gray-500 mt-1">Register these in your respective Developer Consoles</p>
+            </div>
+
+            <div className="space-y-3">
+              {channels.map(ch => (
+                <div key={ch.id} className="flex items-start justify-between gap-4 pb-3 border-b border-gray-100 last:border-0 last:pb-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 font-medium mb-1.5">{channelConfig[ch.channel]?.name || ch.display_name}</p>
+                    <p className="text-xs font-mono text-brand-600 break-all">{ch.webhook_url}</p>
                   </div>
                   <button
                     onClick={() => copyToClipboard(ch.webhook_url)}
-                    className="px-3 py-1.5 bg-gray-50/50 hover:bg-gray-100 text-gray-700 text-xs font-medium rounded-lg border border-gray-200/50 transition-colors whitespace-nowrap hover:border-gray-300"
+                    className="text-xs font-semibold text-gray-600 hover:text-gray-900 whitespace-nowrap transition-colors flex-shrink-0 py-0.5"
                   >
                     Copy
                   </button>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
       )}
