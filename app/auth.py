@@ -312,6 +312,23 @@ def delete_user(user_id):
     return jsonify({'message': 'User deleted successfully'}), 200
 
 
+@auth_bp.route('/agents', methods=['GET'])
+@jwt_required()
+def list_agents():
+    """List all active agents (for assignment dropdown). Accessible by supervisors+admins."""
+    current_user = AuthUser.query.get(current_user_id())
+
+    if not current_user or current_user.role not in {'admin', 'supervisor'}:
+        return jsonify({'error': 'Only supervisors and admins can list agents'}), 403
+
+    agents = AuthUser.query.filter(
+        AuthUser.role == 'agent',
+        AuthUser.status == 'active'
+    ).all()
+
+    return jsonify({'agents': [agent.to_brief() for agent in agents]}), 200
+
+
 @auth_bp.route('/audit-logs', methods=['GET'])
 @jwt_required()
 def get_audit_logs():

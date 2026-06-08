@@ -127,3 +127,46 @@ export function markRead(id) {
     })
   )
 }
+
+/**
+ * Assign a conversation to an agent.
+ * @param {number} id - Conversation ID
+ * @param {number} agentId - Agent ID to assign to (or self-claim)
+ * @returns {Promise<{conversation:Object}>}
+ */
+export function assignConversation(id, agentId) {
+  return handle(
+    fetch(`${API_BASE}/conversations/${id}/assign`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ agent_id: agentId }),
+    })
+  )
+}
+
+/**
+ * Unassign a conversation (remove current assignment). Supervisor+admin only.
+ * @param {number} id - Conversation ID
+ * @returns {Promise<{conversation:Object}>}
+ */
+export function unassignConversation(id) {
+  return handle(
+    fetch(`${API_BASE}/conversations/${id}/unassign`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+  )
+}
+
+/**
+ * List active agents for assignment dropdown. Supervisor+admin only.
+ * @returns {Promise<{agents:Array}>}
+ */
+export function listAgents() {
+  return handle(
+    fetch(`${API_BASE}/agents`, {
+      method: 'GET',
+      headers: authHeaders(),
+    })
+  )
+}

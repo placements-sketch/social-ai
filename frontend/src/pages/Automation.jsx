@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useContext } from 'react'
 import { Zap, Plus, Pencil, Trash2, GripVertical, X, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
+import { ConfirmationContext } from '../context/ConfirmationContext'
+import { ModalPortal } from '../context/ModalPortal'
 
 export default function Automation() {
   const [rules, setRules] = useState([])
@@ -9,6 +11,7 @@ export default function Automation() {
   const [error, setError] = useState(null)
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
+  const { confirm } = useContext(ConfirmationContext)
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -39,6 +42,17 @@ export default function Automation() {
   }, [fetchRules])
 
   const toggleRule = async (id, currentEnabled) => {
+    const confirmed = await confirm({
+      title: currentEnabled ? 'Disable Rule?' : 'Enable Rule?',
+      message: currentEnabled
+        ? 'This automation rule will be skipped during evaluation.'
+        : 'This automation rule will be active again.',
+      confirmText: currentEnabled ? 'Disable' : 'Enable',
+      cancelText: 'Cancel',
+    })
+
+    if (!confirmed) return
+
     try {
       const res = await fetch(`/api/automation-rules/${id}/toggle`, {
         method: 'PATCH',
@@ -53,7 +67,16 @@ export default function Automation() {
   }
 
   const deleteRule = async (id) => {
-    if (!confirm('Delete this rule?')) return
+    const confirmed = await confirm({
+      title: 'Delete Rule?',
+      message: 'This automation rule will be permanently deleted. This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      isDangerous: true,
+    })
+
+    if (!confirmed) return
+
     try {
       const res = await fetch(`/api/automation-rules/${id}`, {
         method: 'DELETE',
@@ -157,11 +180,11 @@ export default function Automation() {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-6 w-full px-0">
-      <div className="px-0 sm:px-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-        <div className="w-full sm:w-auto">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Automation Rules</h1>
-          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Define how the AI handles specific scenarios</p>
+    <div className="space-y-4 sm:space-y-6 w-full max-w-4xl mx-auto">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Automation Rules</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Define how the AI handles specific scenarios</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -172,14 +195,14 @@ export default function Automation() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600 mx-0">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 size={20} className="animate-spin text-brand-500" />
+        <div className="space-y-4 sm:space-y-6">
+          <SkeletonList count={4} />
         </div>
       ) : (
         <div className="space-y-2 sm:space-y-3">
@@ -253,7 +276,7 @@ export default function Automation() {
         </div>
       )}
 
-      <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 sm:p-4 mx-0">
+      <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 sm:p-4">
         <p className="text-xs text-brand-700 leading-relaxed font-medium">
           <strong>Rules run in order</strong> — the first matching rule wins.
           Disabled rules are skipped entirely.
@@ -263,24 +286,29 @@ export default function Automation() {
 
       {/* New Rule Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-lg w-full sm:max-w-md sm:w-full p-4 sm:p-6 space-y-4 max-h-[90vh] sm:max-h-none overflow-y-auto sm:overflow-y-visible">
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Create New Rule</h2>
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-gray-900">Create New Rule</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Define a new automation rule for your AI</p>
+              </div>
               <button
                 onClick={() => {
                   setShowModal(false)
                   setModalError(null)
                   setModalData({ name: '', trigger: '', action: '', enabled: true })
                 }}
-                className="btn-ghost p-1"
+                className="btn-ghost p-1 shrink-0"
               >
                 <X size={18} />
               </button>
             </div>
 
             {modalError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600 font-medium">
                 {modalError}
               </div>
             )}
@@ -319,7 +347,7 @@ export default function Automation() {
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 flex-col-reverse sm:flex-row">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -327,14 +355,14 @@ export default function Automation() {
                     setModalError(null)
                     setModalData({ name: '', trigger: '', action: '', enabled: true })
                   }}
-                  className="btn-ghost flex-1 text-xs"
+                  className="btn-ghost flex-1 text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="btn-primary flex-1 text-xs flex items-center justify-center gap-1.5"
+                  className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-all text-white bg-black hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {submitting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
                   Create
@@ -343,6 +371,7 @@ export default function Automation() {
             </form>
           </div>
         </div>
+        </ModalPortal>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import clsx from 'clsx'
+import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 
 export default function Products() {
   const [products, setProducts] = useState([])
@@ -233,8 +234,8 @@ export default function Products() {
       {/* Table */}
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={24} className="animate-spin text-brand-500" />
+          <div className="p-4 sm:p-6">
+            <SkeletonList count={6} />
           </div>
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
@@ -348,7 +349,7 @@ export default function Products() {
                     className={clsx(
                       'w-8 h-8 rounded-lg text-xs font-medium transition-colors',
                       page === p
-                        ? 'bg-gray-900 text-white'
+                        ? 'bg-black text-white'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     )}
                   >

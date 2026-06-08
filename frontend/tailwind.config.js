@@ -25,7 +25,17 @@ export default {
         card: '0 1px 3px 0 rgba(0,0,0,0.08), 0 4px 16px 0 rgba(0,0,0,0.06)',
         'card-hover': '0 4px 8px 0 rgba(0,0,0,0.10), 0 8px 24px 0 rgba(0,0,0,0.08)',
       },
+      keyframes: {
+        'pulse-live': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.4' },
+        },
+      },
+      animation: {
+        'pulse-live': 'pulse-live 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      },
     },
   },
   plugins: [],
 }
+

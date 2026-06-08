@@ -92,7 +92,7 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
                 // Desktop collapsed: icon only
                 collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2.5' : 'gap-3 px-3 py-2.5',
                 isActive
-                  ? 'bg-gray-900 text-white'
+                  ? 'bg-black text-white'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               )
             }
@@ -106,16 +106,16 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
             {/* Badge: always show on mobile, dot on desktop collapsed */}
             {badge && !collapsed && (
-              <span className="bg-gray-900 text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none">
+              <span className="bg-black text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none">
                 {badge}
               </span>
             )}
             {badge && collapsed && (
-              <span className="hidden md:block absolute top-1 right-1 w-2 h-2 rounded-full bg-gray-900" />
+              <span className="hidden md:block absolute top-1 right-1 w-2 h-2 rounded-full bg-black" />
             )}
             {badge && (
               <span className={clsx(
-                'bg-gray-900 text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none',
+                'bg-black text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none',
                 collapsed ? 'md:hidden' : 'hidden'
               )}>
                 {badge}
@@ -132,7 +132,7 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
       )}>
         {/* Desktop collapsed: avatar + expand */}
         <div className={clsx('flex-col items-center gap-2', collapsed ? 'md:flex hidden' : 'hidden')}>
-          <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-xs font-bold text-white">
+          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-xs font-bold text-white">
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <button
@@ -146,14 +146,14 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
 
         {/* Expanded (mobile always, desktop when not collapsed) */}
         <div className={clsx('flex items-center gap-2.5', collapsed ? 'md:hidden flex' : 'flex')}>
-          <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-xs font-bold text-white shrink-0">
+          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-xs font-bold text-white shrink-0">
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-gray-900 truncate">{user?.full_name || 'User'}</p>
             <p className="text-xs text-gray-500 truncate capitalize">{user?.role || 'user'}</p>
           </div>
-          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" title="Online" />
+          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} title="Online" />
         </div>
       </div>
     </aside>

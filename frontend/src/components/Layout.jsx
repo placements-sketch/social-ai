@@ -69,7 +69,7 @@ export default function Layout() {
             }
           }}
         />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 w-full bg-white">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 w-full bg-white relative">
           <Outlet />
         </main>
       </div>

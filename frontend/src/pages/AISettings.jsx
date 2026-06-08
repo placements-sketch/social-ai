@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useContext } from 'react'
 import { Save, RotateCcw, Loader2, AlertCircle } from 'lucide-react'
 import clsx from 'clsx'
+import { SkeletonHeader } from '../components/Skeleton'
+import { ConfirmationContext } from '../context/ConfirmationContext'
 
 const TONES = ['friendly', 'luxury', 'gen_z', 'minimalist', 'bold_sales']
 
@@ -25,6 +27,7 @@ export default function AISettings() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
+  const { confirm } = useContext(ConfirmationContext)
 
   // Local form state
   const [formData, setFormData] = useState({
@@ -92,7 +95,16 @@ export default function AISettings() {
   }
 
   const handleReset = async () => {
-    if (!window.confirm('Reset all settings to defaults? This cannot be undone.')) return
+    const confirmed = await confirm({
+      title: 'Reset All Settings?',
+      message: 'All AI settings will be reset to their default values. This action cannot be undone.',
+      confirmText: 'Reset',
+      cancelText: 'Cancel',
+      isDangerous: true,
+    })
+
+    if (!confirmed) return
+
     setSaving(true)
     setError(null)
     try {
@@ -120,20 +132,40 @@ export default function AISettings() {
     }
   }
 
-  const toggleRule = (key) => {
+  const toggleRule = async (key) => {
+    const newValue = !formData.response_rules[key]
+    const confirmed = await confirm({
+      title: newValue ? 'Enable Rule?' : 'Disable Rule?',
+      message: `This response rule will be ${newValue ? 'enabled' : 'disabled'} for all conversations.`,
+      confirmText: newValue ? 'Enable' : 'Disable',
+      cancelText: 'Cancel',
+    })
+
+    if (!confirmed) return
+
     setFormData(prev => ({
       ...prev,
       response_rules: {
         ...prev.response_rules,
-        [key]: !prev.response_rules[key],
+        [key]: newValue,
       },
     }))
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="animate-spin text-brand-500" />
+      <div className="space-y-6 w-full max-w-4xl mx-auto">
+        <SkeletonHeader />
+        <div className="space-y-4">
+          <div className="card p-5 space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i}>
+                <div className="h-4 bg-gray-200 rounded w-1/4 mb-2 animate-pulse" />
+                <div className="h-10 bg-gray-100 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
@@ -144,7 +176,7 @@ export default function AISettings() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">AI Settings</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Customize your AI assistant's personality and behavior</p>
+          <p className="text-sm text-gray-500 mt-1">Customize your AI assistant's personality and behavior</p>
         </div>
         <div className="flex gap-2">
           <button

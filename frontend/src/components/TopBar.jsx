@@ -96,7 +96,7 @@ export default function TopBar({ onMenuClick }) {
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
           {/* Hide status text on very small screens */}
           <span className="hidden sm:block text-xs text-gray-500 font-medium">
             All systems operational
@@ -115,7 +115,7 @@ export default function TopBar({ onMenuClick }) {
         <button className="btn-ghost p-2 relative" title="Notifications" onClick={() => setShowNotifications(!showNotifications)}>
           <Bell size={18} />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
           )}
         </button>
 
@@ -202,7 +202,7 @@ export default function TopBar({ onMenuClick }) {
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
             title="User menu"
           >
-            <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-white text-xs font-semibold">
+            <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white text-xs font-semibold">
               {user?.full_name?.charAt(0).toUpperCase() || 'U'}
             </div>
             <span className="hidden sm:block text-xs font-medium text-gray-700 max-w-[100px] truncate">

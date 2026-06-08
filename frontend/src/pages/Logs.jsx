@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CheckCircle, Info, AlertTriangle, XCircle, Search, Loader2, ChevronDown } from 'lucide-react'
 import clsx from 'clsx'
+import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 
 const levelConfig = {
   success: { icon: CheckCircle,  color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-200'  },
@@ -126,7 +127,7 @@ export default function Logs() {
               }}
               className={clsx(
                 'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
-                logType === 'system' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
+                logType === 'system' ? 'bg-black text-white' : 'text-gray-600 hover:text-gray-900'
               )}
             >
               System
@@ -141,7 +142,7 @@ export default function Logs() {
               }}
               className={clsx(
                 'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
-                logType === 'audit' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
+                logType === 'audit' ? 'bg-black text-white' : 'text-gray-600 hover:text-gray-900'
               )}
             >
               Audit
@@ -155,7 +156,7 @@ export default function Logs() {
             }}
             className={clsx(
               'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
-              logType === 'me' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
+              logType === 'me' ? 'bg-black text-white' : 'text-gray-600 hover:text-gray-900'
             )}
           >
             My Logs
@@ -313,8 +314,8 @@ export default function Logs() {
       {/* Log entries */}
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={20} className="animate-spin text-brand-500" />
+          <div className="p-4 sm:p-6">
+            <SkeletonList count={6} />
           </div>
         ) : error ? (
           <div className="px-4 py-8 text-center text-xs text-red-600">{error}</div>

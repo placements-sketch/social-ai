@@ -94,3 +94,50 @@ export function SkeletonTable({ rows = 5, columns = 4, className = '' }) {
     </div>
   )
 }
+
+export function SkeletonDashboard() {
+  return (
+    <div className="space-y-6 w-full">
+      <SkeletonHeader />
+      {/* Stat cards grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="stat-card space-y-2">
+            <div className="w-9 h-9 rounded-xl bg-gray-200 animate-pulse" />
+            <div className="h-8 bg-gray-200 rounded animate-pulse" />
+            <div className="h-3 bg-gray-100 rounded animate-pulse w-3/4" />
+          </div>
+        ))}
+      </div>
+      {/* Charts */}
+      <div className="card p-5 h-64 bg-gray-50 animate-pulse" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card p-5 h-80 bg-gray-50 animate-pulse" />
+        <div className="card p-5 h-80 bg-gray-50 animate-pulse" />
+      </div>
+    </div>
+  )
+}
+
+export function SkeletonAnalytics() {
+  return (
+    <div className="space-y-6 w-full">
+      <SkeletonHeader />
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="stat-card text-center space-y-2">
+            <div className="h-10 bg-gray-200 rounded animate-pulse" />
+            <div className="h-3 bg-gray-100 rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+      {/* Charts */}
+      <div className="card p-5 h-64 bg-gray-50 animate-pulse" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card p-5 h-80 bg-gray-50 animate-pulse" />
+        <div className="card p-5 h-80 bg-gray-50 animate-pulse" />
+      </div>
+    </div>
+  )
+}

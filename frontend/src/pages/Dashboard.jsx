@@ -88,7 +88,7 @@ export default function Dashboard() {
                 {/* Progress bar */}
                 <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden mb-2">
                   <div
-                    className="h-full bg-gray-900 rounded-full transition-all duration-500"
+                    className="h-full bg-black rounded-full transition-all duration-500"
                     style={{ width: `${percentage}%` }}
                   />
                 </div>
@@ -107,7 +107,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-900">Live Activity</h2>
             <span className="flex items-center gap-1.5 text-xs text-green-600 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
               Live
             </span>
           </div>
@@ -167,7 +167,7 @@ export default function Dashboard() {
             <div className="space-y-3">
               {[
                 { label: 'Conversations', value: 42, total: 156, color: 'bg-orange-500' },
-                { label: 'Purchases', value: 42, total: 156, color: 'bg-gray-900' },
+                { label: 'Purchases', value: 42, total: 156, color: 'bg-black' },
                 { label: 'Conversion', value: '26.9%', total: null, color: 'bg-orange-600' },
               ].map(({ label, value, total, color }) => (
                 <div key={label}>

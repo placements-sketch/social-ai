@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Loader2, X, Check, Users as UsersIcon } from 'lucide-react'
 import clsx from 'clsx'
+import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
+import { ModalPortal } from '../context/ModalPortal'
 
 export default function Users() {
   const [users, setUsers] = useState([])
@@ -153,8 +155,8 @@ export default function Users() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={20} className="animate-spin text-brand-500" />
+        <div className="space-y-4">
+          <SkeletonList count={5} />
         </div>
       ) : (
         <div className="space-y-4">
@@ -176,7 +178,7 @@ export default function Users() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3.5 flex-1">
                         {/* Avatar */}
-                        <div className="w-10 h-10 rounded-lg bg-gray-900 text-white flex items-center justify-center font-semibold text-xs shrink-0 mt-0.5">
+                        <div className="w-10 h-10 rounded-lg bg-black text-white flex items-center justify-center font-semibold text-xs shrink-0 mt-0.5">
                           {getInitials(user.full_name)}
                         </div>
                         
@@ -219,10 +221,12 @@ export default function Users() {
 
       {/* New User Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
                 <h2 className="text-lg font-bold text-gray-900">Create New User</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Add a new team member to your workspace</p>
               </div>
@@ -233,7 +237,7 @@ export default function Users() {
                   setModalSuccess(false)
                   setModalData({ email: '', full_name: '', password: '', role: 'agent' })
                 }}
-                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-1.5 rounded-lg transition-colors"
+                className="btn-ghost p-1 shrink-0"
               >
                 <X size={18} />
               </button>
@@ -251,7 +255,7 @@ export default function Users() {
               </div>
             )}
 
-            <form onSubmit={createUser} className="space-y-3.5">
+            <form onSubmit={createUser} className="space-y-3">
               <div>
                 <label className="text-xs font-semibold text-gray-700 block mb-1.5">Full Name</label>
                 <input
@@ -302,7 +306,7 @@ export default function Users() {
                 </select>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -311,7 +315,7 @@ export default function Users() {
                     setModalSuccess(false)
                     setModalData({ email: '', full_name: '', password: '', role: 'agent' })
                   }}
-                  className="btn-ghost flex-1 text-xs font-medium"
+                  className="btn-ghost flex-1 text-sm"
                   disabled={submitting || modalSuccess}
                 >
                   Cancel
@@ -319,7 +323,7 @@ export default function Users() {
                 <button
                   type="submit"
                   disabled={submitting || modalSuccess}
-                  className="btn-primary flex-1 text-xs font-medium flex items-center justify-center gap-1.5"
+                  className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-all text-white bg-black hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {submitting ? (
                     <>
@@ -339,6 +343,7 @@ export default function Users() {
             </form>
           </div>
         </div>
+        </ModalPortal>
       )}
     </div>
   )
