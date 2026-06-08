@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, Info, AlertTriangle, XCircle, Search, Loader2, ChevronDown } from 'lucide-react'
+import { CheckCircle, Info, AlertTriangle, XCircle, Search, Loader2, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 
@@ -30,6 +30,9 @@ export default function Logs() {
   const [sourceFilter, setSourceFilter] = useState('')
   const [sourceOpen, setSourceOpen] = useState(false)
   const [daysFilter, setDaysFilter] = useState(null) // null = all time, 1 = 24h, 7 = 7 days, etc
+  const [page, setPage] = useState(1)
+  const [perPage] = useState(30)
+  const [total, setTotal] = useState(0)
 
   // Determine user role and default log type
   useEffect(() => {
@@ -64,8 +67,8 @@ export default function Logs() {
     setError(null)
     try {
       const params = new URLSearchParams()
-      params.set('page', 1)
-      params.set('per_page', 100)
+      params.set('page', page)
+      params.set('per_page', perPage)
       if (search) params.set('search', search)
       if (filter !== 'all' && logType === 'system') params.set('level', filter)
       if (sourceFilter && logType === 'system') params.set('source', sourceFilter)
@@ -87,26 +90,26 @@ export default function Logs() {
 
       const data = await res.json()
       setLogs(data.logs || [])
+      setTotal(data.total || 0)
+      // Reset to page 1 if we're out of bounds
+      if (page > Math.ceil((data.total || 0) / perPage) && page > 1) {
+        setPage(1)
+      }
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
-  }, [logType, search, filter, sourceFilter, daysFilter])
+  }, [logType, search, filter, sourceFilter, daysFilter, page, perPage])
 
   useEffect(() => {
     fetchLogs()
-  }, [logType, search, filter, sourceFilter, daysFilter, fetchLogs])
+  }, [logType, search, filter, sourceFilter, daysFilter, page, fetchLogs])
 
-  const filtered = logs.filter(log => {
-    // Only apply level filter for system logs
-    if (logType === 'system') {
-      if (filter === 'all') return true
-      return log.level === filter
-    }
-    // For audit and me logs, show all
-    return true
-  })
+  // Calculate pagination info
+  const totalPages = Math.ceil(total / perPage)
+  const startEntry = total === 0 ? 0 : (page - 1) * perPage + 1
+  const endEntry = Math.min(page * perPage, total)
 
   return (
     <div className="space-y-5 w-full max-w-4xl mx-auto">
@@ -124,6 +127,7 @@ export default function Logs() {
                 setLogType('system')
                 setFilter('all')
                 setSourceFilter('')
+                setPage(1)
               }}
               className={clsx(
                 'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
@@ -139,6 +143,7 @@ export default function Logs() {
                 setLogType('audit')
                 setFilter('all')
                 setSourceFilter('')
+                setPage(1)
               }}
               className={clsx(
                 'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
@@ -153,6 +158,7 @@ export default function Logs() {
               setLogType('me')
               setFilter('all')
               setSourceFilter('')
+              setPage(1)
             }}
             className={clsx(
               'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
@@ -321,7 +327,7 @@ export default function Logs() {
           <div className="px-4 py-8 text-center text-xs text-red-600">{error}</div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {filtered.map(log => {
+            {logs.map(log => {
               const level = log.level || 'info'
               const cfg = levelConfig[level]
               const Icon = cfg.icon
@@ -348,7 +354,7 @@ export default function Logs() {
               )
             })}
 
-            {filtered.length === 0 && (
+            {logs.length === 0 && (
               <div className="px-4 py-10 text-center text-sm text-gray-400 font-medium">
                 No logs match your filter
               </div>
@@ -357,8 +363,76 @@ export default function Logs() {
         )}
       </div>
 
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-gray-400 font-medium">
+            Showing {startEntry} to {endEntry} of {total} entries
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page === 1}
+              className={clsx(
+                'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors',
+                page === 1
+                  ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+                  : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+              )}
+            >
+              <ChevronLeft size={14} />
+              Previous
+            </button>
+            
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum
+                if (totalPages <= 5) {
+                  pageNum = i + 1
+                } else if (page <= 3) {
+                  pageNum = i + 1
+                } else if (page >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i
+                } else {
+                  pageNum = page - 2 + i
+                }
+                
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setPage(pageNum)}
+                    className={clsx(
+                      'w-8 h-8 rounded-lg border text-xs font-semibold transition-colors',
+                      page === pageNum
+                        ? 'bg-black text-white border-black'
+                        : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                    )}
+                  >
+                    {pageNum}
+                  </button>
+                )
+              })}
+            </div>
+
+            <button
+              onClick={() => setPage(Math.min(totalPages, page + 1))}
+              disabled={page === totalPages}
+              className={clsx(
+                'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors',
+                page === totalPages
+                  ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+                  : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+              )}
+            >
+              Next
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <p className="text-xs text-gray-400 text-center font-medium">
-        Showing {filtered.length} entries
+        {total === 0 ? 'No logs' : `Total: ${total} entries`}
       </p>
     </div>
   )

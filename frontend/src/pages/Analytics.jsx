@@ -146,7 +146,9 @@ export default function Analytics() {
 
       {/* Weekly bar chart */}
       <div className="card p-5">
-        <h2 className="text-sm font-bold text-gray-900 mb-4">Messages This Week</h2>
+        <h2 className="text-sm font-bold text-gray-900 mb-4">
+          Messages Last {days} {days === 1 ? 'Day' : 'Days'}
+        </h2>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={weekly} barGap={4}>
             <XAxis dataKey="day" tick={{ fill: '#9ca3af', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />

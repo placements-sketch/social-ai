@@ -159,6 +159,7 @@ export default function Messages() {
       const loadAgentsList = async () => {
         try {
           const data = await listAgents()
+          console.log('[DEBUG] Agents loaded:', data)
           setAgents(data.agents || [])
         } catch (err) {
           console.error('Failed to load agents:', err)
@@ -393,9 +394,6 @@ export default function Messages() {
               activeConv?.id === conv.id && 'bg-blue-50 border-l-3 border-l-black'
             )}
           >
-            {!conv.ai_enabled && (
-              <div className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-amber-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} title="Needs attention" />
-            )}
             <div className="flex items-start justify-between gap-1.5 mb-1">
               <div className="flex items-center gap-1.5 min-w-0">
                 <div className="flex items-center justify-center w-5 h-5 rounded-lg bg-gray-100 group-hover:bg-gray-200 transition-colors shrink-0">
@@ -405,17 +403,19 @@ export default function Messages() {
                   {conv.handle}
                 </span>
               </div>
-              <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.time}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.time}</span>
+                {conv.unread_count > 0 && (
+                  <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                    {conv.unread_count > 99 ? '99+' : conv.unread_count}
+                  </span>
+                )}
+              </div>
             </div>
             <p className="text-xs text-gray-600 truncate mb-1.5 line-clamp-1">{conv.lastMessage}</p>
             <div className="flex items-center gap-1 flex-wrap">
               {statusBadge(conv.status)}
               {handlerBadge(conv)}
-              {conv.unread_count > 0 && (
-                <span className="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">
-                  {conv.unread_count}
-                </span>
-              )}
             </div>
           </button>
         ))}
@@ -528,35 +528,43 @@ export default function Messages() {
                       />
                       <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-40">
                         <div className="p-2 space-y-1 max-h-64 overflow-y-auto">
-                          {agents.map(agent => (
-                            <button
-                              key={agent.id}
-                              onClick={() => handleAssign(agent.id)}
-                              disabled={assigningConvId === activeConv.id}
-                              className={clsx(
-                                'w-full text-left px-3 py-2 text-xs rounded-md transition-colors',
-                                activeConv.assigned_to === agent.id
-                                  ? 'bg-green-50 text-green-700 font-semibold'
-                                  : 'text-gray-700 hover:bg-gray-50'
-                              )}
-                            >
-                              <div className="font-medium">{agent.full_name}</div>
-                              <div className="text-[11px] text-gray-400">{agent.email}</div>
-                            </button>
-                          ))}
-                          
-                          {activeConv.assigned_to && (
+                          {agents && agents.length > 0 ? (
                             <>
-                              <div className="border-t border-gray-100 my-1" />
-                              <button
-                                onClick={handleUnassign}
-                                disabled={assigningConvId === activeConv.id}
-                                className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-md transition-colors flex items-center gap-2"
-                              >
-                                <X size={12} />
-                                <span>Remove Assignment</span>
-                              </button>
+                              {agents.map(agent => (
+                                <button
+                                  key={agent.id}
+                                  onClick={() => handleAssign(agent.id)}
+                                  disabled={assigningConvId === activeConv.id}
+                                  className={clsx(
+                                    'w-full text-left px-3 py-2 text-xs rounded-md transition-colors',
+                                    activeConv.assigned_to === agent.id
+                                      ? 'bg-green-50 text-green-700 font-semibold'
+                                      : 'text-gray-700 hover:bg-gray-50'
+                                  )}
+                                >
+                                  <div className="font-medium">{agent.full_name}</div>
+                                  <div className="text-[11px] text-gray-400">{agent.email}</div>
+                                </button>
+                              ))}
+                              
+                              {activeConv.assigned_to && (
+                                <>
+                                  <div className="border-t border-gray-100 my-1" />
+                                  <button
+                                    onClick={handleUnassign}
+                                    disabled={assigningConvId === activeConv.id}
+                                    className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-md transition-colors flex items-center gap-2"
+                                  >
+                                    <X size={12} />
+                                    <span>Remove Assignment</span>
+                                  </button>
+                                </>
+                              )}
                             </>
+                          ) : (
+                            <div className="px-3 py-4 text-center text-xs text-gray-400">
+                              No active agents available
+                            </div>
                           )}
                         </div>
                       </div>

@@ -88,7 +88,7 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
               clsx(
-                'flex items-center rounded-lg text-sm font-medium transition-all duration-150',
+                'relative flex items-center rounded-lg text-sm font-medium transition-all duration-150',
                 // Desktop collapsed: icon only
                 collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2.5' : 'gap-3 px-3 py-2.5',
                 isActive
@@ -104,19 +104,11 @@ export default function Sidebar({ collapsed, onToggle, onClose }) {
               {label}
             </span>
 
-            {/* Badge: always show on mobile, dot on desktop collapsed */}
-            {badge && !collapsed && (
-              <span className="bg-brand-600 text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none">
-                {badge}
-              </span>
-            )}
-            {badge && collapsed && (
-              <span className="hidden md:block absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-600" />
-            )}
+            {/* Badge: message count circle like WhatsApp */}
             {badge && (
               <span className={clsx(
-                'bg-brand-600 text-white text-xs font-bold px-2 py-0.5 rounded-full leading-none',
-                collapsed ? 'md:hidden' : 'hidden'
+                'w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
+                collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[8px] hidden md:flex' : 'ml-auto'
               )}>
                 {badge}
               </span>
