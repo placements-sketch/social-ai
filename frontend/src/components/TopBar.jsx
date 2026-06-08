@@ -83,82 +83,65 @@ export default function TopBar({ onMenuClick }) {
   }
 
   return (
-    <header className="h-16 shrink-0 flex items-center justify-between px-4 md:px-8 border-b border-gray-200 bg-white">
-      <div className="flex items-center gap-3 md:gap-4">
-        {/* Hamburger — toggles mobile drawer or desktop collapse */}
+    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6 bg-white border-b border-gray-200/60">
+      <div className="flex items-center gap-3">
+        {/* Hamburger */}
         <button
           onClick={onMenuClick}
-          className="btn-ghost p-2"
+          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors"
           title="Toggle sidebar"
           aria-label="Toggle sidebar"
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
-          {/* Hide status text on very small screens */}
-          <span className="hidden sm:block text-xs text-gray-500 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
+          <span className="hidden sm:block text-xs text-gray-400 font-medium tracking-wide">
             All systems operational
           </span>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 md:gap-3">
-        {/* Hide date on mobile */}
-        <span className="hidden md:block text-xs text-gray-400 font-medium">{now}</span>
+      <div className="flex items-center gap-1 md:gap-2">
+        {/* Date */}
+        <span className="hidden md:block text-xs text-gray-400 font-medium mr-2">{now}</span>
 
-        <button className="btn-ghost p-2" title="Refresh">
-          <RefreshCw size={18} />
+        <button className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors" title="Refresh">
+          <RefreshCw size={16} />
         </button>
 
-        <button className="btn-ghost p-2 relative" title="Notifications" onClick={() => setShowNotifications(!showNotifications)}>
-          <Bell size={18} />
+        {/* Notifications */}
+        <button
+          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors relative"
+          title="Notifications"
+          onClick={() => setShowNotifications(!showNotifications)}
+        >
+          <Bell size={16} />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
           )}
         </button>
 
         {/* Notifications Dropdown */}
         {showNotifications && (
           <>
-            {/* Backdrop */}
-            <div
-              className="fixed inset-0 z-30"
-              onClick={() => setShowNotifications(false)}
-            />
-            
-            {/* Dropdown Panel */}
-            <div className="fixed right-4 top-20 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-40 overflow-hidden flex flex-col max-h-[600px]">
-              {/* Header */}
+            <div className="fixed inset-0 z-30" onClick={() => setShowNotifications(false)} />
+            <div className="fixed right-4 top-16 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-40 overflow-hidden flex flex-col max-h-[600px]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
-                  {unreadCount > 0 && (
-                    <p className="text-xs text-gray-500 mt-0.5">{unreadCount} unread</p>
-                  )}
+                  {unreadCount > 0 && <p className="text-xs text-gray-500 mt-0.5">{unreadCount} unread</p>}
                 </div>
-                <button
-                  onClick={() => setShowNotifications(false)}
-                  className="btn-ghost p-1"
-                  title="Close"
-                >
+                <button onClick={() => setShowNotifications(false)} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                   <X size={16} />
                 </button>
               </div>
-
-              {/* Notifications List */}
               <div className="overflow-y-auto flex-1">
                 {notifications.map((notif) => {
                   const Icon = notif.icon
                   return (
-                    <div
-                      key={notif.id}
-                      className={clsx(
-                        'px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer',
-                        !notif.read && 'bg-blue-50/30'
-                      )}
-                    >
+                    <div key={notif.id} className={clsx('px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer', !notif.read && 'bg-blue-50/30')}>
                       <div className="flex items-start gap-3">
                         <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5', notif.bg)}>
                           <Icon size={16} className={notif.color} />
@@ -166,9 +149,7 @@ export default function TopBar({ onMenuClick }) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-xs font-bold text-gray-900">{notif.title}</p>
-                            {!notif.read && (
-                              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />
-                            )}
+                            {!notif.read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />}
                           </div>
                           <p className="text-xs text-gray-600 mt-0.5 leading-snug">{notif.description}</p>
                           <p className="text-xs text-gray-400 mt-1.5 font-medium">{notif.time}</p>
@@ -178,16 +159,8 @@ export default function TopBar({ onMenuClick }) {
                   )
                 })}
               </div>
-
-              {/* Footer */}
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
-                <button
-                  onClick={() => {
-                    navigate('/logs')
-                    setShowNotifications(false)
-                  }}
-                  className="w-full text-xs font-semibold text-brand-600 hover:text-brand-700 py-1.5 transition-colors"
-                >
+                <button onClick={() => { navigate('/logs'); setShowNotifications(false) }} className="w-full text-xs font-semibold text-brand-600 hover:text-brand-700 py-1.5 transition-colors">
                   View all notifications →
                 </button>
               </div>
@@ -195,53 +168,36 @@ export default function TopBar({ onMenuClick }) {
           </>
         )}
 
-        {/* User Profile Menu */}
-        <div className="relative ml-2">
+        {/* User menu */}
+        <div className="relative ml-1">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
-            title="User menu"
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-200/60 transition-colors"
           >
-            <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white text-xs font-semibold">
+            <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center text-white text-xs font-semibold shrink-0">
               {user?.full_name?.charAt(0).toUpperCase() || 'U'}
             </div>
-            <span className="hidden sm:block text-xs font-medium text-gray-700 max-w-[100px] truncate">
-              {user?.full_name || 'User'}
-            </span>
+            <div className="hidden sm:block text-left">
+              <p className="text-xs font-semibold text-gray-800 leading-none truncate max-w-[90px]">{user?.full_name || 'User'}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5 capitalize">{user?.role}</p>
+            </div>
           </button>
 
-          {/* Dropdown Menu */}
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-sm font-semibold text-gray-900">{user?.full_name}</p>
-                <p className="text-xs text-gray-500">{user?.email}</p>
-                <p className="text-xs text-gray-400 mt-1 capitalize">
-                  Role: <span className="font-medium text-gray-900">{user?.role}</span>
-                </p>
+            <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                <p className="text-xs font-bold text-gray-900">{user?.full_name}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">{user?.email}</p>
+                <span className="inline-block mt-1.5 text-[10px] font-semibold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
               </div>
-
-              <div className="py-2">
-                <button
-                  onClick={() => {
-                    setShowUserMenu(false)
-                    navigate('/settings')
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition"
-                >
-                  <User size={16} />
+              <div className="py-1">
+                <button onClick={() => { setShowUserMenu(false); navigate('/settings') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors">
+                  <User size={14} />
                   Profile Settings
                 </button>
-
-                <button
-                  onClick={() => {
-                    setShowUserMenu(false)
-                    handleLogout()
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
-                >
-                  <LogOut size={16} />
-                  Logout
+                <button onClick={() => { setShowUserMenu(false); handleLogout() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-red-600 hover:bg-red-50 transition-colors">
+                  <LogOut size={14} />
+                  Sign Out
                 </button>
               </div>
             </div>

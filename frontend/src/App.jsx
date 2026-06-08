@@ -15,6 +15,8 @@ import Analytics from './pages/Analytics'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
+import Customers from './pages/Customers'
+import CustomerDetail from './pages/CustomerDetail'
 
 export default function App() {
   return (
@@ -49,6 +51,25 @@ export default function App() {
             />
             <Route path="analytics" element={<Analytics />} />
             <Route path="logs" element={<Logs />} />
+
+            {/* Admin + Supervisor */}
+            <Route
+              path="customers"
+              element={
+                <ProtectedRoute requiredRole={['admin', 'supervisor']}>
+                  <Customers />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="customers/:id"
+              element={
+                <ProtectedRoute requiredRole={['admin', 'supervisor']}>
+                  <CustomerDetail />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Admin only */}
             <Route

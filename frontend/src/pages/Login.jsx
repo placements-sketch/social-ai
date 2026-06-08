@@ -47,8 +47,8 @@ export default function Login() {
       <div className="relative z-10 w-full max-w-sm">
         {/* Card — glassy */}
         <div
-          className="backdrop-blur-sm border border-white/15 rounded-2xl p-8 shadow-2xl"
-          style={{ background: 'rgba(255,255,255,0.08)' }}
+          className="backdrop-blur-sm rounded-2xl p-8 shadow-2xl"
+          style={{ background: 'rgba(255,255,255,0.08)', border: '0.5px solid rgba(255,255,255,0.08)' }}
         >
           {/* Logo & Branding */}
           <div className="mb-8 text-center">

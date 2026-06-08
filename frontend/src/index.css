@@ -3,13 +3,20 @@
 @tailwind utilities;
 
 @layer base {
+  html, body, #root {
+    background-color: #FFFFFF !important;
+    overflow-x: hidden;
+  }
+
   html {
     overflow-x: hidden;
+    background-color: #FFFFFF !important;
   }
 
   body {
     @apply bg-white text-gray-900 font-sans antialiased;
     overflow-x: hidden;
+    background-color: #FFFFFF !important;
   }
 
   ::-webkit-scrollbar {

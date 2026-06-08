@@ -4,9 +4,8 @@ import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 
 export default function Layout() {
-  // On mobile: sidebar starts closed. On desktop: starts open.
-  const [mobileOpen, setMobileOpen]   = useState(false)
-  const [desktopCollapsed, setDesktopCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false) // Mobile: closed by default
+  const [desktopCollapsed, setDesktopCollapsed] = useState(true) // Desktop: collapsed by default
 
   const location = useLocation()
 
@@ -25,41 +24,72 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#ffffff' }}>
 
-      {/* ── Mobile backdrop — sits behind drawer, closes it on tap ── */}
+      {/* ── Mobile backdrop ── */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-20 bg-black/10 md:hidden"
+          className="fixed inset-0 z-20 bg-black/20 md:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      {/* ── Sidebar ──
-          Mobile:  fixed overlay, slides in/out, z-30 (above backdrop)
-          Desktop: normal flow, collapsible
-      ── */}
-      <div
-        className={[
-          // Mobile: fixed drawer
-          'fixed inset-y-0 left-0 z-30 md:static md:z-auto',
-          // Mobile open/close
-          'transition-transform duration-300 ease-in-out',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full',
-          // Desktop: always visible, no translate
-          'md:translate-x-0',
-        ].join(' ')}
-      >
+      {/* ── Desktop sidebar container (collapsible) ── */}
+      <div style={{ 
+        display: window.innerWidth >= 768 ? 'flex' : 'none', 
+        flexDirection: 'column', 
+        gap: '12px',
+        padding: '12px',
+        backgroundColor: '#ffffff !important',
+        flexShrink: 0,
+        minWidth: 0,
+        height: '100vh'
+      }}>
         <Sidebar
           collapsed={desktopCollapsed}
           onToggle={() => setDesktopCollapsed(c => !c)}
           onClose={() => setMobileOpen(false)}
+          isMobile={false}
         />
       </div>
 
-      {/* ── Main content — always full width on mobile ── */}
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0 w-full">
+      {/* ── Mobile sidebar overlay (floating, full height with padding) ── */}
+      {mobileOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-20 bg-black/20"
+            onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            style={{ 
+              top: '12px',
+              left: '12px',
+              bottom: '12px',
+              width: 'calc(100% - 24px)',
+              maxWidth: '280px',
+              display: 'flex',
+              flexDirection: 'column',
+              pointerEvents: 'none',
+              position: 'fixed',
+              zIndex: 30
+            }}
+          >
+            <div style={{ pointerEvents: 'auto', height: '100%', display: 'flex' }}>
+              <Sidebar
+                collapsed={false}
+                onToggle={() => {}}
+                onClose={() => setMobileOpen(false)}
+                isMobile={true}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Main content ── */}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0, width: '100%', backgroundColor: '#ffffff' }}>
         <TopBar
           onMenuClick={() => {
             if (window.innerWidth < 768) {
@@ -69,7 +99,7 @@ export default function Layout() {
             }
           }}
         />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 w-full bg-white relative">
+        <main style={{ flex: 1, overflowY: 'auto', padding: window.innerWidth >= 768 ? '32px' : '16px', width: '100%', backgroundColor: '#ffffff', position: 'relative' }}>
           <Outlet />
         </main>
       </div>
