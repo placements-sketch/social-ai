@@ -42,7 +42,7 @@ def _get_shopify_access_token():
     
     # Return the cached token only if it's not about to expire.
     if _SHOPIFY_ACCESS_TOKEN and _SHOPIFY_TOKEN_EXPIRES_AT:
-        if utc_now() < (_SHOPIFY_TOKEN_EXPIRES_AT - _TOKEN_REFRESH_BUFFER):
+        if datetime.utcnow() < (_SHOPIFY_TOKEN_EXPIRES_AT - _TOKEN_REFRESH_BUFFER):
             return _SHOPIFY_ACCESS_TOKEN
     
     store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
@@ -74,7 +74,7 @@ def _get_shopify_access_token():
             raise ValueError(f"No access_token in Shopify response: {data}")
         
         expires_in = int(data.get('expires_in', 86399))
-        _SHOPIFY_TOKEN_EXPIRES_AT = utc_now() + timedelta(seconds=expires_in)
+        _SHOPIFY_TOKEN_EXPIRES_AT = datetime.utcnow() + timedelta(seconds=expires_in)
         log_event("info", "integrations.shopify",
                   f"Access token obtained (expires at {_SHOPIFY_TOKEN_EXPIRES_AT.isoformat()})")
         return _SHOPIFY_ACCESS_TOKEN
@@ -268,56 +268,58 @@ def _real_get_stock_level(keyword: str) -> dict:
 def _real_list_all_products() -> list[dict]:
     """
     Pages through Shopify's full product catalog.
-    
-    Endpoint: GET /admin/api/2024-01/products.json?limit=250
-    Shopify paginates using the Link header with rel="next"
+    Shopify paginates using the Link header with rel="next".
     """
     try:
         store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
         access_token = _get_shopify_access_token()
-        
+
         headers = {
             'X-Shopify-Access-Token': access_token,
             'Content-Type': 'application/json',
         }
-        
+
         all_products = []
         url = f"{store_url}/admin/api/2024-01/products.json?limit=250"
-        
+
         while url:
             response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
-            
-            products = response.json().get('products', [])
-            for product in products:
-                # Sum across all variants (see _real_get_product_info for rationale).
+
+            for product in response.json().get('products', []):
+                variants = product.get('variants') or []
+
+                # Inventory is "tracked" only if at least one variant is managed by Shopify
+                inventory_tracked = any(v.get('inventory_management') == 'shopify' for v in variants)
+
+                # Sum stock only across tracked variants; None means untracked product
                 stock_quantity = sum(
-                    (v.get('inventory_quantity') or 0) for v in product.get('variants', [])
-                )
-                
+                    (v.get('inventory_quantity') or 0) for v in variants
+                    if v.get('inventory_management') == 'shopify'
+                ) if inventory_tracked else None
+
                 all_products.append({
                     "shopify_id": str(product['id']),
                     "name": product.get('title', 'Unknown'),
-                    "description": product.get('body_html', '')[:200],
-                    "price": f"KES{product['variants'][0].get('price', 'N/A')}" if product.get('variants') else "N/A",
-                    "variants": [v.get('title', '') for v in product.get('variants', [])],
+                    "description": (product.get('body_html') or '')[:200],
+                    "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
+                    "variants": [v.get('title', '') for v in variants],
                     "stock_quantity": stock_quantity,
+                    "inventory_tracked": inventory_tracked,
                 })
-            
-            # Check for next page link in Link header
+
+            # Pagination: extract next URL from Link header
             link_header = response.headers.get('Link', '')
             url = None
             if 'rel="next"' in link_header:
-                # Extract next URL from Link header
-                parts = link_header.split(',')
-                for part in parts:
+                for part in link_header.split(','):
                     if 'rel="next"' in part:
                         url = part.split(';')[0].strip().strip('<>')
                         break
-        
+
         log_event("info", "integrations.shopify", f"Fetched {len(all_products)} products from Shopify")
         return all_products
+
     except requests.RequestException as e:
         log_event("error", "integrations.shopify", f"Failed to fetch catalog: {str(e)}")
         raise
-

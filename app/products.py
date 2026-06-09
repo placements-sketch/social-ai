@@ -90,6 +90,8 @@ def _serialize_product(p: ProductCache) -> dict:
         'variants': p.variants or [],
         'images': p.images or [],
         'tags': p.tags or [],
+        'stock_quantity': p.stock_quantity,
+        'inventory_tracked': p.inventory_tracked,
         'cached_at': p.cached_at.isoformat() if p.cached_at else None,
     }
 
@@ -104,6 +106,8 @@ def _shopify_to_cache_dict(sp: dict) -> dict:
         'variants': sp.get('variants', []) or [],
         'images': sp.get('images', []) or [],
         'tags': sp.get('tags', []) or [],
+        'stock_quantity': sp.get('stock_quantity'),
+        'inventory_tracked': bool(sp.get('inventory_tracked', False)),
     }
 
 
@@ -116,6 +120,8 @@ def _row_matches_shopify(row: ProductCache, snap: dict) -> bool:
         and (row.variants or []) == (snap['variants'] or [])
         and (row.images or []) == (snap['images'] or [])
         and (row.tags or []) == (snap['tags'] or [])
+        and row.stock_quantity == snap['stock_quantity']
+        and row.inventory_tracked == snap['inventory_tracked']
     )
 
 
@@ -162,7 +168,7 @@ def list_products():
     )
 
     last = _last_synced_at()
-    stale = (last is None) or (utc_now() - last) > STALE_AFTER
+    stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
 
     return jsonify({
         'products': [_serialize_product(p) for p in rows],
@@ -193,7 +199,7 @@ def sync_status():
     """
     last = _last_synced_at()
     count = ProductCache.query.count()
-    stale = (last is None) or (utc_now() - last) > STALE_AFTER
+    stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
     return jsonify({
         'last_synced_at': last.isoformat() if last else None,
         'product_count': count,
@@ -254,7 +260,7 @@ def sync_check():
         'updated': updated,
         'removed': removed,
         'in_sync': in_sync,
-        'checked_at': utc_now().isoformat(),
+        'checked_at': datetime.utcnow().isoformat(),
     }), 200
 
 
@@ -287,7 +293,7 @@ def sync_products():
     snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
     cached = {r.shopify_product_id: r for r in ProductCache.query.all()}
 
-    now = utc_now()
+    now = datetime.utcnow()
     added_count = updated_count = removed_count = 0
     added, updated, removed = [], [], []
 
@@ -302,6 +308,8 @@ def sync_products():
                 row.variants = snap['variants']
                 row.images = snap['images']
                 row.tags = snap['tags']
+                row.stock_quantity = snap['stock_quantity']
+                row.inventory_tracked = snap['inventory_tracked']
                 row.cached_at = now
                 updated_count += 1
                 updated.append({'shopify_product_id': spid, 'name': snap['name']})
@@ -317,6 +325,8 @@ def sync_products():
                 variants=snap['variants'],
                 images=snap['images'],
                 tags=snap['tags'],
+                stock_quantity=snap['stock_quantity'],
+                inventory_tracked=snap['inventory_tracked'],
                 cached_at=now,
             )
             db.session.add(new_row)

@@ -340,6 +340,8 @@ class ProductCache(db.Model):
     variants    = db.Column(db.JSON, nullable=True)
     images      = db.Column(db.JSON, nullable=True)
     tags        = db.Column(db.JSON, nullable=True)
+    stock_quantity    = db.Column(db.Integer, nullable=True)
+    inventory_tracked = db.Column(db.Boolean, default=False, nullable=False)
     cached_at   = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self):
