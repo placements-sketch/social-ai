@@ -1,13 +1,39 @@
-import { useState } from 'react'
-import { Bell, RefreshCw, Menu, LogOut, User, MessageSquare, AlertTriangle, CheckCircle, Zap, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Bell, RefreshCw, Menu, LogOut, User, MessageSquare, AlertTriangle, CheckCircle, X, CheckCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ModalPortal } from '../context/ModalPortal'
+import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
 import clsx from 'clsx'
+
+// Icon + color mapping per notification type
+function notifVisuals(type) {
+  switch (type) {
+    case 'assigned':
+    case 'reassigned':
+      return { Icon: MessageSquare, color: 'text-brand-600', bg: 'bg-orange-50' }
+    case 'unassigned':
+      return { Icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50' }
+    default:
+      return { Icon: CheckCircle, color: 'text-gray-500', bg: 'bg-gray-50' }
+  }
+}
+
+function timeAgo(iso) {
+  if (!iso) return ''
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
 
 export default function TopBar({ onMenuClick }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -16,67 +42,45 @@ export default function TopBar({ onMenuClick }) {
     hour: '2-digit', minute: '2-digit',
   })
 
-  // Dummy notifications data
-  const notifications = [
-    {
-      id: 1,
-      type: 'message',
-      title: '4 new messages',
-      description: 'Instagram DM from @sarah_k asking about pricing',
-      icon: MessageSquare,
-      color: 'text-pink-500',
-      bg: 'bg-pink-50',
-      time: '2 min ago',
-      read: false,
-    },
-    {
-      id: 2,
-      type: 'message',
-      title: '2 new messages',
-      description: 'WhatsApp from +254 700 123 456 about product availability',
-      icon: MessageSquare,
-      color: 'text-green-500',
-      bg: 'bg-green-50',
-      time: '5 min ago',
-      read: false,
-    },
-    {
-      id: 3,
-      type: 'alert',
-      title: 'Webhook warning',
-      description: 'Instagram webhook response time elevated (2.8s)',
-      icon: AlertTriangle,
-      color: 'text-amber-500',
-      bg: 'bg-amber-50',
-      time: '12 min ago',
-      read: false,
-    },
-    {
-      id: 4,
-      type: 'success',
-      title: 'Automation rule triggered',
-      description: 'Rule "Out of Stock Reply" matched 3 messages',
-      icon: CheckCircle,
-      color: 'text-green-600',
-      bg: 'bg-green-50',
-      time: '18 min ago',
-      read: true,
-    },
-    {
-      id: 5,
-      type: 'alert',
-      title: 'API error',
-      description: 'Shopify sync failed: Connection timeout',
-      icon: AlertTriangle,
-      color: 'text-red-500',
-      bg: 'bg-red-50',
-      time: '25 min ago',
-      read: true,
-    },
-  ]
+  // Load notifications on mount + poll every 30 seconds
+  useEffect(() => {
+    let cancelled = false
 
-  const unreadCount = notifications.filter(n => !n.read).length
-  const messageCount = notifications.filter(n => n.type === 'message' && !n.read).length
+    const load = async () => {
+      try {
+        const data = await fetchNotifications({ limit: 20 })
+        if (cancelled) return
+        setNotifications(data.notifications || [])
+        setUnreadCount(data.unread_count || 0)
+      } catch {
+        // Silent fail — bell should never crash the app
+      }
+    }
+
+    load()
+    const timer = setInterval(load, 30000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
+
+  const handleClickNotif = async (n) => {
+    // Optimistic mark-as-read
+    if (!n.read) {
+      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x))
+      setUnreadCount(c => Math.max(0, c - 1))
+      try { await markNotificationRead(n.id) } catch { /* ignore */ }
+    }
+    // Navigate to the relevant conversation if applicable
+    if (n.resource_type === 'conversation' && n.resource_id) {
+      navigate(`/messages?conversation=${n.resource_id}`)
+      setShowNotifications(false)
+    }
+  }
+
+  const handleMarkAllRead = async () => {
+    setNotifications(prev => prev.map(x => ({ ...x, read: true })))
+    setUnreadCount(0)
+    try { await markAllNotificationsRead() } catch { /* ignore */ }
+  }
 
   const handleLogout = async () => {
     await logout()
@@ -132,33 +136,62 @@ export default function TopBar({ onMenuClick }) {
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
-                  {unreadCount > 0 && <p className="text-xs text-gray-500 mt-0.5">{unreadCount} unread</p>}
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+                  </p>
                 </div>
-                <button onClick={() => setShowNotifications(false)} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                  <X size={16} />
-                </button>
+                <div className="flex items-center gap-1">
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={handleMarkAllRead}
+                      className="text-xs text-gray-500 hover:text-gray-900 inline-flex items-center gap-1 px-2 py-1 rounded transition-colors"
+                      title="Mark all read"
+                    >
+                      <CheckCheck size={12} /> All read
+                    </button>
+                  )}
+                  <button onClick={() => setShowNotifications(false)} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
               <div className="overflow-y-auto flex-1">
-                {notifications.map((notif) => {
-                  const Icon = notif.icon
-                  return (
-                    <div key={notif.id} className={clsx('px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer', !notif.read && 'bg-blue-50/30')}>
-                      <div className="flex items-start gap-3">
-                        <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5', notif.bg)}>
-                          <Icon size={16} className={notif.color} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs font-bold text-gray-900">{notif.title}</p>
-                            {!notif.read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />}
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-10 text-center">
+                    <Bell size={28} className="text-gray-300 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500">No notifications yet</p>
+                  </div>
+                ) : (
+                  notifications.map((notif) => {
+                    const { Icon, color, bg } = notifVisuals(notif.type)
+                    return (
+                      <button
+                        key={notif.id}
+                        onClick={() => handleClickNotif(notif)}
+                        className={clsx(
+                          'w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
+                          !notif.read && 'bg-blue-50/30'
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5', bg)}>
+                            <Icon size={16} className={color} />
                           </div>
-                          <p className="text-xs text-gray-600 mt-0.5 leading-snug">{notif.description}</p>
-                          <p className="text-xs text-gray-400 mt-1.5 font-medium">{notif.time}</p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs font-bold text-gray-900">{notif.title}</p>
+                              {!notif.read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />}
+                            </div>
+                            {notif.body && (
+                              <p className="text-xs text-gray-600 mt-0.5 leading-snug">{notif.body}</p>
+                            )}
+                            <p className="text-xs text-gray-400 mt-1.5 font-medium">{timeAgo(notif.created_at)}</p>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                      </button>
+                    )
+                  })
+                )}
               </div>
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
                 <button onClick={() => { navigate('/logs'); setShowNotifications(false) }} className="w-full text-xs font-semibold text-brand-600 hover:text-brand-700 py-1.5 transition-colors">

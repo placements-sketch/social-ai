@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from app import db
 from app.models import Conversation, AutomationRule, Log
 from app.utils.logger import log_event
-
+from app.notifications import create_notification
 
 # Default keywords that escalate. Easy to extend; later move to AISettings.
 HANDOFF_KEYWORDS = [
@@ -91,6 +91,16 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
             conversation.assigned_by = None  # system-assigned, no human actor
             log_event("info", "handoff",
                       f"Auto-assigned conversation {conversation.id} to agent {agent.email}")
+
+            # Notify the auto-assigned agent
+            create_notification(
+                user_id=agent.id,
+                type_='assigned',
+                title=f"New escalation assigned to you",
+                body=f"From {conversation.handle or 'a customer'} on {conversation.channel.replace('_', ' ')} — {reason}: {detail}",
+                resource_type='conversation',
+                resource_id=conversation.id,
+            )
 
     log_row = Log(
         level="info",

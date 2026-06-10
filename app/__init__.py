@@ -59,6 +59,7 @@ def create_app():
         from app.analytics import analytics_bp
         from app.customers import customers_bp
         from app.orders import orders_bp
+        from app.notifications import notifications_bp
         
         app.register_blueprint(bp)
         app.register_blueprint(auth_bp)
@@ -72,6 +73,7 @@ def create_app():
         app.register_blueprint(analytics_bp)
         app.register_blueprint(customers_bp)
         app.register_blueprint(orders_bp)
+        app.register_blueprint(notifications_bp)
         
         print("[APP] All blueprints registered successfully")
     except Exception as e:

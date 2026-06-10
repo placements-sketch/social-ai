@@ -19,6 +19,7 @@ from sqlalchemy import func
 from app import db
 from app.models import AuthUser, Conversation
 from app.auth import log_audit, current_user_id
+from app.notifications import create_notification
 
 assignment_bp = Blueprint('assignment', __name__, url_prefix='/api')
 
@@ -76,10 +77,36 @@ def assign(conversation_id):
         return jsonify({'error': 'Target user cannot be assigned conversations'}), 400
 
     now = datetime.utcnow()
+    previous_assignee = conv.assigned_to  # for reassignment notifications
+
     conv.assigned_to = target.id
     conv.assigned_at = now
     conv.assigned_by = current_user.id
     conv.updated_at = now
+
+    # Notify the new assignee (unless they assigned to themselves)
+    if target.id != current_user.id:
+        is_reassign = previous_assignee is not None and previous_assignee != target.id
+        create_notification(
+            user_id=target.id,
+            type_='reassigned' if is_reassign else 'assigned',
+            title=f"Conversation assigned to you",
+            body=f"From {conv.handle or 'a customer'} on {conv.channel.replace('_', ' ')}",
+            resource_type='conversation',
+            resource_id=conv.id,
+        )
+
+    # If this is a reassignment, notify the previous assignee that they're off the hook
+    if previous_assignee is not None and previous_assignee != target.id:
+        create_notification(
+            user_id=previous_assignee,
+            type_='unassigned',
+            title=f"Conversation reassigned",
+            body=f"{conv.handle or 'A conversation'} has been moved to {target.full_name}",
+            resource_type='conversation',
+            resource_id=conv.id,
+        )
+
     db.session.commit()
 
     log_audit(
@@ -110,6 +137,17 @@ def unassign(conversation_id):
     conv.assigned_at = None
     conv.assigned_by = None
     conv.updated_at = datetime.utcnow()
+
+    if previous is not None:
+        create_notification(
+            user_id=previous,
+            type_='unassigned',
+            title="Conversation unassigned",
+            body=f"{conv.handle or 'A conversation'} is no longer assigned to you",
+            resource_type='conversation',
+            resource_id=conv.id,
+        )
+
     db.session.commit()
 
     log_audit(
