@@ -2,7 +2,9 @@ import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
+  Download, FileText, File,
 } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
 
 const statCards = [
@@ -33,71 +35,263 @@ const channelIcon = (ch) => {
 }
 
 export default function Dashboard() {
+  // Export functions
+  const exportToCSV = () => {
+    const headers = ['Metric', 'Value']
+    const rows = [
+      ['Messages Today', stats.messagesToday],
+      ['Auto-Replies Sent', stats.autoRepliesSent],
+      ['Human Overrides', stats.humanOverrides],
+      ['Failed Responses', stats.failedResponses],
+      ['Out-of-Stock Queries', stats.outOfStockQueries],
+    ]
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dashboard-export-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const exportToPDF = async () => {
+    const { jsPDF } = await import('jspdf')
+    const { autoTable } = await import('jspdf-autotable')
+    
+    const doc = new jsPDF()
+    const headers = ['Metric', 'Value']
+    const rows = [
+      ['Messages Today', stats.messagesToday],
+      ['Auto-Replies Sent', stats.autoRepliesSent],
+      ['Human Overrides', stats.humanOverrides],
+      ['Failed Responses', stats.failedResponses],
+      ['Out-of-Stock Queries', stats.outOfStockQueries],
+    ]
+    
+    autoTable(doc, {
+      head: [headers],
+      body: rows,
+      startY: 20,
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
+    })
+    
+    doc.save(`dashboard-export-${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
   return (
     <div className="space-y-6 w-full">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Live overview of your AI support system</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Live overview of your AI support system</p>
+        </div>
+        
+        {/* Export dropdown */}
+        <div className="relative group">
+          <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors">
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+          <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+            <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
+              <FileText size={13} />
+              Export as CSV
+            </button>
+            <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
+              <File size={13} />
+              Export as PDF
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCards.map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className="stat-card">
-            <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', bg)}>
-              <Icon size={18} className={color} />
+        {statCards.map(({ label, value, icon: Icon, color, bg }) => {
+          const isPositive = true // Default to positive, can be made dynamic
+          return (
+            <div key={label} className="stat-card">
+              <div className="flex items-start justify-between">
+                <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', bg)}>
+                  <Icon size={18} className={color} />
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-semibold text-green-600">↑ 12%</span>
+                </div>
+              </div>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
+              <p className="text-xs text-gray-500 font-medium">{label}</p>
+              <p className={clsx('text-[10px] font-semibold', isPositive ? 'text-green-600' : 'text-brand-600')}>
+                {isPositive ? '+' : '-'}24 since yesterday
+              </p>
             </div>
-            <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
-            <p className="text-xs text-gray-500 font-medium">{label}</p>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Channel Performance */}
-      <div className="card p-6">
-        <div className="mb-5">
-          <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
-          <p className="text-xs text-gray-500 mt-1">Message throughput across platforms</p>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Graph: 3/4 width */}
+        <div className="lg:col-span-3 card p-6">
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
+            <p className="text-xs text-gray-500 mt-1">Message throughput (solid = received, dotted = responded)</p>
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={[
+              { time: 'Mon', instagram: 12, instagram_resp: 10, whatsapp: 8, whatsapp_resp: 7, facebook: 15, facebook_resp: 12, tiktok: 5, tiktok_resp: 4 },
+              { time: 'Tue', instagram: 18, instagram_resp: 15, whatsapp: 14, whatsapp_resp: 11, facebook: 12, facebook_resp: 10, tiktok: 9, tiktok_resp: 7 },
+              { time: 'Wed', instagram: 15, instagram_resp: 12, whatsapp: 11, whatsapp_resp: 9, facebook: 22, facebook_resp: 18, tiktok: 7, tiktok_resp: 5 },
+              { time: 'Thu', instagram: 28, instagram_resp: 24, whatsapp: 19, whatsapp_resp: 16, facebook: 18, facebook_resp: 15, tiktok: 14, tiktok_resp: 11 },
+              { time: 'Fri', instagram: 22, instagram_resp: 19, whatsapp: 26, whatsapp_resp: 23, facebook: 25, facebook_resp: 21, tiktok: 11, tiktok_resp: 9 },
+              { time: 'Sat', instagram: 32, instagram_resp: 28, whatsapp: 21, whatsapp_resp: 18, facebook: 16, facebook_resp: 13, tiktok: 18, tiktok_resp: 15 },
+              { time: 'Sun', instagram: 26, instagram_resp: 23, whatsapp: 18, whatsapp_resp: 15, facebook: 28, facebook_resp: 24, tiktok: 13, tiktok_resp: 10 },
+            ]} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+              <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
+              <XAxis 
+                dataKey="time" 
+                tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis 
+                tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip 
+                contentStyle={{
+                  background: '#ffffff',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
+                  padding: '12px'
+                }}
+                labelStyle={{ color: '#1f2937', fontWeight: 600, fontSize: 12, marginBottom: '6px', fontFamily: 'Quicksand' }}
+                formatter={(value) => [`${value} msgs`, '']}
+                contentClassName="text-xs"
+              />
+              {/* Instagram */}
+              <Line 
+                type="natural"
+                dataKey="instagram" 
+                stroke="#ec4899" 
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 6, fill: '#ec4899', fillOpacity: 1 }}
+                isAnimationActive={true}
+              />
+              <Line 
+                type="natural"
+                dataKey="instagram_resp" 
+                stroke="#ec4899" 
+                strokeWidth={2.5}
+                strokeDasharray="6 3"
+                dot={false}
+                activeDot={{ r: 6, fill: '#ec4899', fillOpacity: 1 }}
+              />
+              {/* WhatsApp */}
+              <Line 
+                type="natural"
+                dataKey="whatsapp" 
+                stroke="#22c55e" 
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 6, fill: '#22c55e', fillOpacity: 1 }}
+              />
+              <Line 
+                type="natural"
+                dataKey="whatsapp_resp" 
+                stroke="#22c55e" 
+                strokeWidth={2.5}
+                strokeDasharray="6 3"
+                dot={false}
+                activeDot={{ r: 6, fill: '#22c55e', fillOpacity: 1 }}
+              />
+              {/* Facebook */}
+              <Line 
+                type="natural"
+                dataKey="facebook" 
+                stroke="#3b82f6" 
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 6, fill: '#3b82f6', fillOpacity: 1 }}
+              />
+              <Line 
+                type="natural"
+                dataKey="facebook_resp" 
+                stroke="#3b82f6" 
+                strokeWidth={2.5}
+                strokeDasharray="6 3"
+                dot={false}
+                activeDot={{ r: 6, fill: '#3b82f6', fillOpacity: 1 }}
+              />
+              {/* TikTok */}
+              <Line 
+                type="natural"
+                dataKey="tiktok" 
+                stroke="#000000" 
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 6, fill: '#000000', fillOpacity: 1 }}
+              />
+              <Line 
+                type="natural"
+                dataKey="tiktok_resp" 
+                stroke="#000000" 
+                strokeWidth={2.5}
+                strokeDasharray="6 3"
+                dot={false}
+                activeDot={{ r: 6, fill: '#000000', fillOpacity: 1 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          
+          {/* Legend */}
+          <div className="flex items-center justify-center gap-6 mt-5">
+            <div className="flex items-center gap-2">
+              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#ec4899" strokeWidth="2.5" /></svg>
+              <span className="text-xs text-gray-600 font-medium">Instagram</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#22c55e" strokeWidth="2.5" /></svg>
+              <span className="text-xs text-gray-600 font-medium">WhatsApp</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#3b82f6" strokeWidth="2.5" /></svg>
+              <span className="text-xs text-gray-600 font-medium">Facebook</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#000000" strokeWidth="2.5" /></svg>
+              <span className="text-xs text-gray-600 font-medium">TikTok</span>
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { name: 'Instagram', icon: Instagram, color: 'text-pink-500', messages: 24, total: 30 },
-            { name: 'WhatsApp', icon: Smartphone, color: 'text-green-500', messages: 18, total: 25 },
-            { name: 'Facebook', icon: null, color: 'text-blue-600', messages: 12, total: 20, fbIcon: true },
-            { name: 'TikTok', icon: null, color: 'text-gray-900', messages: 8, total: 15, tikIcon: true },
-          ].map((channel) => {
-            const percentage = Math.round((channel.messages / channel.total) * 100)
-            let Icon = channel.icon
-            return (
-              <div key={channel.name} className="p-3 rounded-lg bg-white border border-gray-100 transition-all hover:border-gray-200">
-                {/* Channel name + percentage */}
-                <div className="flex items-center justify-between mb-2.5">
-                  <div className="flex items-center gap-2">
-                    {channel.fbIcon ? (
-                      <span className="inline-flex items-center justify-center w-4 h-4 rounded text-white font-black text-[8px]" style={{ background: '#1877F2' }}>f</span>
-                    ) : channel.tikIcon ? (
-                      <span className="inline-flex items-center justify-center w-4 h-4 rounded text-white font-black text-[7px]" style={{ background: '#000000' }}>♪</span>
-                    ) : (
-                      <Icon size={14} className={channel.color} />
-                    )}
-                    <span className="text-xs font-semibold text-gray-900">{channel.name}</span>
-                  </div>
-                  <span className="text-xs font-bold text-gray-900">{percentage}%</span>
-                </div>
 
-                {/* Progress bar */}
-                <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden mb-2">
-                  <div
-                    className="h-full bg-black rounded-full transition-all duration-500"
-                    style={{ width: `${percentage}%` }}
-                  />
-                </div>
-
-                {/* Message count */}
-                <p className="text-xs text-gray-500 font-medium">{channel.messages} of {channel.total}</p>
-              </div>
-            )
-          })}
+        {/* Stats: 1/4 width - each in own card */}
+        <div className="lg:col-span-1 space-y-3">
+          <div className="card bg-pink-50 border border-pink-100 p-4">
+            <p className="text-[11px] text-pink-600 font-semibold uppercase tracking-wider">Instagram</p>
+            <p className="text-2xl font-bold text-pink-600 mt-2">186</p>
+            <p className="text-xs text-pink-500 mt-1">+15% this week</p>
+          </div>
+          <div className="card bg-green-50 border border-green-100 p-4">
+            <p className="text-[11px] text-green-600 font-semibold uppercase tracking-wider">WhatsApp</p>
+            <p className="text-2xl font-bold text-green-600 mt-2">137</p>
+            <p className="text-xs text-green-500 mt-1">+8% this week</p>
+          </div>
+          <div className="card bg-blue-50 border border-blue-100 p-4">
+            <p className="text-[11px] text-blue-600 font-semibold uppercase tracking-wider">Facebook</p>
+            <p className="text-2xl font-bold text-blue-600 mt-2">152</p>
+            <p className="text-xs text-blue-500 mt-1">+22% this week</p>
+          </div>
+          <div className="card bg-gray-50 border border-gray-200 p-4">
+            <p className="text-[11px] text-gray-600 font-semibold uppercase tracking-wider">TikTok</p>
+            <p className="text-2xl font-bold text-gray-900 mt-2">87</p>
+            <p className="text-xs text-gray-500 mt-1">+14% this week</p>
+          </div>
         </div>
       </div>
 

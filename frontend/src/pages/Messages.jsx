@@ -526,7 +526,7 @@ export default function Messages() {
                         className="fixed inset-0 z-30"
                         onClick={() => setShowAssignDropdown(false)}
                       />
-                      <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-40">
+                      <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-3xl shadow-lg border border-gray-200 z-40">
                         <div className="p-2 space-y-1 max-h-64 overflow-y-auto">
                           {agents && agents.length > 0 ? (
                             <>
@@ -689,7 +689,7 @@ export default function Messages() {
 
       {/* Main content area with border - fills remaining space */}
       <div className="flex-1 flex flex-col gap-0 overflow-hidden px-4 md:px-8 pb-2 md:pb-3">
-        <div className="flex-1 flex flex-col gap-0 overflow-hidden rounded-lg border border-gray-200 bg-white min-h-0">
+        <div className="flex-1 flex flex-col gap-0 overflow-hidden rounded-3xl border border-gray-200 bg-white min-h-0">
           {/* Main content area - flex-1 to fill remaining space, no overflow */}
           <div className="flex-1 flex gap-0 overflow-hidden">
             {ConvList}

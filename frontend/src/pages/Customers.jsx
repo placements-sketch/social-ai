@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
   ArrowUpRight, Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight,
+  Download, FileText, Sheet, File,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid,
@@ -41,6 +42,8 @@ export default function Customers() {
   const [search, setSearch] = useState('')
   const [segmentFilter, setSegmentFilter] = useState('all')
   const [sortBy, setSortBy] = useState('spent_desc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const ITEMS_PER_PAGE = 25
 
   const customers = MOCK_CUSTOMERS
   const overview = useMemo(() => buildOverview(customers), [customers])
@@ -70,6 +73,69 @@ export default function Customers() {
     return result
   }, [customers, search, segmentFilter, sortBy])
 
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
+  const paginatedCustomers = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE
+    return filtered.slice(start, start + ITEMS_PER_PAGE)
+  }, [filtered, currentPage])
+
+  // Export functions
+  const exportToCSV = () => {
+    const headers = ['Name', 'Email', 'Phone', 'Location', 'Segment', 'Total Spent', 'Total Orders', 'Last Order']
+    const rows = filtered.map(c => [
+      c.name,
+      c.email,
+      c.phone,
+      c.location,
+      SEGMENT_META[c.segment].label,
+      c.total_spent,
+      c.total_orders,
+      c.last_order_date || 'Never',
+    ])
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `customers-export-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const exportToPDF = async () => {
+    // Dynamic import to avoid bundle size issues
+    const { jsPDF } = await import('jspdf')
+    const { autoTable } = await import('jspdf-autotable')
+    
+    const doc = new jsPDF()
+    const headers = ['Name', 'Email', 'Phone', 'Segment', 'Total Spent', 'Orders', 'Last Order']
+    const rows = filtered.map(c => [
+      c.name,
+      c.email,
+      c.phone,
+      SEGMENT_META[c.segment].label,
+      `KES ${formatKES(c.total_spent)}`,
+      c.total_orders,
+      timeAgo(c.last_order_date),
+    ])
+    
+    autoTable(doc, {
+      head: [headers],
+      body: rows,
+      startY: 20,
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
+    })
+    
+    doc.save(`customers-export-${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
+  const exportToGoogleSheets = () => {
+    // This would require Google Sheets API integration
+    // For now, show a message
+    alert('Google Sheets export requires additional setup. Download as CSV and import manually.')
+  }
+
   return (
     <div className="space-y-6 w-full">
       {/* ── Header ──────────────────────────────────────────────── */}
@@ -85,24 +151,32 @@ export default function Customers() {
           label="Total Customers"
           value={overview.kpis.total_customers}
           sub={`${overview.kpis.new_this_month} new this month`}
+          color="text-blue-500"
+          bg="bg-blue-50"
         />
         <KpiCard
           icon={TrendingUp}
           label="Total Revenue"
           value={`KES ${formatKES(overview.kpis.total_revenue)}`}
           sub={`KES ${formatKES(overview.kpis.avg_aov)} avg order`}
+          color="text-brand-500"
+          bg="bg-brand-50"
         />
         <KpiCard
           icon={Repeat}
           label="Retention Rate"
           value={`${Math.round(overview.kpis.retention_rate * 100)}%`}
           sub={`${overview.kpis.repeat_customers} repeat buyers`}
+          color="text-amber-500"
+          bg="bg-amber-50"
         />
         <KpiCard
           icon={ShoppingBag}
           label="Repeat Buyers"
           value={overview.kpis.repeat_customers}
           sub={`of ${overview.kpis.total_customers} total`}
+          color="text-orange-500"
+          bg="bg-orange-50"
         />
       </div>
 
@@ -286,7 +360,7 @@ export default function Customers() {
                 fontSize: '12px',
               }}
             />
-            <Bar dataKey="purchases" fill="#ff5900" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="purchases" fill="#ff5900" radius={[0, 8, 8, 0]} barCategoryGap="15%" />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -296,7 +370,7 @@ export default function Customers() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-sm font-bold text-gray-900">All Customers</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{filtered.length} of {customers.length} shown</p>
+            <p className="text-xs text-gray-400 mt-0.5">{paginatedCustomers.length} of {filtered.length} shown</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -305,13 +379,13 @@ export default function Customers() {
                 type="text"
                 placeholder="Search customers..."
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => { setSearch(e.target.value); setCurrentPage(1) }}
                 className="input pl-9 w-56"
               />
             </div>
             <select
               value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
+              onChange={e => { setSortBy(e.target.value); setCurrentPage(1) }}
               className="input cursor-pointer"
             >
               <option value="spent_desc">Highest spent</option>
@@ -319,13 +393,35 @@ export default function Customers() {
               <option value="recent">Most recent</option>
               <option value="name">Name (A–Z)</option>
             </select>
+            
+            {/* Export dropdown */}
+            <div className="relative group">
+              <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors">
+                <Download size={14} />
+                <span>Export</span>
+              </button>
+              <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
+                  <FileText size={13} />
+                  Export as CSV
+                </button>
+                <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <File size={13} />
+                  Export as PDF
+                </button>
+                <button onClick={exportToGoogleSheets} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
+                  <Sheet size={13} />
+                  Export to Sheets
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Active filter chip */}
         {segmentFilter !== 'all' && (
           <button
-            onClick={() => setSegmentFilter('all')}
+            onClick={() => { setSegmentFilter('all'); setCurrentPage(1) }}
             className="badge badge-primary mb-3 hover:opacity-80 transition-opacity"
           >
             Filtered: {SEGMENT_META[segmentFilter].label} × Clear
@@ -334,16 +430,64 @@ export default function Customers() {
 
         {/* Customer rows */}
         <div className="card divide-y divide-gray-200">
-          {filtered.length === 0 ? (
+          {paginatedCustomers.length === 0 ? (
             <div className="p-8 text-center text-gray-400 text-sm">
               No customers match the current filters.
             </div>
           ) : (
-            filtered.map(c => (
+            paginatedCustomers.map(c => (
               <CustomerRow key={c.id} customer={c} onClick={() => navigate(`/customers/${c.id}`)} />
             ))
           )}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-6">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
+              const pageNum = i + 1
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={clsx(
+                    'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+                    currentPage === pageNum
+                      ? 'bg-black text-white'
+                      : 'border border-gray-200 text-gray-700 hover:bg-gray-50'
+                  )}
+                >
+                  {pageNum}
+                </button>
+              )
+            })}
+            {totalPages > 5 && (
+              <>
+                <span className="text-gray-400">…</span>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  {totalPages}
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -351,17 +495,24 @@ export default function Customers() {
 
 /* ── Subcomponents ────────────────────────────────────────────────── */
 
-function KpiCard({ icon: Icon, label, value, sub }) {
+function KpiCard({ icon: Icon, label, value, sub, color = 'text-blue-500', bg = 'bg-blue-50' }) {
   return (
-    <div className="stat-card">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center">
-          <Icon size={14} className="text-gray-500" />
+    <div className="stat-card relative overflow-hidden">
+      {/* Subtle gradient overlay */}
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" 
+           style={{ background: 'linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.04) 100%)' }} />
+      
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-4">
+          <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center border', bg)}>
+            <Icon size={16} className={color} />
+          </div>
+          <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">↑ 12%</span>
         </div>
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
+        <p className="text-xs text-gray-500 font-medium mb-1.5">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 tabular-nums mb-2">{value}</p>
+        {sub && <p className="text-xs text-gray-400 leading-relaxed">{sub}</p>}
       </div>
-      <p className="text-2xl font-semibold text-gray-900 tabular-nums">{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
     </div>
   )
 }
@@ -371,7 +522,7 @@ function Avatar({ customer, size = 36 }) {
   return (
     <div
       className="rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-      style={{ width: size, height: size, background: customer.avatar_color }}
+      style={{ width: size, height: size, background: '#000000' }}
     >
       {initials}
     </div>

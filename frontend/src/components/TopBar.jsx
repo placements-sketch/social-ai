@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bell, RefreshCw, Menu, LogOut, User, MessageSquare, AlertTriangle, CheckCircle, Zap, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { ModalPortal } from '../context/ModalPortal'
 import clsx from 'clsx'
 
 export default function TopBar({ onMenuClick }) {
@@ -83,7 +84,7 @@ export default function TopBar({ onMenuClick }) {
   }
 
   return (
-    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6 bg-white border-b border-gray-200/60">
+    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(8px)', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
       <div className="flex items-center gap-3">
         {/* Hamburger */}
         <button
@@ -125,9 +126,9 @@ export default function TopBar({ onMenuClick }) {
 
         {/* Notifications Dropdown */}
         {showNotifications && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setShowNotifications(false)} />
-            <div className="fixed right-4 top-16 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-40 overflow-hidden flex flex-col max-h-[600px]">
+          <ModalPortal>
+            <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
+            <div className="fixed right-4 top-16 w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden flex flex-col max-h-[600px]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
@@ -165,42 +166,40 @@ export default function TopBar({ onMenuClick }) {
                 </button>
               </div>
             </div>
-          </>
+          </ModalPortal>
         )}
 
         {/* User menu */}
         <div className="relative ml-1">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-200/60 transition-colors"
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-black hover:bg-gray-800 transition-colors"
           >
-            <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center text-white text-xs font-semibold shrink-0">
+            <div className="text-white text-xs font-semibold">
               {user?.full_name?.charAt(0).toUpperCase() || 'U'}
-            </div>
-            <div className="hidden sm:block text-left">
-              <p className="text-xs font-semibold text-gray-800 leading-none truncate max-w-[90px]">{user?.full_name || 'User'}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5 capitalize">{user?.role}</p>
             </div>
           </button>
 
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-                <p className="text-xs font-bold text-gray-900">{user?.full_name}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{user?.email}</p>
-                <span className="inline-block mt-1.5 text-[10px] font-semibold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
+            <ModalPortal>
+              <div className="fixed right-4 top-16 w-52 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                  <p className="text-xs font-bold text-gray-900">{user?.full_name}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{user?.email}</p>
+                  <span className="inline-block mt-1.5 text-[10px] font-semibold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
+                </div>
+                <div className="py-1">
+                  <button onClick={() => { setShowUserMenu(false); navigate('/settings') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors">
+                    <User size={14} />
+                    Profile Settings
+                  </button>
+                  <button onClick={() => { setShowUserMenu(false); handleLogout() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-red-600 hover:bg-red-50 transition-colors">
+                    <LogOut size={14} />
+                    Sign Out
+                  </button>
+                </div>
               </div>
-              <div className="py-1">
-                <button onClick={() => { setShowUserMenu(false); navigate('/settings') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors">
-                  <User size={14} />
-                  Profile Settings
-                </button>
-                <button onClick={() => { setShowUserMenu(false); handleLogout() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-red-600 hover:bg-red-50 transition-colors">
-                  <LogOut size={14} />
-                  Sign Out
-                </button>
-              </div>
-            </div>
+            </ModalPortal>
           )}
         </div>
       </div>

@@ -3,7 +3,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { useState, useEffect } from 'react'
-import { Loader2, Calendar, TrendingUp, Users, CheckCircle2, MessageSquare } from 'lucide-react'
+import { Loader2, Calendar, TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File, Sheet } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
 import clsx from 'clsx'
@@ -103,6 +103,55 @@ export default function Analytics() {
     return 'Company-wide AI support analytics'
   }
 
+  // Export functions
+  const exportToCSV = () => {
+    const headers = ['Metric', 'Value']
+    const rows = [
+      ['Avg Response Time (ms)', kpis.avg_response_time_ms],
+      ['AI Success Rate', `${(kpis.ai_success_rate * 100).toFixed(1)}%`],
+      ['Override Rate', `${(kpis.override_rate * 100).toFixed(1)}%`],
+      ['Total Messages', kpis.total_messages],
+      ['AI Replied', kpis.ai_replied],
+      ['Human Overrides', kpis.human_overrides],
+      ...weekly.map(w => [`${w.day} - Inbound`, w.inbound]),
+      ...weekly.map(w => [`${w.day} - AI Replied`, w.ai_replied]),
+    ]
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `analytics-export-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const exportToPDF = async () => {
+    const { jsPDF } = await import('jspdf')
+    const { autoTable } = await import('jspdf-autotable')
+    
+    const doc = new jsPDF()
+    const headers = ['Metric', 'Value']
+    const rows = [
+      ['Avg Response Time (ms)', kpis.avg_response_time_ms],
+      ['AI Success Rate', `${(kpis.ai_success_rate * 100).toFixed(1)}%`],
+      ['Override Rate', `${(kpis.override_rate * 100).toFixed(1)}%`],
+      ['Total Messages', kpis.total_messages],
+      ['AI Replied', kpis.ai_replied],
+      ['Human Overrides', kpis.human_overrides],
+    ]
+    
+    autoTable(doc, {
+      head: [headers],
+      body: rows,
+      startY: 20,
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
+    })
+    
+    doc.save(`analytics-export-${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
   return (
     <div className="space-y-6 w-full">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -111,22 +160,42 @@ export default function Analytics() {
           <p className="text-sm text-gray-500 mt-0.5">{getSubtitle()}</p>
         </div>
         
-        {/* Date range filter */}
-        <div className="flex gap-2">
-          {DATE_RANGES.map((range) => (
-            <button
-              key={range.days}
-              onClick={() => setDays(range.days)}
-              className={clsx(
-                'text-xs font-semibold px-3 py-2 rounded-lg border transition-colors',
-                days === range.days
-                  ? 'bg-black text-white border-black'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-              )}
-            >
-              {range.label}
+        <div className="flex items-center gap-2">
+          {/* Date range filter */}
+          <div className="flex gap-2">
+            {DATE_RANGES.map((range) => (
+              <button
+                key={range.days}
+                onClick={() => setDays(range.days)}
+                className={clsx(
+                  'text-xs font-semibold px-3 py-2 rounded-lg border transition-colors',
+                  days === range.days
+                    ? 'bg-black text-white border-black'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                )}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Export dropdown */}
+          <div className="relative group">
+            <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors">
+              <Download size={14} />
+              <span>Export</span>
             </button>
-          ))}
+            <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
+                <FileText size={13} />
+                Export as CSV
+              </button>
+              <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
+                <File size={13} />
+                Export as PDF
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -150,13 +219,13 @@ export default function Analytics() {
           Messages Last {days} {days === 1 ? 'Day' : 'Days'}
         </h2>
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={weekly} barGap={4}>
+          <BarChart data={weekly} barGap={4} barCategoryGap="15%">
             <XAxis dataKey="day" tick={{ fill: '#9ca3af', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#9ca3af', fontSize: 11, fontFamily: 'Quicksand' }} axisLine={false} tickLine={false} />
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: 12, fontFamily: 'Quicksand', fontWeight: 600 }} />
-            <Bar dataKey="inbound" name="Inbound"    fill="#e5e7eb" radius={[6,6,0,0]} />
-            <Bar dataKey="ai_replied"  name="AI Replied" fill="#ff5900" radius={[6,6,0,0]} />
+            <Bar dataKey="inbound" name="Inbound"    fill="#e5e7eb" radius={[8,8,0,0]} />
+            <Bar dataKey="ai_replied"  name="AI Replied" fill="#ff5900" radius={[8,8,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

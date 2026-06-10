@@ -24,7 +24,12 @@ export default function Layout() {
   }, [])
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#ffffff' }}>
+    <div style={{ 
+      display: 'flex', 
+      height: '100vh', 
+      overflow: 'hidden', 
+      backgroundColor: '#ffffff'
+    }}>
 
       {/* ── Mobile backdrop ── */}
       {mobileOpen && (
@@ -41,7 +46,7 @@ export default function Layout() {
         flexDirection: 'column', 
         gap: '12px',
         padding: '12px',
-        backgroundColor: '#ffffff !important',
+        backgroundColor: 'transparent',
         flexShrink: 0,
         minWidth: 0,
         height: '100vh'
@@ -89,7 +94,7 @@ export default function Layout() {
       )}
 
       {/* ── Main content ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0, width: '100%', backgroundColor: '#ffffff' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0, width: '100%', backgroundColor: 'transparent' }}>
         <TopBar
           onMenuClick={() => {
             if (window.innerWidth < 768) {
@@ -99,7 +104,7 @@ export default function Layout() {
             }
           }}
         />
-        <main style={{ flex: 1, overflowY: 'auto', padding: window.innerWidth >= 768 ? '32px' : '16px', width: '100%', backgroundColor: '#ffffff', position: 'relative' }}>
+        <main style={{ flex: 1, overflow: 'overlay', padding: window.innerWidth >= 768 ? '32px' : '16px', width: '100%', backgroundColor: 'transparent', position: 'relative' }}>
           <Outlet />
         </main>
       </div>
