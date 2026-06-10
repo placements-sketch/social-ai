@@ -55,14 +55,14 @@ export default function Login() {
             <div className="inline-flex items-center justify-center w-11 h-11 bg-brand-600 rounded-xl mb-4">
               <Lock size={20} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-1">Social AI</h1>
-            <p className="text-xs text-white/50">Customer Support Platform</p>
+            <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '0.02em' }}>Social AI</h1>
+            <p className="text-xs text-white/50" style={{ letterSpacing: '0.03em', lineHeight: '1.5' }}>Customer Support Platform</p>
           </div>
 
           {/* Error message */}
           {error && (
             <div className="mb-5 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-xs text-red-300 font-medium">{error}</p>
+              <p className="text-xs text-red-300 font-medium" style={{ letterSpacing: '0.03em', lineHeight: '1.5' }}>{error}</p>
             </div>
           )}
 
@@ -70,7 +70,7 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email field */}
             <div>
-              <label className="block text-xs font-medium text-white/60 mb-1.5">Email Address</label>
+              <label className="block text-xs font-medium text-white/60 mb-1.5" style={{ letterSpacing: '0.03em', lineHeight: '1.5' }}>Email Address</label>
               <div className="relative">
                 <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 z-10" />
                 <input
@@ -89,7 +89,8 @@ export default function Login() {
                     caretColor: 'white',
                     fontFamily: 'Quicksand, sans-serif',
                     fontWeight: 400,
-                    letterSpacing: '0.01em',
+                    letterSpacing: '0.03em',
+                    lineHeight: '1.5',
                   }}
                   required
                   disabled={isLoading}
@@ -99,7 +100,7 @@ export default function Login() {
 
             {/* Password field */}
             <div>
-              <label className="block text-xs font-medium text-white/60 mb-1.5">Password</label>
+              <label className="block text-xs font-medium text-white/60 mb-1.5" style={{ letterSpacing: '0.03em', lineHeight: '1.5' }}>Password</label>
               <div className="relative">
                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 z-10" />
                 <input
@@ -118,7 +119,8 @@ export default function Login() {
                     caretColor: 'white',
                     fontFamily: 'Quicksand, sans-serif',
                     fontWeight: 400,
-                    letterSpacing: '0.01em',
+                    letterSpacing: '0.03em',
+                    lineHeight: '1.5',
                   }}
                   required
                   disabled={isLoading}
@@ -138,6 +140,7 @@ export default function Login() {
               type="submit"
               disabled={isLoading}
               className="w-full mt-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+              style={{ letterSpacing: '0.03em', lineHeight: '1.5' }}
             >
               {isLoading ? (
                 <>
@@ -150,10 +153,9 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Demo info */}
+          {/* Security notice */}
           <div className="mt-6 pt-5 border-t border-white/10 text-center">
-            <p className="text-[11px] text-white/30 mb-1">Demo — admin@company.com / admin123</p>
-            <p className="text-[10px] text-white/20">Authorized personnel only</p>
+            <p className="text-xs text-white/30" style={{ letterSpacing: '0.03em', lineHeight: '1.6' }}>Authorized personnel only</p>
           </div>
         </div>
       </div>

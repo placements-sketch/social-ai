@@ -164,7 +164,7 @@ export function unassignConversation(id) {
  */
 export function listAgents() {
   return handle(
-    fetch(`${API_BASE}/agents`, {
+    fetch(`${API_BASE}/auth/agents`, {
       method: 'GET',
       headers: authHeaders(),
     })

@@ -54,6 +54,45 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.06);
   }
 
+  /* Hide scrollbar but keep scroll functionality */
+  .hide-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari and Opera */
+  }
+
+  /* Ripple effect for status dots */
+  .ripple {
+    position: relative;
+  }
+
+  .ripple::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: currentColor;
+    transform: translate(-50%, -50%);
+    opacity: 0.3;
+    animation: ripple-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes ripple-pulse {
+    0% {
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 0.5;
+    }
+    100% {
+      transform: translate(-50%, -50%) scale(2.5);
+      opacity: 0;
+    }
+  }
+
   .badge {
     @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium;
   }

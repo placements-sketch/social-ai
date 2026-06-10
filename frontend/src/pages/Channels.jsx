@@ -1,216 +1,214 @@
 import { useState, useEffect, useContext } from 'react'
-import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
+import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, ExternalLink, Loader2, Copy, Check, Zap, ZapOff } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 
-// Facebook icon component
-const FacebookIcon = ({ size = 22, className = '' }) => (
+// ── Platform icons ──────────────────────────────────────────────────────────
+const FacebookIcon = ({ size = 20 }) => (
   <span
-    className={`inline-flex items-center justify-center font-black text-white rounded-lg ${className}`}
-    style={{ width: size, height: size, fontSize: size * 0.65, background: '#1877F2', borderRadius: 6 }}
-  >
-    f
-  </span>
+    className="inline-flex items-center justify-center font-black text-white"
+    style={{ width: size, height: size, fontSize: size * 0.6, background: '#1877F2', borderRadius: 6 }}
+  >f</span>
 )
 
-// TikTok icon component
-const TikTokIcon = ({ size = 22, className = '' }) => (
+const TikTokIcon = ({ size = 20 }) => (
   <span
-    className={`inline-flex items-center justify-center font-black text-white rounded-lg ${className}`}
-    style={{ width: size, height: size, fontSize: size * 0.65, background: '#000000', borderRadius: 6 }}
-  >
-    ♪
-  </span>
+    className="inline-flex items-center justify-center font-black text-white"
+    style={{ width: size, height: size, fontSize: size * 0.6, background: '#000', borderRadius: 6 }}
+  >♪</span>
 )
 
-// Map channel keys to display names and icons
+// ── Channel config ──────────────────────────────────────────────────────────
 const channelConfig = {
-  'instagram_dm': {
+  instagram_dm: {
     name: 'Instagram DMs',
-    Icon: ({ size }) => <Instagram size={size} className="text-pink-500" />,
-    color: 'from-pink-50 to-pink-50',
-    accent: 'pink',
+    description: 'Direct messages from Instagram',
+    Icon: ({ size = 20 }) => <Instagram size={size} className="text-pink-500" />,
+    accent: '#ec4899',
+    accentLight: '#fdf2f8',
+    platform: 'Instagram',
   },
-  'instagram_comment': {
+  instagram_comment: {
     name: 'Instagram Comments',
-    Icon: ({ size }) => <MessageCircle size={size} className="text-pink-500" />,
-    color: 'from-pink-50 to-pink-50',
-    accent: 'pink',
+    description: 'Post and reel comment replies',
+    Icon: ({ size = 20 }) => <MessageCircle size={size} className="text-pink-500" />,
+    accent: '#ec4899',
+    accentLight: '#fdf2f8',
+    platform: 'Instagram',
   },
-  'whatsapp': {
+  whatsapp: {
     name: 'WhatsApp',
-    Icon: ({ size }) => <Smartphone size={size} className="text-green-600" />,
-    color: 'from-green-50 to-green-50',
-    accent: 'green',
+    description: 'WhatsApp Business API messages',
+    Icon: ({ size = 20 }) => <Smartphone size={size} className="text-green-500" />,
+    accent: '#22c55e',
+    accentLight: '#f0fdf4',
+    platform: 'WhatsApp',
   },
-  'facebook_dm': {
+  facebook_dm: {
     name: 'Facebook Messenger',
-    Icon: ({ size }) => <FacebookIcon size={size} />,
-    color: 'from-blue-50 to-blue-50',
-    accent: 'blue',
+    description: 'Messenger inbox messages',
+    Icon: ({ size = 20 }) => <FacebookIcon size={size} />,
+    accent: '#3b82f6',
+    accentLight: '#eff6ff',
+    platform: 'Facebook',
   },
-  'facebook_comment': {
-    name: 'Facebook Post Comments',
-    Icon: ({ size }) => <FacebookIcon size={size} />,
-    color: 'from-blue-50 to-blue-50',
-    accent: 'blue',
+  facebook_comment: {
+    name: 'Facebook Comments',
+    description: 'Facebook post comment replies',
+    Icon: ({ size = 20 }) => <FacebookIcon size={size} />,
+    accent: '#3b82f6',
+    accentLight: '#eff6ff',
+    platform: 'Facebook',
   },
-  'tiktok_dm': {
+  tiktok_dm: {
     name: 'TikTok DMs',
-    Icon: ({ size }) => <TikTokIcon size={size} />,
-    color: 'from-gray-50 to-gray-50',
-    accent: 'gray',
+    description: 'TikTok direct messages',
+    Icon: ({ size = 20 }) => <TikTokIcon size={size} />,
+    accent: '#000000',
+    accentLight: '#f9fafb',
+    platform: 'TikTok',
   },
-  'tiktok_comment': {
+  tiktok_comment: {
     name: 'TikTok Comments',
-    Icon: ({ size }) => <TikTokIcon size={size} />,
-    color: 'from-gray-50 to-gray-50',
-    accent: 'gray',
+    description: 'TikTok video comment replies',
+    Icon: ({ size = 20 }) => <TikTokIcon size={size} />,
+    accent: '#000000',
+    accentLight: '#f9fafb',
+    platform: 'TikTok',
   },
 }
 
-const getStatusColor = (connected, enabled) => {
-  if (!connected) return 'text-red-600 bg-red-50 border-red-200'
-  if (!enabled) return 'text-amber-600 bg-amber-50 border-amber-200'
-  return 'text-green-600 bg-green-50 border-green-200'
+// ── Platform groups ─────────────────────────────────────────────────────────
+const platforms = [
+  { key: 'Instagram', filter: ch => ch.channel.startsWith('instagram'), accent: '#ec4899' },
+  { key: 'Facebook',  filter: ch => ch.channel.startsWith('facebook'),  accent: '#3b82f6' },
+  { key: 'TikTok',    filter: ch => ch.channel.startsWith('tiktok'),    accent: '#000000' },
+  { key: 'WhatsApp',  filter: ch => ch.channel === 'whatsapp',          accent: '#22c55e' },
+]
+
+// ── CopyButton ──────────────────────────────────────────────────────────────
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  const handle = () => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <button
+      onClick={handle}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all shrink-0"
+    >
+      {copied ? <Check size={11} className="text-green-600" /> : <Copy size={11} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
 }
 
-const getStatusIcon = (connected) => {
-  return connected ? <CheckCircle size={14} /> : <AlertTriangle size={14} />
-}
-
-const getStatusLabel = (connected, enabled) => {
-  if (!connected) return 'Disconnected'
-  if (!enabled) return 'Disabled'
-  return 'Active'
-}
-
-// Channel Card Component
-const ChannelCard = ({ ch, config, testingChannelId, testResults, onToggle, onTest }) => {
+// ── ChannelRow ──────────────────────────────────────────────────────────────
+function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTest }) {
   const testResult = testResults[ch.id]
-  const statusColor = getStatusColor(ch.connected, ch.enabled)
+  const isActive = ch.connected && ch.enabled
+  const isPending = ch.connected && !ch.enabled
 
   return (
-    <div className="group relative bg-white rounded-2xl border border-gray-200/50 overflow-hidden hover:border-gray-300 hover:shadow-xl transition-all duration-300">
-      {/* Gradient top accent */}
-      <div className={clsx('h-1.5 w-full', {
-        'bg-gradient-to-r from-pink-500 to-pink-400': config.accent === 'pink',
-        'bg-gradient-to-r from-green-500 to-green-400': config.accent === 'green',
-        'bg-gradient-to-r from-blue-500 to-blue-400': config.accent === 'blue',
-        'bg-gradient-to-r from-gray-400 to-gray-300': config.accent === 'gray',
-      })} />
+    <div className="flex items-center gap-5 px-5 py-4 hover:bg-gray-50/60 transition-colors group">
+      {/* Icon */}
+      <div
+        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: config.accentLight }}
+      >
+        <config.Icon size={20} />
+      </div>
 
-      <div className="p-4 space-y-3">
-        {/* Header with icon and name */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br flex-shrink-0', {
-              'from-pink-100 to-pink-50': config.accent === 'pink',
-              'from-green-100 to-green-50': config.accent === 'green',
-              'from-blue-100 to-blue-50': config.accent === 'blue',
-              'from-gray-100 to-gray-50': config.accent === 'gray',
-            })}>
-              <config.Icon size={20} />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-gray-900">{config.name}</h3>
-              <p className="text-xs text-gray-400 mt-0.5">{ch.display_name}</p>
-            </div>
-          </div>
-          
-          {/* Status badge */}
-          <div className={clsx('flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium flex-shrink-0', statusColor)}>
-            {getStatusIcon(ch.connected)}
-            <span className="hidden sm:inline">{getStatusLabel(ch.connected, ch.enabled)}</span>
-          </div>
-        </div>
-
-        {/* Status details grid - more minimal */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-gradient-to-br from-gray-50 to-gray-30 rounded-lg px-2 py-1.5 border border-gray-100/50 text-xs">
-            <p className="text-gray-500 font-medium text-[11px]">Account</p>
-            <p className="text-gray-900 font-semibold text-xs">{ch.connected ? 'Connected' : 'Pending'}</p>
-          </div>
-          <div className="bg-gradient-to-br from-gray-50 to-gray-30 rounded-lg px-2 py-1.5 border border-gray-100/50 text-xs">
-            <p className="text-gray-500 font-medium text-[11px]">Webhook</p>
-            <p className="text-gray-900 font-semibold text-xs">{ch.connected ? 'Active' : 'Inactive'}</p>
-          </div>
-          <div className="bg-gradient-to-br from-gray-50 to-gray-30 rounded-lg px-2 py-1.5 border border-gray-100/50 text-xs">
-            <p className="text-gray-500 font-medium text-[11px]">Messages</p>
-            <p className="text-gray-900 font-semibold text-xs">{ch.message_count || 0}</p>
-          </div>
-          <div className="bg-gradient-to-br from-gray-50 to-gray-30 rounded-lg px-2 py-1.5 border border-gray-100/50 text-xs">
-            <p className="text-gray-500 font-medium text-[11px]">Unread</p>
-            <p className={clsx('font-semibold text-xs', ch.unread_count > 0 ? 'text-amber-600' : 'text-gray-900')}>
-              {ch.unread_count || 0}
-            </p>
-          </div>
-        </div>
-
-        {/* Test result */}
+      {/* Name + description */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-900">{config.name}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{config.description}</p>
         {testResult && (
-          <div className={clsx(
-            'text-xs px-2.5 py-1.5 rounded-lg border text-[11px]',
-            testResult.ok
-              ? 'bg-green-50/50 text-green-700 border-green-200/50'
-              : 'bg-red-50/50 text-red-700 border-red-200/50'
+          <p className={clsx(
+            'text-[11px] font-medium mt-1',
+            testResult.ok ? 'text-green-600' : 'text-red-500'
           )}>
-            {testResult.message}
-          </div>
+            {testResult.ok ? '✓' : '✗'} {testResult.message}
+          </p>
         )}
+      </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 pt-0.5">
-          <button
-            onClick={() => onTest(ch.id)}
-            disabled={testingChannelId === ch.id}
-            className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 bg-gray-50/50 hover:bg-gray-100 text-gray-700 text-xs font-medium rounded-lg border border-gray-200/50 transition-colors disabled:opacity-50 hover:border-gray-300"
-            title="Test connection"
-          >
-            {testingChannelId === ch.id ? (
-              <>
-                <Loader2 size={11} className="animate-spin" />
-                <span className="hidden sm:inline">Test</span>
-              </>
-            ) : (
-              <>
-                <ExternalLink size={11} />
-                <span className="hidden sm:inline">Test</span>
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => onToggle(ch.id, ch.enabled)}
-            className={clsx(
-              'relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 shrink-0',
-              ch.enabled ? 'bg-black' : 'bg-gray-300'
-            )}
-            title={ch.enabled ? 'Disable channel' : 'Enable channel'}
-          >
-            <span
-              className="absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-300"
-              style={{ 
-                left: ch.enabled ? 'calc(100% - 1.25rem)' : '0.25rem',
-              }}
-            />
-          </button>
+      {/* Stats */}
+      <div className="hidden md:flex items-center gap-6 shrink-0">
+        <div className="text-center">
+          <p className="text-xs text-gray-400 font-medium">Messages</p>
+          <p className="text-sm font-bold text-gray-900 tabular-nums">{ch.message_count || 0}</p>
         </div>
+        <div className="text-center">
+          <p className="text-xs text-gray-400 font-medium">Unread</p>
+          <p className={clsx(
+            'text-sm font-bold tabular-nums',
+            ch.unread_count > 0 ? 'text-amber-500' : 'text-gray-900'
+          )}>{ch.unread_count || 0}</p>
+        </div>
+      </div>
+
+      {/* Status badge */}
+      <div className={clsx(
+        'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold shrink-0',
+        isActive  ? 'bg-green-50 text-green-700 border-green-200' :
+        isPending ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                   'bg-red-50 text-red-600 border-red-200'
+      )}>
+        {isActive
+          ? <><span className="ripple w-1.5 h-1.5 rounded-full bg-green-500 text-green-500 relative" /> Active</>
+          : isPending
+          ? <><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Disabled</>
+          : <><AlertTriangle size={11} /> Disconnected</>
+        }
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={() => onTest(ch.id)}
+          disabled={testingChannelId === ch.id}
+          title="Test connection"
+          className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-gray-700 hover:border-gray-300 transition-all disabled:opacity-40"
+        >
+          {testingChannelId === ch.id
+            ? <Loader2 size={13} className="animate-spin" />
+            : <ExternalLink size={13} />
+          }
+        </button>
+
+        {/* Toggle */}
+        <button
+          onClick={() => onToggle(ch.id, ch.enabled)}
+          className={clsx(
+            'relative inline-flex w-10 h-5 rounded-full transition-colors duration-200 shrink-0',
+            ch.enabled ? 'bg-black' : 'bg-gray-200'
+          )}
+          title={ch.enabled ? 'Disable' : 'Enable'}
+        >
+          <span
+            className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-300"
+            style={{ left: ch.enabled ? 'calc(100% - 1.125rem)' : '0.125rem' }}
+          />
+        </button>
       </div>
     </div>
   )
 }
 
+// ── Main component ──────────────────────────────────────────────────────────
 export default function Channels() {
-  const [channels, setChannels] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [channels, setChannels]           = useState([])
+  const [loading, setLoading]             = useState(true)
+  const [error, setError]                 = useState(null)
   const [publicBaseUrl, setPublicBaseUrl] = useState('')
   const [testingChannelId, setTestingChannelId] = useState(null)
-  const [testResults, setTestResults] = useState({})
+  const [testResults, setTestResults]     = useState({})
   const { confirm } = useContext(ConfirmationContext)
 
-  // Fetch channels from backend
   useEffect(() => {
     const fetchChannels = async () => {
       setLoading(true)
@@ -235,16 +233,14 @@ export default function Channels() {
   const toggleChannel = async (id, currentEnabled) => {
     const confirmed = await confirm({
       title: currentEnabled ? 'Disable Channel?' : 'Enable Channel?',
-      message: currentEnabled 
+      message: currentEnabled
         ? 'This channel will stop receiving messages. You can re-enable it anytime.'
         : 'This channel will start receiving messages again.',
       confirmText: currentEnabled ? 'Disable' : 'Enable',
       cancelText: 'Cancel',
       isDangerous: currentEnabled,
     })
-
     if (!confirmed) return
-
     try {
       const res = await fetch(`/api/channels/${id}`, {
         method: 'PATCH',
@@ -273,19 +269,14 @@ export default function Channels() {
         },
         body: JSON.stringify({}),
       })
-      if (!res.ok) throw new Error('Failed to test channel')
+      if (!res.ok) throw new Error('Connection test failed')
       const data = await res.json()
       setTestResults(prev => ({ ...prev, [id]: data }))
     } catch (err) {
-      console.error('Test failed:', err)
       setTestResults(prev => ({ ...prev, [id]: { ok: false, message: err.message } }))
     } finally {
       setTestingChannelId(null)
     }
-  }
-
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text)
   }
 
   if (loading) {
@@ -299,110 +290,101 @@ export default function Channels() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-600">
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-600">
         {error}
       </div>
     )
   }
 
+  // Summary counts
+  const activeCount = channels.filter(ch => ch.connected && ch.enabled).length
+  const totalCount  = channels.length
+
   return (
-    <div className="space-y-6 w-full max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-gray-900">Channels</h1>
-        <p className="text-sm text-gray-500">Manage your connected platforms and monitor real-time status</p>
+    <div className="space-y-8 w-full">
+
+      {/* ── Header ──────────────────────────────────────────────── */}
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Channels</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Manage connected platforms and monitor their real-time status</p>
+        </div>
+        {/* Summary pill */}
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 shrink-0">
+          <span className="w-2 h-2 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4,0,0.6,1) infinite' }} />
+          <span className="text-xs font-semibold text-gray-700">
+            {activeCount} <span className="text-gray-400 font-normal">of</span> {totalCount} active
+          </span>
+        </div>
       </div>
 
-      {/* Channels grid - organized by platform */}
-      <div className="space-y-8">
-        {/* Instagram Row */}
-        <section>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-1 h-6 bg-gradient-to-b from-pink-500 to-pink-400 rounded-full" />
-            <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">Instagram</h2>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {channels.filter(ch => ch.channel.startsWith('instagram')).map(ch => (
-              <ChannelCard key={ch.id} ch={ch} config={channelConfig[ch.channel]} 
-                testingChannelId={testingChannelId} testResults={testResults}
-                onToggle={toggleChannel} onTest={testConnection} />
-            ))}
-          </div>
-        </section>
-
-        {/* Facebook Row */}
-        <section>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-blue-400 rounded-full" />
-            <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">Facebook</h2>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {channels.filter(ch => ch.channel.startsWith('facebook')).map(ch => (
-              <ChannelCard key={ch.id} ch={ch} config={channelConfig[ch.channel]} 
-                testingChannelId={testingChannelId} testResults={testResults}
-                onToggle={toggleChannel} onTest={testConnection} />
-            ))}
-          </div>
-        </section>
-
-        {/* TikTok Row */}
-        <section>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-1 h-6 bg-gradient-to-b from-gray-400 to-gray-300 rounded-full" />
-            <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">TikTok</h2>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {channels.filter(ch => ch.channel.startsWith('tiktok')).map(ch => (
-              <ChannelCard key={ch.id} ch={ch} config={channelConfig[ch.channel]} 
-                testingChannelId={testingChannelId} testResults={testResults}
-                onToggle={toggleChannel} onTest={testConnection} />
-            ))}
-          </div>
-        </section>
-
-        {/* WhatsApp - Full width */}
-        <section>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-400 rounded-full" />
-            <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">WhatsApp</h2>
-          </div>
-          <div className="grid grid-cols-1 gap-4">
-            {channels.filter(ch => ch.channel === 'whatsapp').map(ch => (
-              <ChannelCard key={ch.id} ch={ch} config={channelConfig[ch.channel]} 
-                testingChannelId={testingChannelId} testResults={testResults}
-                onToggle={toggleChannel} onTest={testConnection} />
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* Webhook URLs section */}
-      {publicBaseUrl && (
-        <section className="pt-2">
-          <div className="border border-gray-200 rounded-lg p-5 space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Webhook URLs</h2>
-              <p className="text-xs text-gray-500 mt-1">Register these in your respective Developer Consoles</p>
-            </div>
-
-            <div className="space-y-3">
-              {channels.map(ch => (
-                <div key={ch.id} className="flex items-start justify-between gap-4 pb-3 border-b border-gray-100 last:border-0 last:pb-0">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-500 font-medium mb-1.5">{channelConfig[ch.channel]?.name || ch.display_name}</p>
-                    <p className="text-xs font-mono text-brand-600 break-all">{ch.webhook_url}</p>
-                  </div>
-                  <button
-                    onClick={() => copyToClipboard(ch.webhook_url)}
-                    className="text-xs font-semibold text-gray-600 hover:text-gray-900 whitespace-nowrap transition-colors flex-shrink-0 py-0.5"
-                  >
-                    Copy
-                  </button>
+      {/* ── Platform sections ────────────────────────────────────── */}
+      <div className="space-y-5">
+        {platforms.map(({ key, filter, accent }) => {
+          const group = channels.filter(filter)
+          if (group.length === 0) return null
+          return (
+            <div key={key} className="card overflow-hidden">
+              {/* Section header */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gray-50/50">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2 h-2 rounded-full" style={{ background: accent }} />
+                  <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">{key}</h2>
+                  <span className="text-xs text-gray-400 font-medium">
+                    {group.filter(ch => ch.connected && ch.enabled).length}/{group.length} active
+                  </span>
                 </div>
-              ))}
+              </div>
+
+              {/* Channel rows */}
+              <div className="divide-y divide-gray-100">
+                {group.map(ch => {
+                  const config = channelConfig[ch.channel]
+                  if (!config) return null
+                  return (
+                    <ChannelRow
+                      key={ch.id}
+                      ch={ch}
+                      config={config}
+                      testingChannelId={testingChannelId}
+                      testResults={testResults}
+                      onToggle={toggleChannel}
+                      onTest={testConnection}
+                    />
+                  )
+                })}
+              </div>
             </div>
+          )
+        })}
+      </div>
+
+      {/* ── Webhook URLs ─────────────────────────────────────────── */}
+      {publicBaseUrl && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-gray-100 bg-gray-50/50">
+            <span className="w-2 h-2 rounded-full bg-gray-400" />
+            <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">Webhook URLs</h2>
+            <span className="text-xs text-gray-400 font-medium">Register these in your Developer Consoles</span>
           </div>
-        </section>
+          <div className="divide-y divide-gray-100">
+            {channels.map(ch => {
+              const config = channelConfig[ch.channel]
+              return (
+                <div key={ch.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/60 transition-colors">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: config?.accentLight }}>
+                    {config && <config.Icon size={16} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-gray-600 mb-0.5">{config?.name || ch.display_name}</p>
+                    <p className="text-xs font-mono text-brand-600 truncate">{ch.webhook_url}</p>
+                  </div>
+                  <CopyButton text={ch.webhook_url} />
+                </div>
+              )
+            })}
+          </div>
+        </div>
       )}
     </div>
   )

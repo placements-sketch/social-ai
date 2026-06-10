@@ -163,22 +163,22 @@ export default function Dashboard() {
               />
               <Tooltip 
                 contentStyle={{
-                  background: '#ffffff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '12px',
-                  boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
-                  padding: '12px'
+                  background: '#000000',
+                  border: 'none',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  padding: '8px 12px'
                 }}
-                labelStyle={{ color: '#1f2937', fontWeight: 600, fontSize: 12, marginBottom: '6px', fontFamily: 'Quicksand' }}
-                formatter={(value) => [`${value} msgs`, '']}
-                contentClassName="text-xs"
+                labelStyle={{ color: '#ffffff', fontWeight: 600, fontSize: 11, marginBottom: '4px', fontFamily: 'Quicksand' }}
+                formatter={(value) => [`${value}`, '']}
+                contentClassName="text-[10px]"
               />
               {/* Instagram */}
               <Line 
                 type="natural"
                 dataKey="instagram" 
                 stroke="#ec4899" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 6, fill: '#ec4899', fillOpacity: 1 }}
                 isAnimationActive={true}
@@ -187,7 +187,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="instagram_resp" 
                 stroke="#ec4899" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
                 activeDot={{ r: 6, fill: '#ec4899', fillOpacity: 1 }}
@@ -197,7 +197,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="whatsapp" 
                 stroke="#22c55e" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 6, fill: '#22c55e', fillOpacity: 1 }}
               />
@@ -205,7 +205,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="whatsapp_resp" 
                 stroke="#22c55e" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
                 activeDot={{ r: 6, fill: '#22c55e', fillOpacity: 1 }}
@@ -215,7 +215,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="facebook" 
                 stroke="#3b82f6" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 6, fill: '#3b82f6', fillOpacity: 1 }}
               />
@@ -223,7 +223,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="facebook_resp" 
                 stroke="#3b82f6" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
                 activeDot={{ r: 6, fill: '#3b82f6', fillOpacity: 1 }}
@@ -233,7 +233,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="tiktok" 
                 stroke="#000000" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 6, fill: '#000000', fillOpacity: 1 }}
               />
@@ -241,7 +241,7 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="tiktok_resp" 
                 stroke="#000000" 
-                strokeWidth={2.5}
+                strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
                 activeDot={{ r: 6, fill: '#000000', fillOpacity: 1 }}
@@ -323,7 +323,12 @@ export default function Dashboard() {
         {/* Alerts + quick stats */}
         <div className="space-y-4">
           <div className="card p-5">
-            <h2 className="text-sm font-bold text-gray-900 mb-3">System Alerts</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold text-gray-900">System Alerts</h2>
+              <a href="/logs" className="text-xs text-brand-600 hover:text-brand-700 font-semibold transition-colors">
+                View All →
+              </a>
+            </div>
             <div className="space-y-2.5">
               {alerts.map((alert) => {
                 const { icon: Icon, cls } = alertStyles[alert.level]

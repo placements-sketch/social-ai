@@ -317,8 +317,8 @@ export default function Messages() {
   const ConvList = (
     <div className={clsx(
       'border-r border-gray-100 flex flex-col bg-white',
-      'w-full sm:w-80 md:w-72 md:shrink-0',
-      selected ? 'hidden md:flex' : 'flex',
+      'w-full lg:w-72 lg:shrink-0',
+      selected ? 'hidden lg:flex' : 'flex',
     )}>
       <div className="p-2 sm:p-2.5 border-b border-gray-100 space-y-2 sm:space-y-2">
         <input
@@ -366,7 +366,7 @@ export default function Messages() {
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto hide-scrollbar">
         {loadingList && (
           <div className="p-2 sm:p-3 space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -427,10 +427,10 @@ export default function Messages() {
   const ChatPanel = (
     <div className={clsx(
       'flex-1 flex flex-col min-w-0 bg-[#FAFAFA]',
-      !selected ? 'hidden md:flex' : 'flex',
+      !selected ? 'hidden lg:flex' : 'flex',
     )}>
       {!selected && (
-        <div className="hidden md:flex flex-1 items-center justify-center text-gray-400 text-sm">
+        <div className="hidden lg:flex flex-1 items-center justify-center text-gray-400 text-sm">
           Select a conversation to get started.
         </div>
       )}
@@ -463,7 +463,7 @@ export default function Messages() {
             <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
               <button
                 onClick={backToList}
-                className="md:hidden btn-ghost p-1.5 shrink-0"
+                className="lg:hidden btn-ghost p-1.5 shrink-0"
                 aria-label="Back to conversations"
               >
                 <ArrowLeft size={16} />
@@ -578,7 +578,7 @@ export default function Messages() {
             {/* Right: Context toggle */}
             <button
               onClick={() => setShowContext(s => !s)}
-              className="md:hidden btn-ghost p-1.5"
+              className="lg:hidden btn-ghost p-1.5"
               aria-label="Show AI context"
             >
               <Info size={15} />
@@ -658,14 +658,14 @@ export default function Messages() {
   const ContextPanel = (
     <div className={clsx(
       'border-l border-gray-100 p-4 overflow-y-auto bg-white',
-      'hidden md:block md:w-56 md:shrink-0',
+      'hidden lg:block lg:w-56 lg:shrink-0',
     )}>
       {activeConv && <ContextContent conv={activeConv} />}
     </div>
   )
 
   const MobileContextDrawer = showContext && activeConv && (
-    <div className="md:hidden fixed inset-0 z-40 flex">
+    <div className="lg:hidden fixed inset-0 z-40 flex">
       <div className="absolute inset-0 bg-black/40" onClick={() => setShowContext(false)} />
       <div className="relative ml-auto w-72 max-w-full h-full bg-white p-4 overflow-y-auto shadow-xl">
         <div className="flex items-center justify-between mb-4">
@@ -690,11 +690,19 @@ export default function Messages() {
       {/* Main content area with border - fills remaining space */}
       <div className="flex-1 flex flex-col gap-0 overflow-hidden px-4 md:px-8 pb-2 md:pb-3">
         <div className="flex-1 flex flex-col gap-0 overflow-hidden rounded-3xl border border-gray-200 bg-white min-h-0">
-          {/* Main content area - flex-1 to fill remaining space, no overflow */}
+          {/* Main content area - responsive toggle for small screens */}
           <div className="flex-1 flex gap-0 overflow-hidden">
-            {ConvList}
-            {ChatPanel}
-            {ContextPanel}
+            {/* On small/medium screens: show only ConvList by default, toggle to ChatPanel when selected */}
+            <div className="lg:hidden flex-1 flex overflow-hidden">
+              {selected ? ChatPanel : ConvList}
+            </div>
+            
+            {/* On large screens: show all three panels */}
+            <div className="hidden lg:flex flex-1 gap-0 overflow-hidden">
+              {ConvList}
+              {ChatPanel}
+              {ContextPanel}
+            </div>
           </div>
 
           {MobileContextDrawer}

@@ -323,3 +323,150 @@ def _real_list_all_products() -> list[dict]:
     except requests.RequestException as e:
         log_event("error", "integrations.shopify", f"Failed to fetch catalog: {str(e)}")
         raise
+
+# ─────────────────────────────────────────────
+# Customers
+# ─────────────────────────────────────────────
+
+def list_all_customers() -> list[dict]:
+    """
+    Full customer list from Shopify, paginated.
+    Each customer dict includes order summary (orders_count, total_spent, last_order).
+    """
+    if USE_MOCK:
+        return []  # No mock customers — flip USE_MOCK to False before using.
+    return _real_list_all_customers()
+
+
+def get_customer_orders(shopify_customer_id: str) -> list[dict]:
+    """
+    Fetch all orders for a single customer. Used by the detail page on demand.
+    """
+    if USE_MOCK:
+        return []
+    return _real_get_customer_orders(shopify_customer_id)
+
+
+def _real_list_all_customers() -> list[dict]:
+    """
+    GET /admin/api/2024-01/customers.json?limit=250
+    Shopify includes order summary fields directly on the customer object:
+      orders_count, total_spent, last_order_id, last_order_name
+    But NOT last_order_date — we'd need an extra orders query for that.
+    For the first sync we use shopify's updated_at as a proxy for activity.
+    """
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        all_customers = []
+        url = f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+
+        while url:
+            response = requests.get(url, headers=headers, timeout=30)
+            log_event("info", "integrations.shopify",
+                      f"DEBUG customers response: status={response.status_code} url={url} headers_sent={list(headers.keys())} body={response.text[:300]}")
+            response.raise_for_status()
+
+        while url:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            for c in response.json().get('customers', []):
+                default_address = c.get('default_address') or {}
+                all_customers.append({
+                    "shopify_id": str(c['id']),
+                    "email": c.get('email'),
+                    "first_name": c.get('first_name'),
+                    "last_name": c.get('last_name'),
+                    "phone": c.get('phone') or default_address.get('phone'),
+                    "city": default_address.get('city'),
+                    "country": default_address.get('country'),
+                    "accepts_marketing": bool(c.get('accepts_marketing', False)),
+                    "tags": [t.strip() for t in (c.get('tags') or '').split(',') if t.strip()],
+                    "total_orders": int(c.get('orders_count', 0) or 0),
+                    "total_spent": float(c.get('total_spent', 0) or 0),
+                    "shopify_created_at": c.get('created_at'),
+                    "updated_at": c.get('updated_at'),
+                })
+
+            # Pagination via Link header
+            link_header = response.headers.get('Link', '')
+            url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        url = part.split(';')[0].strip().strip('<>')
+                        break
+
+        log_event("info", "integrations.shopify", f"Fetched {len(all_customers)} customers from Shopify")
+        return all_customers
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify", f"Failed to fetch customers: {str(e)}")
+        raise
+
+
+def list_all_orders() -> list[dict]:
+    """
+    Full orders list from Shopify, paginated. Used by /api/orders/sync.
+    """
+    if USE_MOCK:
+        return []
+    return _real_list_all_orders()
+
+
+def _real_list_all_orders() -> list[dict]:
+    """
+    GET /admin/api/2024-01/orders.json?status=any&limit=250
+    Note: without read_all_orders scope, only last 60 days are returned.
+    """
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        all_orders = []
+        url = f"{store_url}/admin/api/2024-01/orders.json?status=any&limit=250"
+
+        while url:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            for o in response.json().get('orders', []):
+                customer = o.get('customer') or {}
+                line_items = o.get('line_items') or []
+                all_orders.append({
+                    "shopify_id": str(o.get('id')),
+                    "shopify_customer_id": str(customer.get('id')) if customer.get('id') else None,
+                    "order_number": str(o.get('order_number') or o.get('name') or ''),
+                    "total": float(o.get('total_price', 0) or 0),
+                    "currency": o.get('currency', 'KES'),
+                    "items_count": sum(int(li.get('quantity', 0) or 0) for li in line_items),
+                    "products": [li.get('title', '') for li in line_items if li.get('title')],
+                    "financial_status": o.get('financial_status'),
+                    "fulfillment_status": o.get('fulfillment_status'),
+                    "order_date": o.get('created_at'),
+                })
+
+            link_header = response.headers.get('Link', '')
+            url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        url = part.split(';')[0].strip().strip('<>')
+                        break
+
+        log_event("info", "integrations.shopify", f"Fetched {len(all_orders)} orders from Shopify")
+        return all_orders
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify", f"Failed to fetch orders: {str(e)}")
+        raise

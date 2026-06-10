@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
-  ArrowUpRight, Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight,
+  ArrowUpRight, Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft,
   Download, FileText, Sheet, File,
 } from 'lucide-react'
 import {
@@ -443,51 +443,75 @@ export default function Customers() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-6">
-            <button
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
-              const pageNum = i + 1
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={clsx(
-                    'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
-                    currentPage === pageNum
-                      ? 'bg-black text-white'
-                      : 'border border-gray-200 text-gray-700 hover:bg-gray-50'
-                  )}
-                >
-                  {pageNum}
-                </button>
-              )
-            })}
-            {totalPages > 5 && (
-              <>
-                <span className="text-gray-400">…</span>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  {totalPages}
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
+          <div className="flex items-center justify-between gap-4 mt-6">
+            <p className="text-xs text-gray-400 font-medium">
+              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} entries
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className={clsx(
+                  'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors',
+                  currentPage === 1
+                    ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                )}
+              >
+                <ChevronLeft size={14} />
+                Previous
+              </button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum
+                  if (totalPages <= 5) {
+                    pageNum = i + 1
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i
+                  } else {
+                    pageNum = currentPage - 2 + i
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={clsx(
+                        'w-8 h-8 rounded-lg border text-xs font-semibold transition-colors',
+                        currentPage === pageNum
+                          ? 'bg-black text-white border-black'
+                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                      )}
+                    >
+                      {pageNum}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className={clsx(
+                  'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors',
+                  currentPage === totalPages
+                    ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                )}
+              >
+                Next
+                <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
         )}
+
+        <p className="text-xs text-gray-400 text-center font-medium mt-4">
+          {filtered.length === 0 ? 'No customers' : `Total: ${filtered.length} entries`}
+        </p>
       </div>
     </div>
   )

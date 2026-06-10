@@ -349,6 +349,63 @@ class ProductCache(db.Model):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CUSTOMERS CACHE
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CustomerCache(db.Model):
+    __tablename__ = "customers_cache"
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    shopify_customer_id = db.Column(db.String(64), unique=True, nullable=False)
+    email               = db.Column(db.String(256), nullable=True)
+    first_name          = db.Column(db.String(128), nullable=True)
+    last_name           = db.Column(db.String(128), nullable=True)
+    phone               = db.Column(db.String(64), nullable=True)
+    city                = db.Column(db.String(128), nullable=True)
+    country             = db.Column(db.String(128), nullable=True)
+    accepts_marketing   = db.Column(db.Boolean, default=False)
+    tags                = db.Column(db.JSON, nullable=True)
+    total_orders        = db.Column(db.Integer, default=0)
+    total_spent         = db.Column(db.Numeric(12, 2), default=0)
+    last_order_date     = db.Column(db.DateTime, nullable=True)
+    first_order_date    = db.Column(db.DateTime, nullable=True)
+    shopify_created_at  = db.Column(db.DateTime, nullable=True)
+    cached_at           = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    @property
+    def full_name(self):
+        parts = [self.first_name, self.last_name]
+        return ' '.join(p for p in parts if p) or 'Unknown'
+
+    def __repr__(self):
+        return f"<CustomerCache {self.full_name} ({self.email})>"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ORDERS CACHE
+# ─────────────────────────────────────────────────────────────────────────────
+
+class OrderCache(db.Model):
+    __tablename__ = "orders_cache"
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    shopify_order_id    = db.Column(db.String(64), unique=True, nullable=False)
+    shopify_customer_id = db.Column(db.String(64), nullable=True, index=True)
+    order_number        = db.Column(db.String(64), nullable=True)
+    total               = db.Column(db.Numeric(12, 2), default=0)
+    currency            = db.Column(db.String(8), nullable=True)
+    items_count         = db.Column(db.Integer, default=0)
+    products            = db.Column(db.JSON, nullable=True)
+    financial_status    = db.Column(db.String(32), nullable=True)
+    fulfillment_status  = db.Column(db.String(32), nullable=True)
+    order_date          = db.Column(db.DateTime, nullable=True)
+    cached_at           = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<OrderCache #{self.order_number} KES {self.total}>"
+    
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STOCK CACHE
 # ─────────────────────────────────────────────────────────────────────────────
 
