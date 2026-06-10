@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
+import ScrollToTop from './ScrollToTop'
 
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false) // Mobile: closed by default
@@ -108,6 +109,8 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      <ScrollToTop />
     </div>
   )
 }

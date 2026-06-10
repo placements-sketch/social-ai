@@ -178,7 +178,7 @@ export default function Users() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3.5 flex-1">
                         {/* Avatar */}
-                        <div className="w-10 h-10 rounded-lg bg-black text-white flex items-center justify-center font-semibold text-xs shrink-0 mt-0.5">
+                        <div className="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center font-semibold text-xs shrink-0 mt-0.5">
                           {getInitials(user.full_name)}
                         </div>
                         

@@ -8,17 +8,20 @@ import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 
 const allNav = [
-  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'] },
-  { to: '/messages',   icon: MessageSquare,   label: 'Messages',            roles: ['admin', 'agent', 'supervisor'], badge: 4 },
-  { to: '/products',   icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'] },
-  { to: '/analytics',  icon: BarChart2,       label: 'Analytics',           roles: ['admin', 'agent', 'supervisor'] },
-  { to: '/customers',  icon: UserCircle,      label: 'Customer Profiling', roles: ['admin', 'supervisor'] },
-  { to: '/logs',       icon: ScrollText,      label: 'Logs',                roles: ['admin', 'agent', 'supervisor'] },
-  { to: '/ai',         icon: Bot,             label: 'AI Settings',         roles: ['admin'] },
-  { to: '/automation', icon: Zap,             label: 'Automation',          roles: ['admin'] },
-  { to: '/channels',   icon: Radio,           label: 'Channels',            roles: ['admin'] },
-  { to: '/users',      icon: Users,           label: 'Users',               roles: ['admin'] },
-  { to: '/settings',   icon: Settings,        label: 'Settings',            roles: ['admin'] },
+  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
+  { to: '/messages',   icon: MessageSquare,   label: 'Messages',            roles: ['admin', 'agent', 'supervisor'], badge: 4, group: 'Core' },
+  
+  { to: '/customers',  icon: UserCircle,      label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/products',   icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/analytics',  icon: BarChart2,       label: 'Analytics',           roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
+  
+  { to: '/channels',   icon: Radio,           label: 'Channels',            roles: ['admin'], group: 'Setup' },
+  { to: '/ai',         icon: Bot,             label: 'AI Settings',         roles: ['admin'], group: 'Setup' },
+  { to: '/automation', icon: Zap,             label: 'Automation',          roles: ['admin'], group: 'Setup' },
+  
+  { to: '/logs',       icon: ScrollText,      label: 'Logs',                roles: ['admin', 'agent', 'supervisor'], group: 'System' },
+  { to: '/users',      icon: Users,           label: 'Users',               roles: ['admin'], group: 'System' },
+  { to: '/settings',   icon: Settings,        label: 'Settings',            roles: ['admin'], group: 'System' },
 ]
 
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
@@ -42,7 +45,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
 
       {/* ── Header: logo + close/collapse button ── */}
       <div className={clsx(
-        'flex items-center h-16 shrink-0',
+        'flex items-center h-16 shrink-0 pt-5',
         isMobile ? 'justify-between px-4' : (collapsed ? 'md:justify-center md:px-0 px-4 justify-between' : 'justify-between px-4')
       )}>
         {/* Logo — always show on mobile, hide text when desktop-collapsed */}
@@ -82,42 +85,62 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
 
       {/* ── Nav links ── */}
       <nav className={clsx(
-        'flex-1 py-4 space-y-1 overflow-y-auto overflow-x-hidden',
+        'flex-1 py-4 space-y-4 overflow-y-auto overflow-x-hidden',
         isMobile ? 'px-3' : (collapsed ? 'md:px-2 px-3' : 'px-3')
       )}>
-        {nav.map(({ to, icon: Icon, label, badge }) => (
-          <NavLink
-            key={to}
-            to={to}
-            title={isMobile ? undefined : (collapsed ? label : undefined)}
-            className={({ isActive }) =>
-              clsx(
-                'relative flex items-center rounded-xl text-sm font-medium transition-all duration-200 ease-in-out',
-                isMobile ? 'gap-3 px-3 py-2.5' : (collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2.5' : 'gap-3 px-3 py-2.5'),
-                isActive
-                  ? 'bg-brand-600 text-white shadow-lg'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              )
-            }
-          >
-            <Icon size={18} className="shrink-0" />
+        {/* Group navigation items */}
+        {['Core', 'Business', 'Setup', 'System'].map(groupName => {
+          const groupItems = nav.filter(item => item.group === groupName)
+          if (groupItems.length === 0) return null
 
-            {/* Label: always show on mobile, hide on desktop when collapsed */}
-            <span className={clsx('flex-1 truncate', !isMobile && collapsed && 'md:hidden')}>
-              {label}
-            </span>
+          return (
+            <div key={groupName}>
+              {/* Group label - hide when collapsed on desktop */}
+              {!collapsed && (
+                <p className="text-xs font-semibold text-gray-200 uppercase tracking-widest px-3 py-1.5 mt-2">
+                  {groupName}
+                </p>
+              )}
+              
+              {/* Group items */}
+              <div className="space-y-1">
+                {groupItems.map(({ to, icon: Icon, label, badge }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    title={isMobile ? undefined : (collapsed ? label : undefined)}
+                    className={({ isActive }) =>
+                      clsx(
+                        'relative flex items-center rounded-xl text-sm font-medium transition-all duration-200 ease-in-out',
+                        isMobile ? 'gap-3 px-3 py-2.5' : (collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2.5' : 'gap-3 px-3 py-2.5'),
+                        isActive
+                          ? 'bg-brand-600 text-white shadow-lg'
+                          : 'text-gray-400 hover:text-white hover:bg-white/5'
+                      )
+                    }
+                  >
+                    <Icon size={18} className="shrink-0" />
 
-            {/* Badge: message count circle like WhatsApp */}
-            {badge && (
-              <span className={clsx(
-                'w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
-                isMobile ? 'ml-auto' : (collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[8px] hidden md:flex' : 'ml-auto')
-              )}>
-                {badge}
-              </span>
-            )}
-          </NavLink>
-        ))}
+                    {/* Label: always show on mobile, hide on desktop when collapsed */}
+                    <span className={clsx('flex-1 truncate', !isMobile && collapsed && 'md:hidden')}>
+                      {label}
+                    </span>
+
+                    {/* Badge: message count circle like WhatsApp */}
+                    {badge && (
+                      <span className={clsx(
+                        'w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
+                        isMobile ? 'ml-auto' : (collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[8px] hidden md:flex' : 'ml-auto')
+                      )}>
+                        {badge}
+                      </span>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          )
+        })}
       </nav>
 
       {/* ── Footer: user info + desktop expand button ── */}

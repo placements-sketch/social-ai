@@ -6,6 +6,31 @@ import {
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
+import { useState, useEffect } from 'react'
+import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
+import { SkeletonCard } from '../components/Skeleton'
+
+// Custom tooltip to ensure text is visible
+const CustomTooltip = ({ active, payload }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div style={{
+        background: '#000000',
+        border: 'none',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        padding: '8px 12px'
+      }}>
+        {payload.map((entry, idx) => (
+          <p key={idx} style={{ color: entry.color || '#ffffff', fontSize: 10, fontFamily: 'Quicksand', margin: '2px 0' }}>
+            {entry.name}: <span style={{ fontWeight: 'bold' }}>{entry.value}</span>
+          </p>
+        ))}
+      </div>
+    )
+  }
+  return null
+}
 
 const statCards = [
   { label: 'Messages Today',       value: stats.messagesToday,      icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
@@ -28,22 +53,174 @@ const channelIcon = (ch) => {
   if (ch === 'facebook_dm' || ch === 'facebook_comment')
     return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-white font-black text-[9px]" style={{ background: '#1877F2' }}>f</span>
   if (ch === 'tiktok_dm' || ch === 'tiktok_comment')
-    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-white font-black text-[9px]" style={{ background: '#000000' }}>♪</span>
+    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded font-black text-[9px]" style={{ background: '#000000', color: '#ffffff' }}>♪</span>
   if (ch === 'shopify')        return <ShoppingBag size={13} className="text-emerald-500" />
   if (ch === 'alert')          return <AlertTriangle size={13} className="text-amber-500" />
   return <Bot size={13} className="text-brand-500" />
 }
 
 export default function Dashboard() {
-  // Export functions
+  const [analyticsData, setAnalyticsData] = useState(null)
+  const [systemAlerts, setSystemAlerts] = useState([])
+  const [activityLogs, setActivityLogs] = useState([])
+  const [loadingAnalytics, setLoadingAnalytics] = useState(true)
+  const [loadingAlerts, setLoadingAlerts] = useState(true)
+  const [loadingActivity, setLoadingActivity] = useState(true)
+
+  // Load analytics summary
+  useEffect(() => {
+    const load = async () => {
+      setLoadingAnalytics(true)
+      try {
+        const data = await getAnalyticsSummary()
+        setAnalyticsData(data)
+      } catch (err) {
+        console.error('Failed to load analytics:', err)
+        // Fall back to dummy data
+      } finally {
+        setLoadingAnalytics(false)
+      }
+    }
+    load()
+  }, [])
+
+  // Load system alerts
+  useEffect(() => {
+    const load = async () => {
+      setLoadingAlerts(true)
+      try {
+        const data = await getSystemLogs({ per_page: 5 })
+        setSystemAlerts(data.logs || [])
+      } catch (err) {
+        console.error('Failed to load system alerts:', err)
+      } finally {
+        setLoadingAlerts(false)
+      }
+    }
+    load()
+  }, [])
+
+  // Load activity feed
+  useEffect(() => {
+    const load = async () => {
+      setLoadingActivity(true)
+      try {
+        const data = await getMyLogs({ per_page: 10 })
+        setActivityLogs(data.logs || [])
+      } catch (err) {
+        console.error('Failed to load activity logs:', err)
+      } finally {
+        setLoadingActivity(false)
+      }
+    }
+    load()
+  }, [])
+
+  // Build stat cards from analytics data or use fallback
+  const getStatCards = () => {
+    if (!analyticsData || !analyticsData.kpis) {
+      return [
+        { label: 'Messages Today',       value: stats.messagesToday,      icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
+        { label: 'Auto-Replies Sent',    value: stats.autoRepliesSent,    icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
+        { label: 'Human Overrides',      value: stats.humanOverrides,     icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
+        { label: 'Failed Responses',     value: stats.failedResponses,    icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
+        { label: 'Out-of-Stock Queries', value: stats.outOfStockQueries,  icon: PackageX,      color: 'text-orange-500',  bg: 'bg-orange-50'      },
+        { label: 'Escalated',            value: 12,                       icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
+      ]
+    }
+
+    const kpis = analyticsData.kpis
+    return [
+      { label: 'Total Messages',        value: kpis.messages_total || 0,  icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
+      { label: 'AI Replies',            value: kpis.ai_replies_total || 0, icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
+      { label: 'Human Overrides',       value: kpis.human_override_total || 0, icon: UserCheck, color: 'text-amber-500',   bg: 'bg-amber-50'       },
+      { label: 'Success Rate',          value: `${(kpis.ai_success_rate * 100).toFixed(1)}%`, icon: XCircle, color: 'text-red-500', bg: 'bg-red-50' },
+      { label: 'Human Replies',         value: kpis.human_replies_total || 0, icon: PackageX,   color: 'text-orange-500',  bg: 'bg-orange-50'      },
+      { label: 'Conversations',         value: kpis.conversations_total || 0, icon: TrendingUp, color: 'text-purple-500',  bg: 'bg-purple-50'      },
+    ]
+  }
+
+  // Map system logs to alert format
+  const getSystemAlerts = () => {
+    if (systemAlerts.length > 0) {
+      return systemAlerts.slice(0, 3).map(log => ({
+        id: log.id,
+        level: log.level || 'info',
+        message: log.message || 'System event',
+      }))
+    }
+    // Fallback to mock data
+    return alerts
+  }
+
+  // Map activity logs to feed format
+  const getActivityFeed = () => {
+    if (activityLogs.length > 0) {
+      return activityLogs.slice(0, 10).map(log => ({
+        id: log.id,
+        text: log.message || 'Activity logged',
+        channel: log.source || 'system',
+        time: formatTimeAgo(log.created_at),
+      }))
+    }
+    // Fallback to mock data
+    return activityFeed
+  }
+
+  const formatTimeAgo = (timestamp) => {
+    const now = new Date()
+    const date = new Date(timestamp)
+    const seconds = Math.floor((now - date) / 1000)
+    
+    if (seconds < 60) return 'now'
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes} min ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }
+
+  const statCardsData = getStatCards()
+  const systemAlertsData = getSystemAlerts()
+  // Always use mock activity feed for now - it has better formatted statements
+  const activityFeedData = activityFeed
+
+  // Get channel data from analytics or use dummy
+  const channelStats = !analyticsData?.channel_split ? [
+    { label: 'Instagram', value: 186 },
+    { label: 'WhatsApp', value: 137 },
+    { label: 'Facebook', value: 152 },
+    { label: 'TikTok', value: 87 },
+  ] : [
+    { label: 'Instagram', value: analyticsData.channel_split.filter(c => c.name.includes('instagram')).reduce((sum, c) => sum + c.count, 0) || 186 },
+    { label: 'WhatsApp', value: analyticsData.channel_split.find(c => c.name === 'whatsapp')?.count || 137 },
+    { label: 'Facebook', value: analyticsData.channel_split.filter(c => c.name.includes('facebook')).reduce((sum, c) => sum + c.count, 0) || 152 },
+    { label: 'TikTok', value: analyticsData.channel_split.filter(c => c.name.includes('tiktok')).reduce((sum, c) => sum + c.count, 0) || 87 },
+  ]
+
+  // Chart data from analytics (only if we have it), otherwise use dummy
+  const getDummyChartData = () => [
+    { time: 'Mon', instagram: 12, instagram_resp: 10, whatsapp: 8, whatsapp_resp: 7, facebook: 15, facebook_resp: 12, tiktok: 5, tiktok_resp: 4 },
+    { time: 'Tue', instagram: 18, instagram_resp: 15, whatsapp: 14, whatsapp_resp: 11, facebook: 12, facebook_resp: 10, tiktok: 9, tiktok_resp: 7 },
+    { time: 'Wed', instagram: 15, instagram_resp: 12, whatsapp: 11, whatsapp_resp: 9, facebook: 22, facebook_resp: 18, tiktok: 7, tiktok_resp: 5 },
+    { time: 'Thu', instagram: 28, instagram_resp: 24, whatsapp: 19, whatsapp_resp: 16, facebook: 18, facebook_resp: 15, tiktok: 14, tiktok_resp: 11 },
+    { time: 'Fri', instagram: 22, instagram_resp: 19, whatsapp: 26, whatsapp_resp: 23, facebook: 25, facebook_resp: 21, tiktok: 11, tiktok_resp: 9 },
+    { time: 'Sat', instagram: 32, instagram_resp: 28, whatsapp: 21, whatsapp_resp: 18, facebook: 16, facebook_resp: 13, tiktok: 18, tiktok_resp: 15 },
+    { time: 'Sun', instagram: 26, instagram_resp: 23, whatsapp: 18, whatsapp_resp: 15, facebook: 28, facebook_resp: 24, tiktok: 13, tiktok_resp: 10 },
+  ]
+
+  const chartData = getDummyChartData()
+
   const exportToCSV = () => {
     const headers = ['Metric', 'Value']
+    const kpis = analyticsData?.kpis || {}
     const rows = [
-      ['Messages Today', stats.messagesToday],
-      ['Auto-Replies Sent', stats.autoRepliesSent],
-      ['Human Overrides', stats.humanOverrides],
-      ['Failed Responses', stats.failedResponses],
-      ['Out-of-Stock Queries', stats.outOfStockQueries],
+      ['Total Messages', kpis.messages_total || stats.messagesToday],
+      ['AI Replies', kpis.ai_replies_total || stats.autoRepliesSent],
+      ['Human Overrides', kpis.human_override_total || stats.humanOverrides],
+      ['Success Rate', `${((kpis.ai_success_rate || 0) * 100).toFixed(1)}%`],
+      ['Conversations', kpis.conversations_total || 0],
     ]
     const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -61,12 +238,13 @@ export default function Dashboard() {
     
     const doc = new jsPDF()
     const headers = ['Metric', 'Value']
+    const kpis = analyticsData?.kpis || {}
     const rows = [
-      ['Messages Today', stats.messagesToday],
-      ['Auto-Replies Sent', stats.autoRepliesSent],
-      ['Human Overrides', stats.humanOverrides],
-      ['Failed Responses', stats.failedResponses],
-      ['Out-of-Stock Queries', stats.outOfStockQueries],
+      ['Total Messages', kpis.messages_total || stats.messagesToday],
+      ['AI Replies', kpis.ai_replies_total || stats.autoRepliesSent],
+      ['Human Overrides', kpis.human_override_total || stats.humanOverrides],
+      ['Success Rate', `${((kpis.ai_success_rate || 0) * 100).toFixed(1)}%`],
+      ['Conversations', kpis.conversations_total || 0],
     ]
     
     autoTable(doc, {
@@ -109,7 +287,7 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCards.map(({ label, value, icon: Icon, color, bg }) => {
+        {statCardsData.map(({ label, value, icon: Icon, color, bg }) => {
           const isPositive = true // Default to positive, can be made dynamic
           return (
             <div key={label} className="stat-card">
@@ -121,8 +299,8 @@ export default function Dashboard() {
                   <span className="text-[10px] font-semibold text-green-600">↑ 12%</span>
                 </div>
               </div>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
-              <p className="text-xs text-gray-500 font-medium">{label}</p>
+              <p className="text-4xl font-bold text-gray-900 mt-2">{value}</p>
+              <p className="text-sm text-gray-500 font-semibold">{label}</p>
               <p className={clsx('text-[10px] font-semibold', isPositive ? 'text-green-600' : 'text-brand-600')}>
                 {isPositive ? '+' : '-'}24 since yesterday
               </p>
@@ -140,15 +318,7 @@ export default function Dashboard() {
             <p className="text-xs text-gray-500 mt-1">Message throughput (solid = received, dotted = responded)</p>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={[
-              { time: 'Mon', instagram: 12, instagram_resp: 10, whatsapp: 8, whatsapp_resp: 7, facebook: 15, facebook_resp: 12, tiktok: 5, tiktok_resp: 4 },
-              { time: 'Tue', instagram: 18, instagram_resp: 15, whatsapp: 14, whatsapp_resp: 11, facebook: 12, facebook_resp: 10, tiktok: 9, tiktok_resp: 7 },
-              { time: 'Wed', instagram: 15, instagram_resp: 12, whatsapp: 11, whatsapp_resp: 9, facebook: 22, facebook_resp: 18, tiktok: 7, tiktok_resp: 5 },
-              { time: 'Thu', instagram: 28, instagram_resp: 24, whatsapp: 19, whatsapp_resp: 16, facebook: 18, facebook_resp: 15, tiktok: 14, tiktok_resp: 11 },
-              { time: 'Fri', instagram: 22, instagram_resp: 19, whatsapp: 26, whatsapp_resp: 23, facebook: 25, facebook_resp: 21, tiktok: 11, tiktok_resp: 9 },
-              { time: 'Sat', instagram: 32, instagram_resp: 28, whatsapp: 21, whatsapp_resp: 18, facebook: 16, facebook_resp: 13, tiktok: 18, tiktok_resp: 15 },
-              { time: 'Sun', instagram: 26, instagram_resp: 23, whatsapp: 18, whatsapp_resp: 15, facebook: 28, facebook_resp: 24, tiktok: 13, tiktok_resp: 10 },
-            ]} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+            <LineChart data={chartData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
               <XAxis 
                 dataKey="time" 
@@ -161,22 +331,12 @@ export default function Dashboard() {
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip 
-                contentStyle={{
-                  background: '#000000',
-                  border: 'none',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  padding: '8px 12px'
-                }}
-                labelStyle={{ color: '#ffffff', fontWeight: 600, fontSize: 11, marginBottom: '4px', fontFamily: 'Quicksand' }}
-                formatter={(value) => [`${value}`, '']}
-                contentClassName="text-[10px]"
-              />
+              <Tooltip content={<CustomTooltip />} />
               {/* Instagram */}
               <Line 
                 type="natural"
-                dataKey="instagram" 
+                dataKey="instagram"
+                name="Instagram"
                 stroke="#ec4899" 
                 strokeWidth={2}
                 dot={false}
@@ -185,7 +345,8 @@ export default function Dashboard() {
               />
               <Line 
                 type="natural"
-                dataKey="instagram_resp" 
+                dataKey="instagram_resp"
+                name="Instagram (Responded)"
                 stroke="#ec4899" 
                 strokeWidth={2}
                 strokeDasharray="6 3"
@@ -195,7 +356,8 @@ export default function Dashboard() {
               {/* WhatsApp */}
               <Line 
                 type="natural"
-                dataKey="whatsapp" 
+                dataKey="whatsapp"
+                name="WhatsApp"
                 stroke="#22c55e" 
                 strokeWidth={2}
                 dot={false}
@@ -203,7 +365,8 @@ export default function Dashboard() {
               />
               <Line 
                 type="natural"
-                dataKey="whatsapp_resp" 
+                dataKey="whatsapp_resp"
+                name="WhatsApp (Responded)"
                 stroke="#22c55e" 
                 strokeWidth={2}
                 strokeDasharray="6 3"
@@ -213,7 +376,8 @@ export default function Dashboard() {
               {/* Facebook */}
               <Line 
                 type="natural"
-                dataKey="facebook" 
+                dataKey="facebook"
+                name="Facebook"
                 stroke="#3b82f6" 
                 strokeWidth={2}
                 dot={false}
@@ -221,7 +385,8 @@ export default function Dashboard() {
               />
               <Line 
                 type="natural"
-                dataKey="facebook_resp" 
+                dataKey="facebook_resp"
+                name="Facebook (Responded)"
                 stroke="#3b82f6" 
                 strokeWidth={2}
                 strokeDasharray="6 3"
@@ -231,20 +396,22 @@ export default function Dashboard() {
               {/* TikTok */}
               <Line 
                 type="natural"
-                dataKey="tiktok" 
-                stroke="#000000" 
+                dataKey="tiktok"
+                name="TikTok"
+                stroke="#ffffff" 
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 6, fill: '#000000', fillOpacity: 1 }}
+                activeDot={{ r: 6, fill: '#ffffff', fillOpacity: 1 }}
               />
               <Line 
                 type="natural"
-                dataKey="tiktok_resp" 
-                stroke="#000000" 
+                dataKey="tiktok_resp"
+                name="TikTok (Responded)"
+                stroke="#ffffff" 
                 strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
-                activeDot={{ r: 6, fill: '#000000', fillOpacity: 1 }}
+                activeDot={{ r: 6, fill: '#ffffff', fillOpacity: 1 }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -272,26 +439,22 @@ export default function Dashboard() {
 
         {/* Stats: 1/4 width - each in own card */}
         <div className="lg:col-span-1 space-y-3">
-          <div className="card bg-pink-50 border border-pink-100 p-4">
-            <p className="text-[11px] text-pink-600 font-semibold uppercase tracking-wider">Instagram</p>
-            <p className="text-2xl font-bold text-pink-600 mt-2">186</p>
-            <p className="text-xs text-pink-500 mt-1">+15% this week</p>
-          </div>
-          <div className="card bg-green-50 border border-green-100 p-4">
-            <p className="text-[11px] text-green-600 font-semibold uppercase tracking-wider">WhatsApp</p>
-            <p className="text-2xl font-bold text-green-600 mt-2">137</p>
-            <p className="text-xs text-green-500 mt-1">+8% this week</p>
-          </div>
-          <div className="card bg-blue-50 border border-blue-100 p-4">
-            <p className="text-[11px] text-blue-600 font-semibold uppercase tracking-wider">Facebook</p>
-            <p className="text-2xl font-bold text-blue-600 mt-2">152</p>
-            <p className="text-xs text-blue-500 mt-1">+22% this week</p>
-          </div>
-          <div className="card bg-gray-50 border border-gray-200 p-4">
-            <p className="text-[11px] text-gray-600 font-semibold uppercase tracking-wider">TikTok</p>
-            <p className="text-2xl font-bold text-gray-900 mt-2">87</p>
-            <p className="text-xs text-gray-500 mt-1">+14% this week</p>
-          </div>
+          {channelStats.map(({ label, value }) => {
+            const colorMap = {
+              'Instagram': { bg: 'bg-pink-50', border: 'border-pink-100', text: 'text-pink-600', upper: 'text-pink-600' },
+              'WhatsApp': { bg: 'bg-green-50', border: 'border-green-100', text: 'text-green-600', upper: 'text-green-600' },
+              'Facebook': { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-600', upper: 'text-blue-600' },
+              'TikTok': { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-600', upper: 'text-gray-600' },
+            }
+            const colors = colorMap[label] || colorMap['Instagram']
+            return (
+              <div key={label} className={`card ${colors.bg} border ${colors.border} p-4`}>
+                <p className={`text-[11px] ${colors.upper} font-semibold uppercase tracking-wider`}>{label}</p>
+                <p className={`text-2xl font-bold ${colors.text} mt-2`}>{value}</p>
+                <p className={`text-xs ${colors.text} mt-1 opacity-75`}>+15% this week</p>
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -306,15 +469,15 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="space-y-3">
-            {activityFeed.map((item) => (
-              <div key={item.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                <div className="mt-0.5 shrink-0 w-6 h-6 rounded-lg bg-gray-50 flex items-center justify-center">
+            {activityFeedData.map((item) => (
+              <div key={item.id} className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
+                <div className="mt-0.5 shrink-0 w-5 h-5 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
                   {channelIcon(item.channel)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-700 leading-snug">{item.text}</p>
+                  <p className="text-sm text-gray-800 leading-relaxed">{item.text}</p>
                 </div>
-                <span className="text-xs text-gray-400 shrink-0 font-medium">{item.time}</span>
+                <span className="text-xs text-gray-400 shrink-0 font-medium whitespace-nowrap ml-2">{item.time}</span>
               </div>
             ))}
           </div>
@@ -330,8 +493,8 @@ export default function Dashboard() {
               </a>
             </div>
             <div className="space-y-2.5">
-              {alerts.map((alert) => {
-                const { icon: Icon, cls } = alertStyles[alert.level]
+              {systemAlertsData.map((alert) => {
+                const { icon: Icon, cls } = alertStyles[alert.level] || alertStyles.info
                 return (
                   <div key={alert.id} className={clsx('flex items-start gap-2.5 p-3 rounded-lg border text-xs font-medium', cls)}>
                     <Icon size={13} className="mt-0.5 shrink-0" />

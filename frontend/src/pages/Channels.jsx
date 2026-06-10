@@ -301,7 +301,7 @@ export default function Channels() {
   const totalCount  = channels.length
 
   return (
-    <div className="space-y-8 w-full">
+    <div className="space-y-6 w-full max-w-7xl mx-auto">
 
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-end justify-between gap-4">

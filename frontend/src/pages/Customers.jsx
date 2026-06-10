@@ -137,7 +137,7 @@ export default function Customers() {
   }
 
   return (
-    <div className="space-y-6 w-full">
+    <div className="space-y-6 w-full px-4 md:px-8">
       {/* ── Header ──────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Customer Profiling</h1>

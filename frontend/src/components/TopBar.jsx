@@ -98,7 +98,7 @@ export default function TopBar({ onMenuClick }) {
 
         <div className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
-          <span className="hidden sm:block text-xs text-gray-400 font-medium tracking-wide">
+          <span className="hidden sm:block text-xs text-gray-400 font-normal tracking-wide">
             All systems operational
           </span>
         </div>
@@ -106,7 +106,7 @@ export default function TopBar({ onMenuClick }) {
 
       <div className="flex items-center gap-1 md:gap-2">
         {/* Date */}
-        <span className="hidden md:block text-xs text-gray-400 font-medium mr-2">{now}</span>
+        <span className="hidden md:block text-xs text-gray-400 font-normal mr-2">{now}</span>
 
         <button className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors" title="Refresh">
           <RefreshCw size={16} />
@@ -175,7 +175,7 @@ export default function TopBar({ onMenuClick }) {
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center justify-center w-8 h-8 rounded-full bg-black hover:bg-gray-800 transition-colors"
           >
-            <div className="text-white text-xs font-semibold">
+            <div className="text-white text-xs font-medium">
               {user?.full_name?.charAt(0).toUpperCase() || 'U'}
             </div>
           </button>
