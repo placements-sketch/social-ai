@@ -85,19 +85,26 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
 
       {/* ── Nav links ── */}
       <nav className={clsx(
-        'flex-1 py-4 space-y-4 overflow-y-auto overflow-x-hidden',
+        'flex-1 py-2 space-y-3',
         isMobile ? 'px-3' : (collapsed ? 'md:px-2 px-3' : 'px-3')
       )}>
         {/* Group navigation items */}
-        {['Core', 'Business', 'Setup', 'System'].map(groupName => {
+        {['Core', 'Business', 'Setup', 'System'].map((groupName, idx) => {
           const groupItems = nav.filter(item => item.group === groupName)
           if (groupItems.length === 0) return null
 
           return (
-            <div key={groupName}>
+            <div key={groupName} className={idx === 0 ? 'pt-2' : ''}>
+              {/* Separator line (except before first group) */}
+              {idx > 0 && (
+                <div className="my-3 px-3">
+                  <div className="h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
+                </div>
+              )}
+              
               {/* Group label - hide when collapsed on desktop */}
               {!collapsed && (
-                <p className="text-xs font-semibold text-gray-200 uppercase tracking-widest px-3 py-1.5 mt-2">
+                <p className="text-xs font-semibold text-gray-200 uppercase tracking-widest px-3 py-1 mt-1">
                   {groupName}
                 </p>
               )}
@@ -112,7 +119,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                     className={({ isActive }) =>
                       clsx(
                         'relative flex items-center rounded-xl text-sm font-medium transition-all duration-200 ease-in-out',
-                        isMobile ? 'gap-3 px-3 py-2.5' : (collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2.5' : 'gap-3 px-3 py-2.5'),
+                        isMobile ? 'gap-3 px-3 py-2' : (collapsed ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2' : 'gap-3 px-3 py-2'),
                         isActive
                           ? 'bg-brand-600 text-white shadow-lg'
                           : 'text-gray-400 hover:text-white hover:bg-white/5'

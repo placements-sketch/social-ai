@@ -3,9 +3,10 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { useState, useEffect } from 'react'
-import { Loader2, Calendar, TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File, Sheet } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
+import { useCountAnimation } from '../hooks/useCountAnimation'
 import clsx from 'clsx'
 
 // Brand palette for charts
@@ -17,6 +18,30 @@ const DATE_RANGES = [
   { label: 'Last 30 days', days: 30 },
   { label: 'Last 90 days', days: 90 },
 ]
+
+// KPI Cards Component - extracted to avoid hook issue in map
+function KPICards({ kpis, formatTime, formatPercent }) {
+  const animatedResponseTime = useCountAnimation(parseInt(formatTime(kpis.avg_response_time_ms)) || 0, 1500)
+  const animatedSuccessRate = useCountAnimation(parseFloat(formatPercent(kpis.ai_success_rate)) || 0, 2000)
+  const animatedOverrides = useCountAnimation(kpis.human_override_total || 0, 2000)
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="stat-card text-center">
+        <p className="text-4xl font-bold text-green-600">{animatedResponseTime}s</p>
+        <p className="text-xs text-gray-500 font-semibold mt-1">Avg Response Time</p>
+      </div>
+      <div className="stat-card text-center">
+        <p className="text-4xl font-bold text-brand-500">{animatedSuccessRate.toFixed(1)}%</p>
+        <p className="text-xs text-gray-500 font-semibold mt-1">AI Success Rate</p>
+      </div>
+      <div className="stat-card text-center">
+        <p className="text-4xl font-bold text-amber-500">{animatedOverrides}</p>
+        <p className="text-xs text-gray-500 font-semibold mt-1">Human Overrides</p>
+      </div>
+    </div>
+  )
+}
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -109,10 +134,13 @@ export default function Analytics() {
     const rows = [
       ['Avg Response Time (ms)', kpis.avg_response_time_ms],
       ['AI Success Rate', `${(kpis.ai_success_rate * 100).toFixed(1)}%`],
-      ['Override Rate', `${(kpis.override_rate * 100).toFixed(1)}%`],
-      ['Total Messages', kpis.total_messages],
-      ['AI Replied', kpis.ai_replied],
-      ['Human Overrides', kpis.human_overrides],
+      ['Total Messages', kpis.messages_total],
+      ['Inbound Messages', kpis.inbound_total],
+      ['AI Replied', kpis.ai_replies_total],
+      ['Human Replies', kpis.human_replies_total],
+      ['Failed Responses', kpis.failed_responses],
+      ['Human Overrides', kpis.human_override_total],
+      ['Escalated', kpis.escalated_total],
       ...weekly.map(w => [`${w.day} - Inbound`, w.inbound]),
       ...weekly.map(w => [`${w.day} - AI Replied`, w.ai_replied]),
     ]
@@ -135,10 +163,13 @@ export default function Analytics() {
     const rows = [
       ['Avg Response Time (ms)', kpis.avg_response_time_ms],
       ['AI Success Rate', `${(kpis.ai_success_rate * 100).toFixed(1)}%`],
-      ['Override Rate', `${(kpis.override_rate * 100).toFixed(1)}%`],
-      ['Total Messages', kpis.total_messages],
-      ['AI Replied', kpis.ai_replied],
-      ['Human Overrides', kpis.human_overrides],
+      ['Total Messages', kpis.messages_total],
+      ['Inbound Messages', kpis.inbound_total],
+      ['AI Replied', kpis.ai_replies_total],
+      ['Human Replies', kpis.human_replies_total],
+      ['Failed Responses', kpis.failed_responses],
+      ['Human Overrides', kpis.human_override_total],
+      ['Escalated', kpis.escalated_total],
     ]
     
     autoTable(doc, {
@@ -153,7 +184,7 @@ export default function Analytics() {
   }
 
   return (
-    <div className="space-y-6 w-full px-0 md:px-8">
+    <div className="space-y-6 w-full px-0 lg:px-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
@@ -200,18 +231,7 @@ export default function Analytics() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: 'Avg Response Time', value: formatTime(kpis.avg_response_time_ms), color: 'text-green-600'  },
-          { label: 'AI Success Rate',   value: formatPercent(kpis.ai_success_rate),      color: 'text-brand-500' },
-          { label: 'Override Rate',     value: formatPercent(kpis.override_rate),     color: 'text-amber-500' },
-        ].map(k => (
-          <div key={k.label} className="stat-card text-center">
-            <p className={`text-4xl font-bold ${k.color}`}>{k.value}</p>
-            <p className="text-xs text-gray-500 font-semibold mt-1">{k.label}</p>
-          </div>
-        ))}
-      </div>
+      <KPICards kpis={kpis} formatTime={formatTime} formatPercent={formatPercent} />
 
       {/* Weekly bar chart */}
       <div className="card p-5">

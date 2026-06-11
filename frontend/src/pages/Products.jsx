@@ -2,6 +2,36 @@ import { useState, useEffect } from 'react'
 import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
+import { useCountAnimation } from '../hooks/useCountAnimation'
+
+// ProductKPIs Component - animated KPI cards
+function ProductKPIs({ status, products, lastSynced, formatTime }) {
+  const animatedTotal = useCountAnimation(status?.product_count || 0, 2000)
+  const inStock = products.filter(p => p.stock_quantity > 0).length
+  const outOfStock = products.filter(p => p.stock_quantity === 0).length
+  const animatedInStock = useCountAnimation(inStock, 2000)
+  const animatedOutOfStock = useCountAnimation(outOfStock, 2000)
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="card p-4">
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Products</p>
+        <p className="text-3xl font-bold text-gray-900 mt-1">{animatedTotal}</p>
+        <p className="text-xs text-gray-500 mt-2">
+          {lastSynced ? `Last synced ${formatTime(lastSynced)}` : 'Never synced'}
+        </p>
+      </div>
+      <div className="card p-4">
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">In Stock</p>
+        <p className="text-3xl font-bold text-green-600 mt-1">{animatedInStock}</p>
+      </div>
+      <div className="card p-4">
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Out of Stock</p>
+        <p className="text-3xl font-bold text-red-600 mt-1">{animatedOutOfStock}</p>
+      </div>
+    </div>
+  )
+}
 
 export default function Products() {
   const [products, setProducts] = useState([])
@@ -198,23 +228,7 @@ export default function Products() {
       )}
 
       {/* Status cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card p-4">
-          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Products</p>
-          <p className="text-3xl font-bold text-gray-900 mt-1">{status?.product_count || 0}</p>
-          <p className="text-xs text-gray-500 mt-2">
-            {lastSynced ? `Last synced ${formatTime(lastSynced)}` : 'Never synced'}
-          </p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">In Stock</p>
-          <p className="text-3xl font-bold text-green-600 mt-1">{products.filter(p => p.stock_quantity > 0).length}</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Out of Stock</p>
-          <p className="text-3xl font-bold text-red-600 mt-1">{products.filter(p => p.stock_quantity === 0).length}</p>
-        </div>
-      </div>
+      <ProductKPIs status={status} products={products} lastSynced={lastSynced} formatTime={formatTime} />
 
       {/* Search */}
       <div className="relative">

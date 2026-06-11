@@ -9,6 +9,7 @@ import clsx from 'clsx'
 import { useState, useEffect } from 'react'
 import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
 import { SkeletonCard } from '../components/Skeleton'
+import { useCountAnimation } from '../hooks/useCountAnimation'
 
 // Custom tooltip to ensure text is visible
 const CustomTooltip = ({ active, payload }) => {
@@ -21,11 +22,14 @@ const CustomTooltip = ({ active, payload }) => {
         boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
         padding: '8px 12px'
       }}>
-        {payload.map((entry, idx) => (
-          <p key={idx} style={{ color: entry.color || '#ffffff', fontSize: 10, fontFamily: 'Quicksand', margin: '2px 0' }}>
-            {entry.name}: <span style={{ fontWeight: 'bold' }}>{entry.value}</span>
-          </p>
-        ))}
+        {payload.map((entry, idx) => {
+          const isTikTok = entry.name.includes('TikTok')
+          return (
+            <p key={idx} style={{ color: isTikTok ? '#ffffff' : (entry.color || '#ffffff'), fontSize: 10, fontFamily: 'Quicksand', margin: '2px 0' }}>
+              {entry.name}: <span style={{ fontWeight: 'bold' }}>{entry.value}</span>
+            </p>
+          )
+        })}
       </div>
     )
   }
@@ -120,23 +124,23 @@ export default function Dashboard() {
   const getStatCards = () => {
     if (!analyticsData || !analyticsData.kpis) {
       return [
-        { label: 'Messages Today',       value: stats.messagesToday,      icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
-        { label: 'Auto-Replies Sent',    value: stats.autoRepliesSent,    icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
-        { label: 'Human Overrides',      value: stats.humanOverrides,     icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
-        { label: 'Failed Responses',     value: stats.failedResponses,    icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
-        { label: 'Out-of-Stock Queries', value: stats.outOfStockQueries,  icon: PackageX,      color: 'text-orange-500',  bg: 'bg-orange-50'      },
-        { label: 'Escalated',            value: 12,                       icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
+        { label: 'Total Messages',        value: 0,   icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
+        { label: 'Automated AI Replies',  value: 0,   icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
+        { label: 'Human Overrides',       value: 0,   icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
+        { label: 'Failed Responses',      value: 0,   icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
+        { label: 'Escalated',             value: 0,   icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
+        { label: 'AI Success Rate',       value: '0%', icon: PackageX,     color: 'text-green-500',   bg: 'bg-green-50'       },
       ]
     }
 
     const kpis = analyticsData.kpis
     return [
-      { label: 'Total Messages',        value: kpis.messages_total || 0,  icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
-      { label: 'AI Replies',            value: kpis.ai_replies_total || 0, icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
-      { label: 'Human Overrides',       value: kpis.human_override_total || 0, icon: UserCheck, color: 'text-amber-500',   bg: 'bg-amber-50'       },
-      { label: 'Success Rate',          value: `${(kpis.ai_success_rate * 100).toFixed(1)}%`, icon: XCircle, color: 'text-red-500', bg: 'bg-red-50' },
-      { label: 'Human Replies',         value: kpis.human_replies_total || 0, icon: PackageX,   color: 'text-orange-500',  bg: 'bg-orange-50'      },
-      { label: 'Conversations',         value: kpis.conversations_total || 0, icon: TrendingUp, color: 'text-purple-500',  bg: 'bg-purple-50'      },
+      { label: 'Total Messages',        value: kpis.messages_total || 0,           icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
+      { label: 'Automated AI Replies',  value: kpis.ai_replies_total || 0,         icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
+      { label: 'Human Overrides',       value: kpis.human_override_total || 0,     icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
+      { label: 'Failed Responses',      value: kpis.failed_responses || 0,         icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
+      { label: 'Escalated',             value: kpis.escalated_total || 0,          icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
+      { label: 'AI Success Rate',       value: `${(kpis.ai_success_rate * 100).toFixed(1)}%`, icon: PackageX, color: 'text-green-500', bg: 'bg-green-50' },
     ]
   }
 
@@ -287,8 +291,61 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCardsData.map(({ label, value, icon: Icon, color, bg }) => {
-          const isPositive = true // Default to positive, can be made dynamic
+        {statCardsData.map(({ label, value, icon: Icon, color, bg }, idx) => {
+          // Use animation for numeric values only
+          const isNumeric = typeof value === 'number'
+          const isPercentage = typeof value === 'string' && value.includes('%')
+          
+          let displayValue = value
+          let animatedChange = 0
+          
+          // Animate numeric values
+          if (isNumeric) {
+            animatedChange = useCountAnimation(value)
+            displayValue = animatedChange
+          }
+          
+          // Animate percentage values
+          if (isPercentage) {
+            const percentValue = parseFloat(value)
+            const animatedPercent = useCountAnimation(percentValue)
+            displayValue = `${animatedPercent.toFixed(1)}%`
+          }
+          
+          // Calculate change from yesterday (all metrics compare to yesterday)
+          const kpis = analyticsData?.kpis || {}
+          let change = 0
+          let colorClass = 'text-gray-600'
+          const periodLabel = 'yesterday'
+          
+          // Map label to KPI fields for yesterday comparison
+          const labelToYesterdayKey = {
+            'Total Messages': { current: 'messages_total', yesterday: 'yesterday_messages_total' },
+            'Automated AI Replies': { current: 'ai_replies_total', yesterday: 'yesterday_ai_replies_total' },
+            'Human Overrides': { current: 'human_override_total', yesterday: 'yesterday_human_override_total' },
+            'Failed Responses': { current: 'failed_responses', yesterday: 'yesterday_failed_responses' },
+            'Escalated': { current: 'escalated_total', yesterday: 'yesterday_escalated_total' },
+          }
+          
+          if (isNumeric && analyticsData) {
+            const keyPair = labelToYesterdayKey[label]
+            
+            if (keyPair && kpis[keyPair.current] !== undefined && kpis[keyPair.yesterday] !== undefined) {
+              change = kpis[keyPair.current] - kpis[keyPair.yesterday]
+              
+              // Determine color based on change
+              if (change === 0) {
+                colorClass = 'text-gray-600'
+              } else if (change > 0) {
+                colorClass = 'text-green-600'
+              } else {
+                colorClass = 'text-red-600'
+              }
+            }
+          }
+          
+          const arrowIcon = change > 0 ? '↑' : change < 0 ? '↓' : '→'
+          
           return (
             <div key={label} className="stat-card">
               <div className="flex items-start justify-between">
@@ -296,13 +353,15 @@ export default function Dashboard() {
                   <Icon size={18} className={color} />
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] font-semibold text-green-600">↑ 12%</span>
+                  <span className={`text-[10px] font-semibold ${colorClass}`}>
+                    {arrowIcon} {Math.abs(change)}
+                  </span>
                 </div>
               </div>
-              <p className="text-4xl font-bold text-gray-900 mt-2">{value}</p>
+              <p className="text-4xl font-bold text-gray-900 mt-2">{displayValue}</p>
               <p className="text-sm text-gray-500 font-semibold">{label}</p>
-              <p className={clsx('text-[10px] font-semibold', isPositive ? 'text-green-600' : 'text-brand-600')}>
-                {isPositive ? '+' : '-'}24 since yesterday
+              <p className={`text-[10px] font-semibold ${colorClass}`}>
+                {change > 0 ? '+' : change < 0 ? '-' : '='}{Math.abs(change)} since {periodLabel}
               </p>
             </div>
           )
@@ -398,20 +457,20 @@ export default function Dashboard() {
                 type="natural"
                 dataKey="tiktok"
                 name="TikTok"
-                stroke="#ffffff" 
+                stroke="#111111" 
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 6, fill: '#ffffff', fillOpacity: 1 }}
+                activeDot={{ r: 6, fill: '#111111', fillOpacity: 1 }}
               />
               <Line 
                 type="natural"
                 dataKey="tiktok_resp"
                 name="TikTok (Responded)"
-                stroke="#ffffff" 
+                stroke="#111111" 
                 strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
-                activeDot={{ r: 6, fill: '#ffffff', fillOpacity: 1 }}
+                activeDot={{ r: 6, fill: '#111111', fillOpacity: 1 }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -431,7 +490,7 @@ export default function Dashboard() {
               <span className="text-xs text-gray-600 font-medium">Facebook</span>
             </div>
             <div className="flex items-center gap-2">
-              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#000000" strokeWidth="2.5" /></svg>
+              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#111111" strokeWidth="2.5" /></svg>
               <span className="text-xs text-gray-600 font-medium">TikTok</span>
             </div>
           </div>

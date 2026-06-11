@@ -47,7 +47,7 @@ def _verify_meta_webhook(request):
     challenge = request.args.get("hub.challenge")
 
     if mode == "subscribe" and token == verify_token:
-        return challenge, 200
+        return str(challenge), 200
     return jsonify({"error": "Verification failed"}), 403
 
 
@@ -72,12 +72,23 @@ def instagram_webhook():
 
     # Extract the first message from the payload
     try:
-        messaging = data["entry"][0]["messaging"][0]
-        sender_id = messaging["sender"]["id"]
-        message_text = messaging["message"].get("text", "")
-    except (KeyError, IndexError):
-        return jsonify({"error": "Invalid payload structure"}), 400
+        entry = data.get("entry", [])[0]
+        messaging_list = entry.get("messaging", [])
 
+        if not messaging_list:
+            return jsonify({"status": "ignored", "reason": "no messaging"}), 200
+
+        messaging = messaging_list[0]
+
+        sender_id = messaging.get("sender", {}).get("id")
+        message_text = messaging.get("message", {}).get("text")
+
+        if not sender_id or not message_text:
+            return jsonify({"status": "ignored"}), 200
+
+    except Exception as e:
+        current_app.logger.error(str(e))
+        return jsonify({"error": "bad payload"}), 400
     if not message_text:
         # Could be a reaction, sticker, etc. — ignore for now
         return jsonify({"status": "ignored", "reason": "no text content"}), 200

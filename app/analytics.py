@@ -110,6 +110,45 @@ def summary():
         Message.direction == 'outbound', Message.sender == 'human'
     ).count()
 
+    # ── Previous period comparison (yesterday or previous day range) ─────
+    yesterday_cutoff = cutoff - timedelta(days=days)
+    msg_q_prev = _scope_filter(
+        Message.query.filter(Message.created_at >= yesterday_cutoff)
+        .filter(Message.created_at < cutoff),
+        Message, user,
+    )
+    prev_total_messages = msg_q_prev.count()
+    prev_inbound_total = msg_q_prev.filter(Message.direction == 'inbound').count()
+    prev_ai_replies = msg_q_prev.filter(
+        Message.direction == 'outbound', Message.sender == 'ai'
+    ).count()
+    prev_human_replies = msg_q_prev.filter(
+        Message.direction == 'outbound', Message.sender == 'human'
+    ).count()
+
+    # ── Yesterday-specific comparison (always last 24 hours) ─────────────
+    yesterday_24h_cutoff = datetime.utcnow() - timedelta(days=1)
+    yesterday_msg_q = _scope_filter(
+        Message.query.filter(Message.created_at >= yesterday_24h_cutoff),
+        Message, user,
+    )
+    yesterday_total_messages = yesterday_msg_q.count()
+    yesterday_ai_replies = yesterday_msg_q.filter(
+        Message.direction == 'outbound', Message.sender == 'ai'
+    ).count()
+    yesterday_human_replies = yesterday_msg_q.filter(
+        Message.direction == 'outbound', Message.sender == 'human'
+    ).count()
+    
+    # Yesterday conversations
+    yesterday_conv_q = _scope_filter(
+        Conversation.query.filter(Conversation.last_message_at >= yesterday_24h_cutoff),
+        Conversation, user,
+    )
+    yesterday_human_overrides = yesterday_conv_q.filter(Conversation.ai_enabled == False).count()
+    yesterday_escalated = yesterday_conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
+    yesterday_failed_responses = max(0, yesterday_msg_q.filter(Message.direction == 'inbound').count() - yesterday_ai_replies)
+
     # Avg AI response time over messages in window that have a timing.
     avg_response_ms = (
         _scope_filter(
@@ -120,31 +159,59 @@ def summary():
         ).scalar()
     )
 
-    # Override rate: conversations that ended up in human_override, divided by
-    # all conversations with activity in the window.
+    # Conversations in window
     conv_q = _scope_filter(
         Conversation.query.filter(Conversation.last_message_at >= cutoff),
         Conversation, user,
     )
     total_convs = conv_q.count()
-    overridden_convs = conv_q.filter(Conversation.status == 'human_override').count()
-    override_rate = (overridden_convs / total_convs) if total_convs else 0.0
+    
+    # Human overrides: agent manually disabled AI in a conversation
+    human_override_convs = conv_q.filter(Conversation.ai_enabled == False).count()
+    
+    # Escalations: system detected keyword/intent and handed off to human
+    escalated_convs = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
+    
+    # Failed responses: AI messages with null or error indication in logs
+    # For now, proxy as: inbound messages without corresponding AI reply in window
+    failed_responses = max(0, inbound_total - ai_replies)
 
-    # AI success rate: outbound AI replies / all outbound (proxy until we have
-    # real success/failure signals from the AI call layer).
-    total_outbound = ai_replies + human_replies
-    ai_success_rate = (ai_replies / total_outbound) if total_outbound else 0.0
+    # AI success rate: AI replies / inbound messages (only measuring AI performance, not humans)
+    ai_success_rate = (ai_replies / inbound_total) if inbound_total else 0.0
 
     kpis = {
         'messages_total': total_messages,
         'inbound_total': inbound_total,
         'ai_replies_total': ai_replies,
         'human_replies_total': human_replies,
+        'failed_responses': failed_responses,
         'avg_response_time_ms': int(avg_response_ms) if avg_response_ms else None,
         'ai_success_rate': round(ai_success_rate, 4),
-        'override_rate': round(override_rate, 4),
+        'human_override_total': human_override_convs,
+        'escalated_total': escalated_convs,
         'conversations_total': total_convs,
-        'human_override_total': overridden_convs,
+        # Comparison data (previous period - same window size)
+        'prev_messages_total': prev_total_messages,
+        'prev_ai_replies_total': prev_ai_replies,
+        'prev_human_override_total': conv_q.filter(
+            Conversation.last_message_at >= yesterday_cutoff,
+            Conversation.last_message_at < cutoff,
+            Conversation.ai_enabled == False
+        ).count(),
+        'prev_escalated_total': _scope_filter(
+            Conversation.query.filter(Conversation.last_message_at >= yesterday_cutoff)
+            .filter(Conversation.last_message_at < cutoff)
+            .filter(Conversation.handoff_reason.isnot(None)),
+            Conversation, user,
+        ).count(),
+        'prev_failed_responses': max(0, prev_inbound_total - prev_ai_replies),
+        'prev_ai_success_rate': round((prev_ai_replies / prev_inbound_total) if prev_inbound_total else 0.0, 4),
+        # Yesterday-specific comparison (always last 24 hours)
+        'yesterday_messages_total': yesterday_total_messages,
+        'yesterday_ai_replies_total': yesterday_ai_replies,
+        'yesterday_human_override_total': yesterday_human_overrides,
+        'yesterday_escalated_total': yesterday_escalated,
+        'yesterday_failed_responses': yesterday_failed_responses,
     }
 
     # ── Weekly chart data ─────────────────────────────────────────────────

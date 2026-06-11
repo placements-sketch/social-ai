@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
-  ArrowUpRight, Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft,
+  Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft,
   Download, FileText, Sheet, File,
 } from 'lucide-react'
 import {
@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import clsx from 'clsx'
 import { MOCK_CUSTOMERS, SEGMENT_META, buildOverview } from '../data/mockCustomers'
+import { useCountAnimation } from '../hooks/useCountAnimation'
 
 const SEGMENT_ICONS = {
   vip:     Crown,
@@ -137,7 +138,7 @@ export default function Customers() {
   }
 
   return (
-    <div className="space-y-6 w-full px-0 md:px-8">
+    <div className="space-y-6 w-full px-0 lg:px-8">
       {/* ── Header ──────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Customer Profiling</h1>
@@ -520,6 +521,21 @@ export default function Customers() {
 /* ── Subcomponents ────────────────────────────────────────────────── */
 
 function KpiCard({ icon: Icon, label, value, sub, color = 'text-blue-500', bg = 'bg-blue-50' }) {
+  // Animate numeric values
+  let displayValue = value
+  
+  if (typeof value === 'number') {
+    // Numeric value - animate it
+    const animated = useCountAnimation(value, 2000)
+    displayValue = animated
+  } else if (typeof value === 'string' && value.includes('%')) {
+    // Percentage value - extract number and animate
+    const percentValue = parseFloat(value)
+    const animatedPercent = useCountAnimation(percentValue, 2000)
+    displayValue = `${animatedPercent.toFixed(1)}%`
+  }
+  // String values like "KES 123,456" won't animate
+  
   return (
     <div className="stat-card relative overflow-hidden">
       {/* Subtle gradient overlay */}
@@ -534,7 +550,7 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'text-blue-500', bg = 
           <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">↑ 12%</span>
         </div>
         <p className="text-xs text-gray-500 font-medium mb-1.5">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 tabular-nums mb-2">{value}</p>
+        <p className="text-2xl font-bold text-gray-900 tabular-nums mb-2">{displayValue}</p>
         {sub && <p className="text-xs text-gray-400 leading-relaxed">{sub}</p>}
       </div>
     </div>
