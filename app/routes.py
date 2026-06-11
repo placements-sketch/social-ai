@@ -73,6 +73,8 @@ def instagram_webhook():
        { "entry": [{ "changes": [{ "field": "messages", "value": { "sender": {"id": "..."}, "message": {"text": "..."} } }] }] }
     """
     data = request.get_json(silent=True) or {}
+    import json
+    current_app.logger.info(f"[IG webhook RAW] {json.dumps(data, indent=2)}")
     current_app.logger.info(f"[IG webhook] payload: {data}")
 
     sender_id = None
