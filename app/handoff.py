@@ -93,14 +93,18 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                       f"Auto-assigned conversation {conversation.id} to agent {agent.email}")
 
             # Notify the auto-assigned agent
-            create_notification(
-                user_id=agent.id,
-                type_='assigned',
-                title=f"New escalation assigned to you",
-                body=f"From {conversation.handle or 'a customer'} on {conversation.channel.replace('_', ' ')} — {reason}: {detail}",
-                resource_type='conversation',
-                resource_id=conversation.id,
-            )
+            try:
+                create_notification(
+                    user_id=agent.id,
+                    type_='assigned',
+                    title="New escalation assigned to you",
+                    body=f"Reason: {reason} ({detail})",
+                    resource_type='conversation',
+                    resource_id=conversation.id,
+                )
+                log_event("info", "handoff", f"DEBUG: created notification for agent {agent.id}")
+            except Exception as e:
+                log_event("error", "handoff", f"DEBUG: create_notification failed: {e}")
 
     log_row = Log(
         level="info",
