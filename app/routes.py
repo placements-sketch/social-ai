@@ -65,33 +65,54 @@ def instagram_verify():
 def instagram_webhook():
     """
     Receives Instagram DM events from Meta.
-    Payload shape (simplified):
-      { "entry": [{ "messaging": [{ "sender": {"id": "..."}, "message": {"text": "..."} }] }] }
+    
+    Supports both payload shapes:
+    1. Legacy Messenger Platform shape:
+       { "entry": [{ "messaging": [{ "sender": {"id": "..."}, "message": {"text": "..."} }] }] }
+    2. New IG v25+ Webhooks shape:
+       { "entry": [{ "changes": [{ "field": "messages", "value": { "sender": {"id": "..."}, "message": {"text": "..."} } }] }] }
     """
     data = request.get_json(silent=True) or {}
+    current_app.logger.info(f"[IG webhook] payload: {data}")
 
-    # Extract the first message from the payload
+    sender_id = None
+    message_text = None
+
     try:
-        entry = data.get("entry", [])[0]
-        messaging_list = entry.get("messaging", [])
+        entries = data.get("entry", []) or []
+        if not entries:
+            return jsonify({"status": "ignored", "reason": "no entries"}), 200
 
-        if not messaging_list:
-            return jsonify({"status": "ignored", "reason": "no messaging"}), 200
+        for entry in entries:
+            # Shape 1: messaging[]
+            for messaging in (entry.get("messaging") or []):
+                sender_id = messaging.get("sender", {}).get("id")
+                message_text = messaging.get("message", {}).get("text")
+                if sender_id and message_text:
+                    break
 
-        messaging = messaging_list[0]
+            if sender_id and message_text:
+                break
 
-        sender_id = messaging.get("sender", {}).get("id")
-        message_text = messaging.get("message", {}).get("text")
+            # Shape 2: changes[] with field=messages
+            for change in (entry.get("changes") or []):
+                if change.get("field") != "messages":
+                    continue
+                value = change.get("value") or {}
+                sender_id = value.get("sender", {}).get("id")
+                message_text = value.get("message", {}).get("text")
+                if sender_id and message_text:
+                    break
 
-        if not sender_id or not message_text:
-            return jsonify({"status": "ignored"}), 200
+            if sender_id and message_text:
+                break
 
     except Exception as e:
-        current_app.logger.error(str(e))
+        current_app.logger.error(f"[IG webhook] parse error: {e}")
         return jsonify({"error": "bad payload"}), 400
-    if not message_text:
-        # Could be a reaction, sticker, etc. — ignore for now
-        return jsonify({"status": "ignored", "reason": "no text content"}), 200
+
+    if not sender_id or not message_text:
+        return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
     reply = process_message(
         message=message_text,
@@ -100,8 +121,6 @@ def instagram_webhook():
     )
 
     return jsonify({"reply": reply}), 200
-
-
 # ─────────────────────────────────────────────
 # Instagram Comments webhook
 # ─────────────────────────────────────────────
