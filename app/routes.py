@@ -129,20 +129,32 @@ def instagram_webhook():
 def instagram_comments_webhook():
     """
     Receives Instagram comment events.
-    Payload shape (simplified):
-      { "entry": [{ "changes": [{ "value": { "from": {"id": "..."}, "text": "..." } }] }] }
+    Supports v25 `changes[].value` shape used by the modern IG Webhooks API.
     """
     data = request.get_json(silent=True) or {}
+    current_app.logger.info(f"[IG comments webhook] payload: {data}")
+
+    sender_id = None
+    message_text = None
 
     try:
-        change = data["entry"][0]["changes"][0]["value"]
-        sender_id = change["from"]["id"]
-        message_text = change.get("text", "")
-    except (KeyError, IndexError):
-        return jsonify({"error": "Invalid payload structure"}), 400
+        for entry in (data.get("entry") or []):
+            for change in (entry.get("changes") or []):
+                if change.get("field") not in ("comments", "live_comments"):
+                    continue
+                value = change.get("value") or {}
+                sender_id = (value.get("from") or {}).get("id")
+                message_text = value.get("text", "")
+                if sender_id and message_text:
+                    break
+            if sender_id and message_text:
+                break
+    except Exception as e:
+        current_app.logger.error(f"[IG comments webhook] parse error: {e}")
+        return jsonify({"error": "bad payload"}), 400
 
-    if not message_text:
-        return jsonify({"status": "ignored", "reason": "no text content"}), 200
+    if not sender_id or not message_text:
+        return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
     reply = process_message(
         message=message_text,
@@ -151,7 +163,6 @@ def instagram_comments_webhook():
     )
 
     return jsonify({"reply": reply}), 200
-
 
 # ─────────────────────────────────────────────
 # WhatsApp webhook (placeholder — wire up later)
@@ -205,23 +216,45 @@ def facebook_verify():
 def facebook_webhook():
     """
     Receives Facebook Messenger message events.
-    Payload shape is identical to Instagram DMs — both use the
-    Messenger Platform format via Meta Graph API.
-
-    Shape (simplified):
-      { "entry": [{ "messaging": [{ "sender": {"id": "..."}, "message": {"text": "..."} }] }] }
+    
+    Supports both:
+      Shape 1 (legacy): entry[].messaging[]
+      Shape 2 (v25):    entry[].changes[].value with field=messages
     """
     data = request.get_json(silent=True) or {}
+    current_app.logger.info(f"[FB webhook] payload: {data}")
+
+    sender_id = None
+    message_text = None
 
     try:
-        messaging = data["entry"][0]["messaging"][0]
-        sender_id = messaging["sender"]["id"]
-        message_text = messaging["message"].get("text", "")
-    except (KeyError, IndexError):
-        return jsonify({"error": "Invalid payload structure"}), 400
+        for entry in (data.get("entry") or []):
+            # Shape 1: messaging[]
+            for messaging in (entry.get("messaging") or []):
+                sender_id = messaging.get("sender", {}).get("id")
+                message_text = messaging.get("message", {}).get("text")
+                if sender_id and message_text:
+                    break
+            if sender_id and message_text:
+                break
 
-    if not message_text:
-        return jsonify({"status": "ignored", "reason": "no text content"}), 200
+            # Shape 2: changes[] with field=messages
+            for change in (entry.get("changes") or []):
+                if change.get("field") != "messages":
+                    continue
+                value = change.get("value") or {}
+                sender_id = value.get("sender", {}).get("id")
+                message_text = value.get("message", {}).get("text")
+                if sender_id and message_text:
+                    break
+            if sender_id and message_text:
+                break
+    except Exception as e:
+        current_app.logger.error(f"[FB webhook] parse error: {e}")
+        return jsonify({"error": "bad payload"}), 400
+
+    if not sender_id or not message_text:
+        return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
     reply = process_message(
         message=message_text,
@@ -237,20 +270,38 @@ def facebook_webhook():
 def facebook_comments_webhook():
     """
     Receives Facebook post comment events.
-    Payload shape (simplified):
-      { "entry": [{ "changes": [{ "value": { "from": {"id": "..."}, "message": "..." } }] }] }
+    v25 shape: entry[].changes[].value with field=feed (and item=comment) OR field=comments.
+    Older payloads used `message`; newer ones use `text`. Handle both.
     """
     data = request.get_json(silent=True) or {}
+    current_app.logger.info(f"[FB comments webhook] payload: {data}")
+
+    sender_id = None
+    message_text = None
 
     try:
-        change = data["entry"][0]["changes"][0]["value"]
-        sender_id = change["from"]["id"]
-        message_text = change.get("message", "")
-    except (KeyError, IndexError):
-        return jsonify({"error": "Invalid payload structure"}), 400
+        for entry in (data.get("entry") or []):
+            for change in (entry.get("changes") or []):
+                # Accept both "feed" (legacy) and "comments" (newer)
+                if change.get("field") not in ("feed", "comments"):
+                    continue
+                value = change.get("value") or {}
+                # Only care about comments (skip likes, reactions, etc.)
+                if value.get("item") and value.get("item") != "comment":
+                    continue
+                sender_id = (value.get("from") or {}).get("id")
+                # Try both keys — Meta uses inconsistent naming
+                message_text = value.get("message") or value.get("text") or ""
+                if sender_id and message_text:
+                    break
+            if sender_id and message_text:
+                break
+    except Exception as e:
+        current_app.logger.error(f"[FB comments webhook] parse error: {e}")
+        return jsonify({"error": "bad payload"}), 400
 
-    if not message_text:
-        return jsonify({"status": "ignored", "reason": "no text content"}), 200
+    if not sender_id or not message_text:
+        return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
     reply = process_message(
         message=message_text,
@@ -258,9 +309,7 @@ def facebook_comments_webhook():
         channel="facebook_comment"
     )
 
-    # TODO: call send_facebook_reply(sender_id, reply) here
     return jsonify({"reply": reply}), 200
-
 
 # ─────────────────────────────────────────────
 # TikTok webhooks
