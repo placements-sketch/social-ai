@@ -36,9 +36,15 @@ async function handle(fetchPromise) {
  * Get analytics summary (KPIs, weekly chart, intent breakdown, channel split, top products)
  * @returns {Promise<{window_days, scope, kpis, weekly, intent_breakdown, channel_split, top_products}>}
  */
-export function getAnalyticsSummary() {
+
+/**
+ * Get analytics summary.
+ * @param {number} days  time window in days (1 = today, 7 = week, 30 = month)
+ */
+export function getAnalyticsSummary({ days = 7 } = {}) {
+  const params = new URLSearchParams({ days })
   return handle(
-    fetch(`${API_BASE}/analytics/summary`, {
+    fetch(`${API_BASE}/analytics/summary?${params}`, {
       method: 'GET',
       headers: authHeaders(),
     })

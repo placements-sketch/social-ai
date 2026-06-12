@@ -71,12 +71,18 @@ export default function Dashboard() {
   const [loadingAlerts, setLoadingAlerts] = useState(true)
   const [loadingActivity, setLoadingActivity] = useState(true)
 
+  const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month'
+
+  const PERIOD_DAYS = { today: 1, week: 7, month: 30 }
+  const PERIOD_LABELS = { today: 'Today', week: 'This week', month: 'This month' }
+  const PREVIOUS_LABELS = { today: 'yesterday', week: 'last week', month: 'last month' }
+
   // Load analytics summary
   useEffect(() => {
     const load = async () => {
       setLoadingAnalytics(true)
       try {
-        const data = await getAnalyticsSummary()
+        const data = await getAnalyticsSummary({ days: PERIOD_DAYS[period] })
         setAnalyticsData(data)
       } catch (err) {
         console.error('Failed to load analytics:', err)
@@ -86,7 +92,7 @@ export default function Dashboard() {
       }
     }
     load()
-  }, [])
+  }, [period])
 
   // Load system alerts
   useEffect(() => {
@@ -120,29 +126,16 @@ export default function Dashboard() {
     load()
   }, [])
 
-  // Build stat cards from analytics data or use fallback
-  const getStatCards = () => {
-    if (!analyticsData || !analyticsData.kpis) {
-      return [
-        { label: 'Total Messages',        value: 0,   icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
-        { label: 'Automated AI Replies',  value: 0,   icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
-        { label: 'Human Overrides',       value: 0,   icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
-        { label: 'Failed Responses',      value: 0,   icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
-        { label: 'Escalated',             value: 0,   icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
-        { label: 'AI Success Rate',       value: '0%', icon: PackageX,     color: 'text-green-500',   bg: 'bg-green-50'       },
-      ]
-    }
-
-    const kpis = analyticsData.kpis
-    return [
-      { label: 'Total Messages',        value: kpis.messages_total || 0,           icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
-      { label: 'Automated AI Replies',  value: kpis.ai_replies_total || 0,         icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
-      { label: 'Human Overrides',       value: kpis.human_override_total || 0,     icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
-      { label: 'Failed Responses',      value: kpis.failed_responses || 0,         icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
-      { label: 'Escalated',             value: kpis.escalated_total || 0,          icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
-      { label: 'AI Success Rate',       value: `${(kpis.ai_success_rate * 100).toFixed(1)}%`, icon: PackageX, color: 'text-green-500', bg: 'bg-green-50' },
-    ]
-  }
+// Stat card definitions — same for empty + populated; the render block
+  // reads kpiKey from analyticsData.kpis directly.
+  const getStatCards = () => [
+    { label: 'Messages',        kpiKey: 'messages_total',       icon: MessageSquare, color: 'text-blue-500',   bg: 'bg-blue-50'   },
+    { label: 'AI Replies',      kpiKey: 'ai_replies_total',     icon: Bot,           color: 'text-brand-500',  bg: 'bg-brand-50'  },
+    { label: 'Human Overrides', kpiKey: 'human_override_total', icon: UserCheck,     color: 'text-amber-500',  bg: 'bg-amber-50'  },
+    { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50'    },
+    { label: 'Escalated',       kpiKey: 'escalated_total',      icon: TrendingUp,    color: 'text-purple-500', bg: 'bg-purple-50' },
+    { label: 'AI Success Rate', kpiKey: 'ai_success_rate',      icon: PackageX,      color: 'text-green-500',  bg: 'bg-green-50', isPercentage: true },
+  ]
 
   // Map system logs to alert format
   const getSystemAlerts = () => {
@@ -190,31 +183,35 @@ export default function Dashboard() {
   // Always use mock activity feed for now - it has better formatted statements
   const activityFeedData = activityFeed
 
-  // Get channel data from analytics or use dummy
-  const channelStats = !analyticsData?.channel_split ? [
-    { label: 'Instagram', value: 186 },
-    { label: 'WhatsApp', value: 137 },
-    { label: 'Facebook', value: 152 },
-    { label: 'TikTok', value: 87 },
-  ] : [
-    { label: 'Instagram', value: analyticsData.channel_split.filter(c => c.name.includes('instagram')).reduce((sum, c) => sum + c.count, 0) || 186 },
-    { label: 'WhatsApp', value: analyticsData.channel_split.find(c => c.name === 'whatsapp')?.count || 137 },
-    { label: 'Facebook', value: analyticsData.channel_split.filter(c => c.name.includes('facebook')).reduce((sum, c) => sum + c.count, 0) || 152 },
-    { label: 'TikTok', value: analyticsData.channel_split.filter(c => c.name.includes('tiktok')).reduce((sum, c) => sum + c.count, 0) || 87 },
+  // Real channel totals from analytics, scoped to the selected period.
+  const channelSplit = analyticsData?.channel_split || []
+  const channelStats = [
+    { label: 'Instagram', value: channelSplit.filter(c => c.name.includes('instagram')).reduce((s, c) => s + c.count, 0) },
+    { label: 'WhatsApp',  value: channelSplit.find(c => c.name === 'whatsapp')?.count || 0 },
+    { label: 'Facebook',  value: channelSplit.filter(c => c.name.includes('facebook')).reduce((s, c) => s + c.count, 0) },
+    { label: 'TikTok',    value: channelSplit.filter(c => c.name.includes('tiktok')).reduce((s, c) => s + c.count, 0) },
   ]
 
-  // Chart data from analytics (only if we have it), otherwise use dummy
-  const getDummyChartData = () => [
-    { time: 'Mon', instagram: 12, instagram_resp: 10, whatsapp: 8, whatsapp_resp: 7, facebook: 15, facebook_resp: 12, tiktok: 5, tiktok_resp: 4 },
-    { time: 'Tue', instagram: 18, instagram_resp: 15, whatsapp: 14, whatsapp_resp: 11, facebook: 12, facebook_resp: 10, tiktok: 9, tiktok_resp: 7 },
-    { time: 'Wed', instagram: 15, instagram_resp: 12, whatsapp: 11, whatsapp_resp: 9, facebook: 22, facebook_resp: 18, tiktok: 7, tiktok_resp: 5 },
-    { time: 'Thu', instagram: 28, instagram_resp: 24, whatsapp: 19, whatsapp_resp: 16, facebook: 18, facebook_resp: 15, tiktok: 14, tiktok_resp: 11 },
-    { time: 'Fri', instagram: 22, instagram_resp: 19, whatsapp: 26, whatsapp_resp: 23, facebook: 25, facebook_resp: 21, tiktok: 11, tiktok_resp: 9 },
-    { time: 'Sat', instagram: 32, instagram_resp: 28, whatsapp: 21, whatsapp_resp: 18, facebook: 16, facebook_resp: 13, tiktok: 18, tiktok_resp: 15 },
-    { time: 'Sun', instagram: 26, instagram_resp: 23, whatsapp: 18, whatsapp_resp: 15, facebook: 28, facebook_resp: 24, tiktok: 13, tiktok_resp: 10 },
-  ]
+ // Real per-channel-per-day data from analytics.weekly
+  const weekly = analyticsData?.weekly || []
+// Trim leading days where nothing happened so the chart doesn't waste space
+  const firstActiveIdx = weekly.findIndex(w =>
+    (w.instagram || 0) + (w.whatsapp || 0) + (w.facebook || 0) + (w.tiktok || 0) > 0
+  )
+  const trimmedWeekly = firstActiveIdx === -1 ? weekly : weekly.slice(firstActiveIdx)
 
-  const chartData = getDummyChartData()
+  const chartData = trimmedWeekly.map(w => ({    time: period === 'month'
+      ? new Date(w.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : w.day,
+    instagram:      w.instagram      || 0,
+    instagram_resp: w.instagram_resp || 0,
+    whatsapp:       w.whatsapp       || 0,
+    whatsapp_resp:  w.whatsapp_resp  || 0,
+    facebook:       w.facebook       || 0,
+    facebook_resp:  w.facebook_resp  || 0,
+    tiktok:         w.tiktok         || 0,
+    tiktok_resp:    w.tiktok_resp    || 0,
+  }))
 
   const exportToCSV = () => {
     const headers = ['Metric', 'Value']
@@ -289,80 +286,66 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+        {['today', 'week', 'month'].map(p => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={clsx(
+              'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
+              period === p
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-900'
+            )}
+          >
+            {PERIOD_LABELS[p]}
+          </button>
+        ))}
+      </div>
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCardsData.map(({ label, value, icon: Icon, color, bg }, idx) => {
-          // Use animation for numeric values only
-          const isNumeric = typeof value === 'number'
-          const isPercentage = typeof value === 'string' && value.includes('%')
-          
-          let displayValue = value
-          let animatedChange = 0
-          
-          // Animate numeric values
-          if (isNumeric) {
-            animatedChange = useCountAnimation(value)
-            displayValue = animatedChange
-          }
-          
-          // Animate percentage values
-          if (isPercentage) {
-            const percentValue = parseFloat(value)
-            const animatedPercent = useCountAnimation(percentValue)
-            displayValue = `${animatedPercent.toFixed(1)}%`
-          }
-          
-          // Calculate change from yesterday (all metrics compare to yesterday)
+        {statCardsData.map(({ label, value, icon: Icon, color, bg, kpiKey, isPercentage }) => {
+          // Current vs previous from the analytics response
           const kpis = analyticsData?.kpis || {}
-          let change = 0
-          let colorClass = 'text-gray-600'
-          const periodLabel = 'yesterday'
-          
-          // Map label to KPI fields for yesterday comparison
-          const labelToYesterdayKey = {
-            'Total Messages': { current: 'messages_total', yesterday: 'yesterday_messages_total' },
-            'Automated AI Replies': { current: 'ai_replies_total', yesterday: 'yesterday_ai_replies_total' },
-            'Human Overrides': { current: 'human_override_total', yesterday: 'yesterday_human_override_total' },
-            'Failed Responses': { current: 'failed_responses', yesterday: 'yesterday_failed_responses' },
-            'Escalated': { current: 'escalated_total', yesterday: 'yesterday_escalated_total' },
+          const prev = kpis.previous || {}
+          const currentValue = kpiKey ? (kpis[kpiKey] ?? 0) : 0
+          const previousValue = kpiKey ? (prev[kpiKey] ?? 0) : 0
+
+          // Display value
+          let displayValue = value
+          if (isPercentage) {
+            displayValue = `${(currentValue * 100).toFixed(1)}%`
+          } else {
+            displayValue = currentValue
           }
-          
-          if (isNumeric && analyticsData) {
-            const keyPair = labelToYesterdayKey[label]
-            
-            if (keyPair && kpis[keyPair.current] !== undefined && kpis[keyPair.yesterday] !== undefined) {
-              change = kpis[keyPair.current] - kpis[keyPair.yesterday]
-              
-              // Determine color based on change
-              if (change === 0) {
-                colorClass = 'text-gray-600'
-              } else if (change > 0) {
-                colorClass = 'text-green-600'
-              } else {
-                colorClass = 'text-red-600'
-              }
-            }
-          }
-          
-          const arrowIcon = change > 0 ? '↑' : change < 0 ? '↓' : '→'
-          
+
+          // Change calculation
+          const change = currentValue - previousValue
+          const arrow = change > 0 ? '↑' : change < 0 ? '↓' : '→'
+          const colorClass =
+            change > 0 ? 'text-green-600' :
+            change < 0 ? 'text-red-600'   :
+                         'text-gray-500'
+
+          // Format change display
+          const changeDisplay = isPercentage
+            ? `${(change * 100).toFixed(1)}%`
+            : Math.abs(change)
+
           return (
             <div key={label} className="stat-card">
               <div className="flex items-start justify-between">
                 <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', bg)}>
                   <Icon size={18} className={color} />
                 </div>
-                <div className="text-right">
-                  <span className={`text-[10px] font-semibold ${colorClass}`}>
-                    {arrowIcon} {Math.abs(change)}
-                  </span>
-                </div>
+                <span className={`text-[10px] font-semibold ${colorClass}`}>
+                  {arrow} {changeDisplay}
+                </span>
               </div>
-              <p className="text-4xl font-bold text-gray-900 mt-2">{displayValue}</p>
+              <p className="text-4xl font-bold text-gray-900 mt-2 tabular-nums">{displayValue}</p>
               <p className="text-sm text-gray-500 font-semibold">{label}</p>
-              <p className={`text-[10px] font-semibold ${colorClass}`}>
-                {change > 0 ? '+' : change < 0 ? '-' : '='}{Math.abs(change)} since {periodLabel}
-              </p>
+              <p className="text-[10px] text-gray-400">vs {PREVIOUS_LABELS[period]}</p>
             </div>
           )
         })}
@@ -392,86 +375,17 @@ export default function Dashboard() {
               />
               <Tooltip content={<CustomTooltip />} />
               {/* Instagram */}
-              <Line 
-                type="natural"
-                dataKey="instagram"
-                name="Instagram"
-                stroke="#ec4899" 
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6, fill: '#ec4899', fillOpacity: 1 }}
-                isAnimationActive={true}
-              />
-              <Line 
-                type="natural"
-                dataKey="instagram_resp"
-                name="Instagram (Responded)"
-                stroke="#ec4899" 
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                activeDot={{ r: 6, fill: '#ec4899', fillOpacity: 1 }}
-              />
+              <Line type="natural" dataKey="instagram"      name="Instagram"             stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="instagram_resp" name="Instagram (Responded)" stroke="#ec4899" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
               {/* WhatsApp */}
-              <Line 
-                type="natural"
-                dataKey="whatsapp"
-                name="WhatsApp"
-                stroke="#22c55e" 
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6, fill: '#22c55e', fillOpacity: 1 }}
-              />
-              <Line 
-                type="natural"
-                dataKey="whatsapp_resp"
-                name="WhatsApp (Responded)"
-                stroke="#22c55e" 
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                activeDot={{ r: 6, fill: '#22c55e', fillOpacity: 1 }}
-              />
+              <Line type="natural" dataKey="whatsapp"       name="WhatsApp"              stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="whatsapp_resp"  name="WhatsApp (Responded)"  stroke="#22c55e" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
               {/* Facebook */}
-              <Line 
-                type="natural"
-                dataKey="facebook"
-                name="Facebook"
-                stroke="#3b82f6" 
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6, fill: '#3b82f6', fillOpacity: 1 }}
-              />
-              <Line 
-                type="natural"
-                dataKey="facebook_resp"
-                name="Facebook (Responded)"
-                stroke="#3b82f6" 
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                activeDot={{ r: 6, fill: '#3b82f6', fillOpacity: 1 }}
-              />
+              <Line type="natural" dataKey="facebook"       name="Facebook"              stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="facebook_resp"  name="Facebook (Responded)"  stroke="#3b82f6" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
               {/* TikTok */}
-              <Line 
-                type="natural"
-                dataKey="tiktok"
-                name="TikTok"
-                stroke="#111111" 
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6, fill: '#111111', fillOpacity: 1 }}
-              />
-              <Line 
-                type="natural"
-                dataKey="tiktok_resp"
-                name="TikTok (Responded)"
-                stroke="#111111" 
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                activeDot={{ r: 6, fill: '#111111', fillOpacity: 1 }}
-              />
+              <Line type="natural" dataKey="tiktok"         name="TikTok"                stroke="#111111" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="tiktok_resp"    name="TikTok (Responded)"    stroke="#111111" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
           
@@ -510,8 +424,7 @@ export default function Dashboard() {
               <div key={label} className={`card ${colors.bg} border ${colors.border} p-4`}>
                 <p className={`text-[11px] ${colors.upper} font-semibold uppercase tracking-wider`}>{label}</p>
                 <p className={`text-2xl font-bold ${colors.text} mt-2`}>{value}</p>
-                <p className={`text-xs ${colors.text} mt-1 opacity-75`}>+15% this week</p>
-              </div>
+                <p className={`text-xs ${colors.text} mt-1 opacity-75`}>{PERIOD_LABELS[period]}</p>              </div>
             )
           })}
         </div>

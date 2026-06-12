@@ -95,127 +95,77 @@ def summary():
 
     days, cutoff = _window()
 
-    # ── KPIs ──────────────────────────────────────────────────────────────
-    msg_q = _scope_filter(
-        Message.query.filter(Message.created_at >= cutoff),
-        Message, user,
-    )
+    # ── KPIs: current window + previous window (same size) ───────────────
+    # The frontend picks "today", "week", or "month" via ?days=1, 7, or 30.
+    # We return both current and previous so the cards can show change.
 
-    total_messages = msg_q.count()
-    inbound_total = msg_q.filter(Message.direction == 'inbound').count()
-    ai_replies = msg_q.filter(
-        Message.direction == 'outbound', Message.sender == 'ai'
-    ).count()
-    human_replies = msg_q.filter(
-        Message.direction == 'outbound', Message.sender == 'human'
-    ).count()
+    def _kpis_for_window(start_dt, end_dt):
+        """Compute all KPIs for a single time window [start_dt, end_dt)."""
+        msg_q = _scope_filter(
+            Message.query.filter(Message.created_at >= start_dt)
+                                 .filter(Message.created_at < end_dt),
+            Message, user,
+        )
+        conv_q = _scope_filter(
+            Conversation.query.filter(Conversation.last_message_at >= start_dt)
+                                       .filter(Conversation.last_message_at < end_dt),
+            Conversation, user,
+        )
 
-    # ── Previous period comparison (yesterday or previous day range) ─────
-    yesterday_cutoff = cutoff - timedelta(days=days)
-    msg_q_prev = _scope_filter(
-        Message.query.filter(Message.created_at >= yesterday_cutoff)
-        .filter(Message.created_at < cutoff),
-        Message, user,
-    )
-    prev_total_messages = msg_q_prev.count()
-    prev_inbound_total = msg_q_prev.filter(Message.direction == 'inbound').count()
-    prev_ai_replies = msg_q_prev.filter(
-        Message.direction == 'outbound', Message.sender == 'ai'
-    ).count()
-    prev_human_replies = msg_q_prev.filter(
-        Message.direction == 'outbound', Message.sender == 'human'
-    ).count()
+        total_msgs = msg_q.count()
+        inbound   = msg_q.filter(Message.direction == 'inbound').count()
+        ai_repl   = msg_q.filter(Message.direction == 'outbound',
+                                 Message.sender == 'ai').count()
+        human_repl = msg_q.filter(Message.direction == 'outbound',
+                                  Message.sender == 'human').count()
 
-    # ── Yesterday-specific comparison (always last 24 hours) ─────────────
-    yesterday_24h_cutoff = datetime.utcnow() - timedelta(days=1)
-    yesterday_msg_q = _scope_filter(
-        Message.query.filter(Message.created_at >= yesterday_24h_cutoff),
-        Message, user,
-    )
-    yesterday_total_messages = yesterday_msg_q.count()
-    yesterday_ai_replies = yesterday_msg_q.filter(
-        Message.direction == 'outbound', Message.sender == 'ai'
-    ).count()
-    yesterday_human_replies = yesterday_msg_q.filter(
-        Message.direction == 'outbound', Message.sender == 'human'
-    ).count()
-    
-    # Yesterday conversations
-    yesterday_conv_q = _scope_filter(
-        Conversation.query.filter(Conversation.last_message_at >= yesterday_24h_cutoff),
-        Conversation, user,
-    )
-    yesterday_human_overrides = yesterday_conv_q.filter(Conversation.ai_enabled == False).count()
-    yesterday_escalated = yesterday_conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
-    yesterday_failed_responses = max(0, yesterday_msg_q.filter(Message.direction == 'inbound').count() - yesterday_ai_replies)
-
-    # Avg AI response time over messages in window that have a timing.
-    avg_response_ms = (
-        _scope_filter(
+        avg_ms = _scope_filter(
             db.session.query(func.avg(Message.ai_response_time_ms))
-            .filter(Message.created_at >= cutoff)
-            .filter(Message.ai_response_time_ms.isnot(None)),
+              .filter(Message.created_at >= start_dt)
+              .filter(Message.created_at < end_dt)
+              .filter(Message.ai_response_time_ms.isnot(None)),
             Message, user,
         ).scalar()
-    )
 
-    # Conversations in window
-    conv_q = _scope_filter(
-        Conversation.query.filter(Conversation.last_message_at >= cutoff),
-        Conversation, user,
-    )
-    total_convs = conv_q.count()
-    
-    # Human overrides: agent manually disabled AI in a conversation
-    human_override_convs = conv_q.filter(Conversation.ai_enabled == False).count()
-    
-    # Escalations: system detected keyword/intent and handed off to human
-    escalated_convs = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
-    
-    # Failed responses: AI messages with null or error indication in logs
-    # For now, proxy as: inbound messages without corresponding AI reply in window
-    failed_responses = max(0, inbound_total - ai_replies)
+        total_convs    = conv_q.count()
+        human_override = conv_q.filter(Conversation.ai_enabled == False).count()
+        escalated      = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
+        failed         = max(0, inbound - ai_repl)
+        ai_success     = (ai_repl / inbound) if inbound else 0.0
 
-    # AI success rate: AI replies / inbound messages (only measuring AI performance, not humans)
-    ai_success_rate = (ai_replies / inbound_total) if inbound_total else 0.0
+        return {
+            'messages_total':      total_msgs,
+            'inbound_total':       inbound,
+            'ai_replies_total':    ai_repl,
+            'human_replies_total': human_repl,
+            'failed_responses':    failed,
+            'avg_response_time_ms': int(avg_ms) if avg_ms else None,
+            'ai_success_rate':     round(ai_success, 4),
+            'human_override_total': human_override,
+            'escalated_total':     escalated,
+            'conversations_total': total_convs,
+        }
 
-    kpis = {
-        'messages_total': total_messages,
-        'inbound_total': inbound_total,
-        'ai_replies_total': ai_replies,
-        'human_replies_total': human_replies,
-        'failed_responses': failed_responses,
-        'avg_response_time_ms': int(avg_response_ms) if avg_response_ms else None,
-        'ai_success_rate': round(ai_success_rate, 4),
-        'human_override_total': human_override_convs,
-        'escalated_total': escalated_convs,
-        'conversations_total': total_convs,
-        # Comparison data (previous period - same window size)
-        'prev_messages_total': prev_total_messages,
-        'prev_ai_replies_total': prev_ai_replies,
-        'prev_human_override_total': conv_q.filter(
-            Conversation.last_message_at >= yesterday_cutoff,
-            Conversation.last_message_at < cutoff,
-            Conversation.ai_enabled == False
-        ).count(),
-        'prev_escalated_total': _scope_filter(
-            Conversation.query.filter(Conversation.last_message_at >= yesterday_cutoff)
-            .filter(Conversation.last_message_at < cutoff)
-            .filter(Conversation.handoff_reason.isnot(None)),
-            Conversation, user,
-        ).count(),
-        'prev_failed_responses': max(0, prev_inbound_total - prev_ai_replies),
-        'prev_ai_success_rate': round((prev_ai_replies / prev_inbound_total) if prev_inbound_total else 0.0, 4),
-        # Yesterday-specific comparison (always last 24 hours)
-        'yesterday_messages_total': yesterday_total_messages,
-        'yesterday_ai_replies_total': yesterday_ai_replies,
-        'yesterday_human_override_total': yesterday_human_overrides,
-        'yesterday_escalated_total': yesterday_escalated,
-        'yesterday_failed_responses': yesterday_failed_responses,
-    }
+    now = datetime.utcnow()
+    current_start = cutoff
+    current_end   = now
+    previous_start = cutoff - timedelta(days=days)
+    previous_end   = cutoff
+
+    current  = _kpis_for_window(current_start, current_end)
+    previous = _kpis_for_window(previous_start, previous_end)
+
+    # Flat kpis dict for backward compatibility with the Analytics page.
+    # Adds a `previous` nested object that the Dashboard uses for change arrows.
+    kpis = {**current, 'previous': previous}
+
+    # Keep these in scope for the chart/intent/etc. blocks below
+    inbound_total = current['inbound_total']
+    ai_replies    = current['ai_replies_total']    
 
     # ── Weekly chart data ─────────────────────────────────────────────────
-    # One row per day in the window: inbound count, AI-reply count.
+    # One row per day in the window with both totals and per-channel inbound
+    # counts (used for the multi-line graph on the Dashboard).
     weekly_q = _scope_filter(
         db.session.query(
             func.date(Message.created_at).label('day'),
@@ -228,16 +178,57 @@ def summary():
     )
     weekly_rows = {row.day: (row.inbound, row.ai_replied) for row in weekly_q.all()}
 
+    # Per-channel-per-day counts for the Dashboard channel graph.
+    # We group all instagram_* into 'instagram', facebook_* into 'facebook', etc.
+    # Two counts per (day, channel): inbound, replied (any outbound).
+    channel_group = case(
+        (Message.channel.like('instagram%'), 'instagram'),
+        (Message.channel.like('facebook%'),  'facebook'),
+        (Message.channel.like('tiktok%'),    'tiktok'),
+        (Message.channel == 'whatsapp',      'whatsapp'),
+        else_='other',
+    )
+    per_channel_q = _scope_filter(
+        db.session.query(
+            func.date(Message.created_at).label('day'),
+            channel_group.label('channel'),
+            func.count(case((Message.direction == 'inbound', 1))).label('inbound'),
+            func.count(case((Message.direction == 'outbound', 1))).label('replied'),
+        ).filter(Message.created_at >= cutoff)
+         .group_by(func.date(Message.created_at), channel_group),
+        Message, user,
+    )
+    per_channel = {}
+    for row in per_channel_q.all():
+        per_channel.setdefault(row.day, {})[row.channel] = {
+            'inbound': int(row.inbound),
+            'replied': int(row.replied),
+        }
+
     # Fill missing days with zeros so the chart always has N points.
     weekly = []
     for i in range(days - 1, -1, -1):
         d = (datetime.utcnow() - timedelta(days=i)).date()
         inb, ai_r = weekly_rows.get(d, (0, 0))
+        day_channels = per_channel.get(d, {})
+
+        def _ch(name, key):
+            entry = day_channels.get(name)
+            return entry.get(key, 0) if entry else 0
+
         weekly.append({
             'date': d.isoformat(),
             'day': d.strftime('%a'),
             'inbound': int(inb),
             'ai_replied': int(ai_r),
+            'instagram':       _ch('instagram', 'inbound'),
+            'instagram_resp':  _ch('instagram', 'replied'),
+            'whatsapp':        _ch('whatsapp',  'inbound'),
+            'whatsapp_resp':   _ch('whatsapp',  'replied'),
+            'facebook':        _ch('facebook',  'inbound'),
+            'facebook_resp':   _ch('facebook',  'replied'),
+            'tiktok':          _ch('tiktok',    'inbound'),
+            'tiktok_resp':     _ch('tiktok',    'replied'),
         })
 
     # ── Intent breakdown ──────────────────────────────────────────────────
