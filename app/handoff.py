@@ -89,8 +89,19 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
             conversation.assigned_to = agent.id
             conversation.assigned_at = datetime.utcnow()
             conversation.assigned_by = None  # system-assigned, no human actor
-            log_event("info", "handoff",
-                      f"Auto-assigned conversation {conversation.id} to agent {agent.email}")
+
+            log_event("info", "handoff.auto_assign",
+                      f"Auto-assigned conversation {conversation.id} to {agent.email}",
+                      payload={
+                          "agent_id": agent.id,
+                          "agent_email": agent.email,
+                          "agent_name": agent.full_name,
+                          "reason": reason,
+                          "detail": detail,
+                          "channel": conversation.channel,
+                          "handle": conversation.handle,
+                      },
+                      conversation_id=conversation.id)
 
             # Notify the auto-assigned agent
             try:
@@ -102,23 +113,24 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                     resource_type='conversation',
                     resource_id=conversation.id,
                 )
-                log_event("info", "handoff", f"DEBUG: created notification for agent {agent.id}")
             except Exception as e:
-                log_event("error", "handoff", f"DEBUG: create_notification failed: {e}")
+                log_event("error", "handoff.notify_fail",
+                          f"create_notification failed: {e}",
+                          payload={"agent_id": agent.id, "error": str(e)},
+                          conversation_id=conversation.id)
 
-    log_row = Log(
-        level="info",
-        source="handoff",
-        message=f"Handoff triggered ({reason}: {detail})",
-        conversation_id=conversation.id,
-        payload={"reason": reason, "detail": detail},
-    )
-    db.session.add(log_row)
     db.session.commit()
 
-    log_event("info", "handoff",
-              f"Conversation {conversation.id} handed off — {reason}: {detail}")
-
+    log_event("info", "handoff.triggered",
+              f"Conversation {conversation.id} handed off — {reason}: {detail}",
+              payload={
+                  "reason": reason,
+                  "detail": detail,
+                  "channel": conversation.channel,
+                  "handle": conversation.handle,
+              },
+              conversation_id=conversation.id)
+    
     return {
         "reason": reason,
         "detail": detail,

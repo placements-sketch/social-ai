@@ -150,18 +150,117 @@ export default function Dashboard() {
     return alerts
   }
 
-  // Map activity logs to feed format
-  const getActivityFeed = () => {
-    if (activityLogs.length > 0) {
-      return activityLogs.slice(0, 10).map(log => ({
-        id: log.id,
-        text: log.message || 'Activity logged',
-        channel: log.source || 'system',
-        time: formatTimeAgo(log.created_at),
-      }))
+  // Compose a human-readable line from a log row.
+// Compose a natural-language sentence from a structured log row.
+  const formatActivityText = (log) => {
+    const src = (log.source || '').toLowerCase()
+    const p = log.payload || {}
+
+    const chanName = ({
+      instagram_dm:      'Instagram DM',
+      instagram_comment: 'Instagram comment',
+      whatsapp:          'WhatsApp',
+      facebook_dm:       'Facebook DM',
+      facebook_comment:  'Facebook comment',
+      tiktok_dm:         'TikTok DM',
+      tiktok_comment:    'TikTok comment',
+    })[p.channel] || p.channel
+
+    const userRef = p.user_external_id
+      ? `@${p.user_external_id}`
+      : (p.handle ? `@${p.handle}` : 'a customer')
+
+    // ── Inbound message
+    if (src === 'services.inbound') {
+      return `${userRef} sent a message on ${chanName || 'an unknown channel'}${p.preview ? `: "${p.preview.slice(0, 60)}${p.preview.length > 60 ? '…' : ''}"` : ''}`
     }
-    // Fallback to mock data
-    return activityFeed
+
+    // ── AI reply
+    if (src === 'services.ai_reply') {
+      return `AI responded via ${chanName} to ${userRef}`
+    }
+
+    // ── Intents detected
+    if (src === 'services.intents') {
+      const list = (p.intents || []).join(', ')
+      return `Detected intents: ${list || 'unknown'} for ${userRef}`
+    }
+
+    // ── Template reply used
+    if (src === 'services.template_reply') {
+      return `Template reply sent to ${userRef} on ${chanName}`
+    }
+
+    // ── AI suppressed
+    if (src === 'services.ai_suppressed') {
+      return `AI gated off for ${userRef} on ${chanName}`
+    }
+
+    // ── Shopify product lookup
+    if (src === 'services.shopify_lookup') {
+      const stock = p.stock_quantity
+      const stockStr = stock == null ? 'untracked' : `${stock} units`
+      return `Shopify stock checked: ${p.product_name || p.product_keyword} — ${stockStr}`
+    }
+
+    // ── Shopify sync
+    if (src === 'integrations.shopify.sync') {
+      return `Shopify sync completed — ${p.count || 0} ${p.kind || 'records'} updated`
+    }
+
+    // ── Shopify token
+    if (src === 'integrations.shopify.token') {
+      return `Shopify access token refreshed`
+    }
+
+    // ── Handoff
+    if (src === 'handoff.triggered') {
+      return `Conversation handed off to human — ${p.reason || 'rule'}${p.detail ? `: "${p.detail}"` : ''}`
+    }
+    if (src === 'handoff.auto_assign') {
+      return `Auto-assigned to ${p.agent_name || p.agent_email}${p.reason ? ` (${p.reason})` : ''}`
+    }
+
+    // ── Manual assignment
+    if (src === 'assignment.assigned') {
+      const verb = p.is_reassign ? 'reassigned' : 'assigned'
+      return `Conversation ${verb} to ${p.agent_name || p.agent_email}`
+    }
+    if (src === 'assignment.unassigned') {
+      return `Conversation unassigned`
+    }
+
+    // ── AI failure
+    if (src === 'ai.generator.failure') {
+      return `Claude API call failed — fell back to mock reply`
+    }
+
+    // Fallback to the raw message
+    return log.message || `${log.source} event`
+  }
+
+  const getActivityFeed = () => {
+    if (activityLogs.length === 0) {
+      // Fallback to mock so the section isn't empty during early dev
+      return activityFeed
+    }
+    return activityLogs.slice(0, 12).map(log => {
+      // Prefer payload.channel (now richly populated); fall back to source-based guess.
+      const src = (log.source || '').toLowerCase()
+      let iconChannel = 'system'
+      if (log.payload?.channel) iconChannel = log.payload.channel
+      else if (src.includes('shopify')) iconChannel = 'shopify'
+      else if (src.includes('handoff') || src.includes('assignment')) iconChannel = 'alert'
+      else if (src.includes('meta')) iconChannel = 'instagram_dm'
+      else if (src.includes('ai')) iconChannel = 'system'
+
+      return {
+        id: log.id,
+        text: formatActivityText(log),
+        channel: iconChannel,
+        time: formatTimeAgo(log.created_at),
+      }
+    })
   }
 
   const formatTimeAgo = (timestamp) => {
@@ -180,8 +279,7 @@ export default function Dashboard() {
 
   const statCardsData = getStatCards()
   const systemAlertsData = getSystemAlerts()
-  // Always use mock activity feed for now - it has better formatted statements
-  const activityFeedData = activityFeed
+  const activityFeedData = getActivityFeed()
 
   // Real channel totals from analytics, scoped to the selected period.
   const channelSplit = analyticsData?.channel_split || []

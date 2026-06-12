@@ -75,8 +75,9 @@ def _get_shopify_access_token():
         
         expires_in = int(data.get('expires_in', 86399))
         _SHOPIFY_TOKEN_EXPIRES_AT = datetime.utcnow() + timedelta(seconds=expires_in)
-        log_event("info", "integrations.shopify",
-                  f"Access token obtained (expires at {_SHOPIFY_TOKEN_EXPIRES_AT.isoformat()})")
+        log_event("info", "integrations.shopify.token",
+                  f"Access token obtained",
+                  payload={"expires_at": _SHOPIFY_TOKEN_EXPIRES_AT.isoformat()})
         return _SHOPIFY_ACCESS_TOKEN
     
     except requests.RequestException as e:
@@ -317,7 +318,9 @@ def _real_list_all_products() -> list[dict]:
                         url = part.split(';')[0].strip().strip('<>')
                         break
 
-        log_event("info", "integrations.shopify", f"Fetched {len(all_products)} products from Shopify")
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify sync completed — {len(all_products)} products updated",
+                  payload={"count": len(all_products), "kind": "products"})
         return all_products
 
     except requests.RequestException as e:
@@ -403,7 +406,9 @@ def _real_list_all_customers() -> list[dict]:
                         url = part.split(';')[0].strip().strip('<>')
                         break
 
-        log_event("info", "integrations.shopify", f"Fetched {len(all_customers)} customers from Shopify")
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify sync completed — {len(all_customers)} customers updated",
+                  payload={"count": len(all_customers), "kind": "customers"})
         return all_customers
 
     except requests.RequestException as e:
@@ -464,7 +469,9 @@ def _real_list_all_orders() -> list[dict]:
                         url = part.split(';')[0].strip().strip('<>')
                         break
 
-        log_event("info", "integrations.shopify", f"Fetched {len(all_orders)} orders from Shopify")
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify sync completed — {len(all_orders)} orders updated",
+                  payload={"count": len(all_orders), "kind": "orders"})
         return all_orders
 
     except requests.RequestException as e:

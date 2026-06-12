@@ -173,5 +173,11 @@ Reply guidelines:
         return response.content[0].text.strip()
 
     except Exception as e:
-        log_event("error", "ai.generator", f"Claude API call failed: {e}")
+        log_event("error", "ai.generator.failure",
+                  f"Claude API call failed — falling back to mock reply",
+                  payload={
+                      "error": str(e),
+                      "channel": channel,
+                      "intents": intents,
+                  })
         return _mock_reply(intents, context_data)

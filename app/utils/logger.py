@@ -8,7 +8,6 @@ DB write is best-effort — a failure here must never crash the pipeline.
 
 import logging
 
-# Standard Python logger (outputs to console / file handler)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -16,26 +15,38 @@ logging.basicConfig(
 _logger = logging.getLogger("social_ai")
 
 
-def log_event(level: str, source: str, message: str):
+def log_event(level: str, source: str, message: str,
+              payload: dict | None = None,
+              conversation_id: int | None = None):
     """
-    Log a pipeline event.
+    Log a pipeline event with optional structured context.
 
     Args:
-        level:   'info', 'warning', or 'error'
-        source:  Module or function name (e.g. 'services', 'integrations.shopify')
-        message: Human-readable description of the event
+        level:           'info', 'warning', or 'error'
+        source:          Module identifier (e.g. 'services.inbound',
+                         'integrations.shopify.sync')
+        message:         Human-readable summary
+        payload:         Optional dict of structured context
+                         (handle, channel, intent, product, etc.)
+                         Used by the Dashboard activity feed to build
+                         rich, natural-language descriptions.
+        conversation_id: Optional FK link to a conversation.
     """
-    # 1. Write to standard logger
     log_fn = getattr(_logger, level, _logger.info)
     log_fn(f"[{source}] {message}")
 
-    # 2. Persist to DB (best-effort)
     try:
         from app import db
         from app.models import Log
-        entry = Log(level=level, source=source, message=message)
+        entry = Log(
+            level=level,
+            source=source,
+            message=message,
+            payload=payload,
+            conversation_id=conversation_id,
+        )
         db.session.add(entry)
         db.session.commit()
     except Exception:
-        # Never let a logging failure propagate
+        # Never let logging crash the caller
         pass

@@ -115,6 +115,23 @@ def assign(conversation_id):
         changes={'assigned_to': target.id, 'assigned_to_email': target.email},
     )
 
+    from app.utils.logger import log_event
+    is_reassign = previous_assignee is not None and previous_assignee != target.id
+    log_event("info", "assignment.assigned",
+              f"Conversation {conv.id} {'reassigned' if is_reassign else 'assigned'} to {target.email}",
+              payload={
+                  "agent_id": target.id,
+                  "agent_email": target.email,
+                  "agent_name": target.full_name,
+                  "assigned_by_id": current_user.id,
+                  "assigned_by_email": current_user.email,
+                  "is_reassign": is_reassign,
+                  "previous_assignee_id": previous_assignee,
+                  "channel": conv.channel,
+                  "handle": conv.handle,
+              },
+              conversation_id=conv.id)
+
     return jsonify({'conversation': conv.to_dict(include_messages=False)}), 200
 
 
@@ -155,5 +172,17 @@ def unassign(conversation_id):
         resource_type='conversation', resource_id=str(conv.id),
         changes={'previous_assigned_to': previous},
     )
+
+    from app.utils.logger import log_event
+    log_event("info", "assignment.unassigned",
+              f"Conversation {conv.id} unassigned",
+              payload={
+                  "previous_assignee_id": previous,
+                  "unassigned_by_id": current_user.id,
+                  "unassigned_by_email": current_user.email,
+                  "channel": conv.channel,
+                  "handle": conv.handle,
+              },
+              conversation_id=conv.id)
 
     return jsonify({'conversation': conv.to_dict(include_messages=False)}), 200

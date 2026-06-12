@@ -45,7 +45,13 @@ def process_message(message: str, user_id: str, channel: str) -> str:
         The reply string that was sent, or AI_SUPPRESSED ("") if the AI
         was gated off for this conversation/channel.
     """
-    log_event("info", "services", f"Inbound [{channel}] from {user_id}: {message[:80]}")
+    log_event("info", "services.inbound",
+              f"Inbound [{channel}] from {user_id}: {message[:80]}",
+              payload={
+                  "user_external_id": user_id,
+                  "channel": channel,
+                  "preview": message[:160],
+              })
 
     # ── Step 1: Persist inbound IMMEDIATELY ────────────────────────────────
     # Done first so the human inbox shows the new message even when AI is
@@ -63,9 +69,14 @@ def process_message(message: str, user_id: str, channel: str) -> str:
     #   - Conversation.ai_enabled (per-thread, flipped when a human takes
     #                              over a specific conversation)
     if not _ai_should_respond(channel=channel, user_id=user_id):
-        log_event("info", "services",
-                  f"AI suppressed for [{channel}] {user_id} "
-                  f"(channel disabled or conversation handed over)")
+        log_event("info", "services.ai_suppressed",
+                  f"AI suppressed for [{channel}] {user_id}",
+                  payload={
+                      "user_external_id": user_id,
+                      "channel": channel,
+                      "reason": "channel_disabled_or_handed_over",
+                  },
+                  conversation_id=(inbound_record.conversation_id if inbound_record else None))
         return AI_SUPPRESSED
 
     # ── Step 3: Detect ALL intents in the message ──────────────────────────
@@ -73,7 +84,14 @@ def process_message(message: str, user_id: str, channel: str) -> str:
     # "Hi, is this available in blue and how much is delivery to Kilimani?"
     # → ["greeting", "stock_inquiry", "product_inquiry", "delivery_inquiry", "price_inquiry"]
     intents = detect_intents(message)
-    log_event("info", "services", f"Intents detected: {intents}")
+    log_event("info", "services.intents",
+              f"Intents detected: {intents}",
+              payload={
+                  "user_external_id": user_id,
+                  "channel": channel,
+                  "intents": intents,
+              },
+              conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
     # Update the inbound record's intent now that we know it.
     _patch_inbound_intent(inbound_record, intents)
@@ -95,7 +113,14 @@ def process_message(message: str, user_id: str, channel: str) -> str:
         _dispatch_reply(channel=channel, user_id=user_id, reply=template)
         _save_message(user_id=user_id, channel=channel, content=template,
                       intent=None, direction="outbound")
-        log_event("info", "services", f"Template-rule reply used for [{channel}] {user_id}")
+        log_event("info", "services.template_reply",
+                  f"Template-rule reply used for [{channel}] {user_id}",
+                  payload={
+                      "user_external_id": user_id,
+                      "channel": channel,
+                      "intents": intents,
+                  },
+                  conversation_id=(inbound_record.conversation_id if inbound_record else None))
         return template
 
     # ── Step 4: Fetch data for every relevant intent ───────────────────────
@@ -107,7 +132,16 @@ def process_message(message: str, user_id: str, channel: str) -> str:
         product_data = get_product_info(product_keyword)
         context_data["product"] = product_data
         context_data["stock"]   = get_stock_level(product_keyword)
-        log_event("info", "services", f"Shopify product+stock fetched for keyword: '{product_keyword}'")
+        log_event("info", "services.shopify_lookup",
+                  f"Shopify product+stock fetched for '{product_keyword}'",
+                  payload={
+                      "user_external_id": user_id,
+                      "channel": channel,
+                      "product_keyword": product_keyword,
+                      "product_name": product_data.get("name"),
+                      "stock_quantity": context_data["stock"].get("quantity"),
+                  },
+                  conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
     if "delivery_inquiry" in intents:
         context_data["delivery_asked"] = True
@@ -126,6 +160,16 @@ def process_message(message: str, user_id: str, channel: str) -> str:
 
     # ── Step 6: Send reply back via the correct channel ────────────────────
     _dispatch_reply(channel=channel, user_id=user_id, reply=reply)
+
+    log_event("info", "services.ai_reply",
+              f"AI replied via {channel} to {user_id}",
+              payload={
+                  "user_external_id": user_id,
+                  "channel": channel,
+                  "intents": intents,
+                  "reply_preview": reply[:160],
+              },
+              conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
     # ── Step 7: Persist outbound ──────────────────────────────────────────
     _save_message(
@@ -381,4 +425,3 @@ def _check_template_rule(message, intents, channel):
     except Exception as e:
         log_event("error", "services._check_template_rule", str(e))
         return None
-

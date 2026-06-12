@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useToast } from './Toast'
 import { Bell, RefreshCw, Menu, LogOut, User, MessageSquare, AlertTriangle, CheckCircle, X, CheckCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -43,24 +44,43 @@ export default function TopBar({ onMenuClick }) {
   })
 
   // Load notifications on mount + poll every 30 seconds
+const { showToast } = useToast()
+  const seenIdsRef = useRef(new Set())
+
   useEffect(() => {
     let cancelled = false
 
-    const load = async () => {
+    const load = async (isFirstLoad) => {
       try {
         const data = await fetchNotifications({ limit: 20 })
         if (cancelled) return
-        setNotifications(data.notifications || [])
+
+        const newList = data.notifications || []
+        setNotifications(newList)
         setUnreadCount(data.unread_count || 0)
+
+        // Pop a toast for any unread we haven't shown yet.
+        // On first load: mark everything as seen without toasting
+        // (so the user isn't blasted with 20 toasts on login).
+        if (isFirstLoad) {
+          newList.forEach(n => seenIdsRef.current.add(n.id))
+        } else {
+          newList.forEach(n => {
+            if (!n.read && !seenIdsRef.current.has(n.id)) {
+              showToast({ title: n.title, body: n.body })
+              seenIdsRef.current.add(n.id)
+            }
+          })
+        }
       } catch {
-        // Silent fail — bell should never crash the app
+        // Silent fail
       }
     }
 
-    load()
-    const timer = setInterval(load, 30000)
+    load(true)
+    const timer = setInterval(() => load(false), 30000)
     return () => { cancelled = true; clearInterval(timer) }
-  }, [])
+  }, [showToast])
 
   const handleClickNotif = async (n) => {
     // Optimistic mark-as-read
