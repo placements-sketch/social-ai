@@ -410,12 +410,20 @@ export default function Dashboard() {
           const currentValue = kpiKey ? (kpis[kpiKey] ?? 0) : 0
           const previousValue = kpiKey ? (prev[kpiKey] ?? 0) : 0
 
+          // Use animation for numeric and percentage values
+          let animatedValue = 0
+          if (isPercentage) {
+            animatedValue = useCountAnimation(currentValue * 100, 2000, true)
+          } else {
+            animatedValue = useCountAnimation(currentValue)
+          }
+
           // Display value
           let displayValue = value
           if (isPercentage) {
-            displayValue = `${(currentValue * 100).toFixed(1)}%`
+            displayValue = `${animatedValue.toFixed(1)}%`
           } else {
-            displayValue = currentValue
+            displayValue = animatedValue
           }
 
           // Change calculation

@@ -4,9 +4,10 @@ import { useState, useEffect, useRef } from 'react'
  * Hook for incremental counting animation
  * @param {number} endValue - The final value to animate to
  * @param {number} duration - Animation duration in milliseconds (default 2000)
+ * @param {boolean} isDecimal - Whether to preserve decimal precision (for percentages, etc.)
  * @returns {number} The current animated value
  */
-export function useCountAnimation(endValue, duration = 2000) {
+export function useCountAnimation(endValue, duration = 2000, isDecimal = false) {
   const [displayValue, setDisplayValue] = useState(0)
   const animationIdRef = useRef(null)
   const startTimeRef = useRef(null)
@@ -27,7 +28,11 @@ export function useCountAnimation(endValue, duration = 2000) {
       
       // Easing function for smooth animation (cubic ease-out)
       const easeOut = 1 - Math.pow(1 - progress, 3)
-      const currentValue = Math.floor(endValue * easeOut)
+      
+      // Use floor for integers, keep decimals for percentages
+      const currentValue = isDecimal 
+        ? endValue * easeOut 
+        : Math.floor(endValue * easeOut)
       
       setDisplayValue(currentValue)
 
@@ -44,7 +49,7 @@ export function useCountAnimation(endValue, duration = 2000) {
         cancelAnimationFrame(animationIdRef.current)
       }
     }
-  }, [endValue, duration])
+  }, [endValue, duration, isDecimal])
 
   return displayValue
 }
