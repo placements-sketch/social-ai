@@ -2,7 +2,7 @@ import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
-  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp,
+  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
@@ -359,16 +359,16 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 w-full">
-      <div className="flex items-center justify-between gap-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">Live overview of your AI support system</p>
         </div>
         
         {/* Period filters + Export */}
-        <div className="flex items-center gap-3">
-          {/* Period selector */}
-          <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
+        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+          {/* Desktop: Button group */}
+          <div className="hidden sm:flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
             {[
               { key: 'today', label: 'Today', icon: Clock },
               { key: 'week', label: 'This week', icon: Calendar },
@@ -388,6 +388,38 @@ export default function Dashboard() {
                 <span>{label}</span>
               </button>
             ))}
+          </div>
+
+          {/* Mobile: Dropdown */}
+          <div className="sm:hidden relative group">
+            <button className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
+              <Clock size={14} />
+              <span>{PERIOD_LABELS[period]}</span>
+              <ChevronDown size={14} className="transition-transform group-hover:rotate-180" />
+            </button>
+            <div className="absolute left-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              {[
+                { key: 'today', label: 'Today', icon: Clock },
+                { key: 'week', label: 'This week', icon: Calendar },
+                { key: 'month', label: 'This month', icon: ChartTrendingUp },
+              ].map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setPeriod(key)}
+                  className={clsx(
+                    'w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center gap-2 transition-colors',
+                    period === key
+                      ? 'bg-black text-white'
+                      : 'text-gray-700 hover:bg-gray-50',
+                    key === 'today' && 'first:rounded-t-lg',
+                    key === 'month' && 'last:rounded-b-lg'
+                  )}
+                >
+                  <Icon size={13} />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Export dropdown */}
@@ -422,9 +454,9 @@ export default function Dashboard() {
           // Use animation for numeric and percentage values
           let animatedValue = 0
           if (isPercentage) {
-            animatedValue = useCountAnimation(currentValue * 100, 3500, true)
+            animatedValue = useCountAnimation(currentValue * 100, 2000, true)
           } else {
-            animatedValue = useCountAnimation(currentValue, 3500)
+            animatedValue = useCountAnimation(currentValue)
           }
 
           // Display value
