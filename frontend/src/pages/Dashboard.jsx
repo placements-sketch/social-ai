@@ -2,7 +2,7 @@ import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
-  Download, FileText, File,
+  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
@@ -359,46 +359,55 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 w-full">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">Live overview of your AI support system</p>
         </div>
         
-        {/* Export dropdown */}
-        <div className="relative group">
-          <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors">
-            <Download size={14} />
-            <span>Export</span>
-          </button>
-          <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
-              <FileText size={13} />
-              Export as CSV
+        {/* Period filters + Export */}
+        <div className="flex items-center gap-3">
+          {/* Period selector */}
+          <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
+            {[
+              { key: 'today', label: 'Today', icon: Clock },
+              { key: 'week', label: 'This week', icon: Calendar },
+              { key: 'month', label: 'This month', icon: ChartTrendingUp },
+            ].map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setPeriod(key)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                  period === key
+                    ? 'bg-black text-white shadow-md'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                )}
+              >
+                <Icon size={14} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Export dropdown */}
+          <div className="relative group">
+            <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
+              <Download size={14} />
+              <span>Export</span>
             </button>
-            <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
-              <File size={13} />
-              Export as PDF
-            </button>
+            <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
+                <FileText size={13} />
+                Export as CSV
+              </button>
+              <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
+                <File size={13} />
+                Export as PDF
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-        {['today', 'week', 'month'].map(p => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={clsx(
-              'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
-              period === p
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            )}
-          >
-            {PERIOD_LABELS[p]}
-          </button>
-        ))}
       </div>
 
       {/* Stat cards */}
@@ -413,9 +422,9 @@ export default function Dashboard() {
           // Use animation for numeric and percentage values
           let animatedValue = 0
           if (isPercentage) {
-            animatedValue = useCountAnimation(currentValue * 100, 2000, true)
+            animatedValue = useCountAnimation(currentValue * 100, 3500, true)
           } else {
-            animatedValue = useCountAnimation(currentValue)
+            animatedValue = useCountAnimation(currentValue, 3500)
           }
 
           // Display value
