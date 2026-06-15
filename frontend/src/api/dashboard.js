@@ -72,17 +72,16 @@ export function getSystemLogs({ page = 1, per_page = 5, level = null, search = n
 }
 
 /**
- * Get my conversation logs (for live activity feed)
- * @param {{page?:number, per_page?:number}} opts
- * @returns {Promise<{logs:Array, total:number, page:number, per_page:number}>}
+ * Get pipeline activity feed (logs table — not audit_logs).
+ * Returns natural pipeline events for the Dashboard live feed.
  */
-export function getMyLogs({ page = 1, per_page = 10 } = {}) {
+export function getMyLogs({ page = 1, per_page = 12 } = {}) {
   const params = new URLSearchParams()
   params.set('page', page)
   params.set('per_page', per_page)
 
   return handle(
-    fetch(`${API_BASE}/logs/me?${params.toString()}`, {
+    fetch(`${API_BASE}/logs/feed?${params.toString()}`, {
       method: 'GET',
       headers: authHeaders(),
     })

@@ -245,3 +245,40 @@ def system_logs():
         'page': page,
         'per_page': per_page,
     }), 200
+
+
+# ─────────────────────────────────────────────
+# GET /api/logs/feed  — Dashboard live activity feed
+# Returns pipeline events from the `logs` table (not audit_logs),
+# scoped to the user's role:
+#   - admin/supervisor : all pipeline events
+#   - agent            : only events touching their assigned conversations
+# ─────────────────────────────────────────────
+
+@logs_bp.route('/logs/feed', methods=['GET'])
+@jwt_required()
+def feed_logs():
+    user, err = _require_user()
+    if err:
+        return err
+
+    page, per_page = _paginate_params()
+
+    query = Log.query
+
+    # Agents see only their assigned conversations
+    if user.role == 'agent':
+        from app.models import Conversation
+        assigned = db.session.query(Conversation.id).filter(
+            Conversation.assigned_to == user.id
+        ).subquery()
+        query = query.filter(Log.conversation_id.in_(assigned))
+
+    rows = (query.order_by(Log.created_at.desc())
+                 .limit(per_page).offset((page - 1) * per_page).all())
+
+    return jsonify({
+        'logs': [r.to_dict() for r in rows],
+        'page': page,
+        'per_page': per_page,
+    }), 200

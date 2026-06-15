@@ -234,7 +234,7 @@ class Message(db.Model):
     # Which staff member sent this — NULL for AI/system and for inbound messages.
     sender_id = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
     content   = db.Column(db.Text, nullable=False)
-    intent    = db.Column(db.String(64), nullable=True)
+    intent = db.Column(db.String(255), nullable=True)    
     product_keyword = db.Column(db.String(128), nullable=True)
     ai_response_time_ms = db.Column(db.Integer, nullable=True)
     ai_tokens_used      = db.Column(db.Integer, nullable=True)

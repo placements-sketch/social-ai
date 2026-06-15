@@ -235,8 +235,11 @@ export default function Dashboard() {
       return `Claude API call failed — fell back to mock reply`
     }
 
-    // Fallback to the raw message
-    return log.message || `${log.source} event`
+    // Fallback to the raw message (cleaned up)
+    if (log.message) {
+      return log.message.replace(/^\[(MOCK|DEBUG|INFO|TEST)\]\s*/i, '')
+    }
+    return log.source ? `${log.source} event` : 'System activity'
   }
 
   const getActivityFeed = () => {
