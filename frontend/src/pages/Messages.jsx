@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useContext } from 'react'
 import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
-  RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X,
+  RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -617,7 +617,21 @@ export default function Messages() {
                   )}>
                     {/* Reply button - always available for all messages */}
                     <button 
-                      onClick={() => setReplyText(`Replying to: "${msg.text.substring(0, 30)}${msg.text.length > 30 ? '...' : ''}" - `)}
+                      onClick={() => {
+                        if (activeConv.ai_enabled) {
+                          confirm({
+                            title: 'AI is Enabled',
+                            message: 'You cannot reply manually while AI is enabled for this conversation. Disable AI first.',
+                            confirmText: 'Disable AI',
+                            cancelText: 'Cancel',
+                            isDangerous: false,
+                          }).then(confirmed => {
+                            if (confirmed) handleToggleAI()
+                          })
+                        } else {
+                          setReplyText(`Replying to: "${msg.text.substring(0, 30)}${msg.text.length > 30 ? '...' : ''}" - `)
+                        }
+                      }}
                       className="text-gray-400 hover:text-blue-600 transition-colors"
                       title="Reply"
                     >
@@ -628,6 +642,20 @@ export default function Messages() {
                     {(msg.from === 'ai' || msg.from === 'human') && (
                       <>
                         <button 
+                          onClick={() => {
+                            if (activeConv.ai_enabled) {
+                              confirm({
+                                title: 'AI is Enabled',
+                                message: 'You cannot edit messages while AI is enabled for this conversation. Disable AI first.',
+                                confirmText: 'Disable AI',
+                                cancelText: 'Cancel',
+                                isDangerous: false,
+                              }).then(confirmed => {
+                                if (confirmed) handleToggleAI()
+                              })
+                            }
+                            // TODO: Implement actual edit functionality
+                          }}
                           className="text-gray-400 hover:text-amber-600 transition-colors"
                           title="Edit"
                         >
@@ -635,22 +663,26 @@ export default function Messages() {
                         </button>
 
                         <button 
+                          onClick={() => {
+                            if (activeConv.ai_enabled) {
+                              confirm({
+                                title: 'AI is Enabled',
+                                message: 'You cannot delete messages while AI is enabled for this conversation. Disable AI first.',
+                                confirmText: 'Disable AI',
+                                cancelText: 'Cancel',
+                                isDangerous: false,
+                              }).then(confirmed => {
+                                if (confirmed) handleToggleAI()
+                              })
+                            }
+                            // TODO: Implement actual delete functionality
+                          }}
                           className="text-gray-400 hover:text-red-600 transition-colors"
                           title="Delete"
                         >
-                          <X size={13} />
+                          <Trash2 size={13} />
                         </button>
                       </>
-                    )}
-
-                    {/* Resend button - only for AI messages */}
-                    {msg.from === 'ai' && (
-                      <button 
-                        className="text-gray-400 hover:text-green-600 transition-colors"
-                        title="Resend"
-                      >
-                        <RefreshCw size={13} />
-                      </button>
                     )}
                   </div>
                 </div>
@@ -715,7 +747,7 @@ export default function Messages() {
   return (
     <div className="flex flex-col h-full">
       {/* Header - Full width with padding */}
-      <div className="px-0 lg:px-8 py-2 bg-white shrink-0">
+      <div className="px-0 lg:px-8 py-1 bg-white shrink-0">
         <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
         <p className="text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
       </div>

@@ -87,22 +87,24 @@ def assign(conversation_id):
     # Notify the new assignee (unless they assigned to themselves)
     if target.id != current_user.id:
         is_reassign = previous_assignee is not None and previous_assignee != target.id
+        handle = conv.user.handle if conv.user else 'a customer'
         create_notification(
             user_id=target.id,
             type_='reassigned' if is_reassign else 'assigned',
             title=f"Conversation assigned to you",
-            body=f"From {conv.handle or 'a customer'} on {conv.channel.replace('_', ' ')}",
+            body=f"From {handle} on {conv.channel.replace('_', ' ')}",
             resource_type='conversation',
             resource_id=conv.id,
         )
 
     # If this is a reassignment, notify the previous assignee that they're off the hook
     if previous_assignee is not None and previous_assignee != target.id:
+        handle = conv.user.handle if conv.user else 'a customer'
         create_notification(
             user_id=previous_assignee,
             type_='unassigned',
             title=f"Conversation reassigned",
-            body=f"{conv.handle or 'A conversation'} has been moved to {target.full_name}",
+            body=f"{handle} has been moved to {target.full_name}",
             resource_type='conversation',
             resource_id=conv.id,
         )
@@ -128,11 +130,18 @@ def assign(conversation_id):
                   "is_reassign": is_reassign,
                   "previous_assignee_id": previous_assignee,
                   "channel": conv.channel,
-                  "handle": conv.handle,
-              },
+                  "handle": (conv.user.external_id if conv.user else None),              },
               conversation_id=conv.id)
 
-    return jsonify({'conversation': conv.to_dict(include_messages=False)}), 200
+    try:
+        conv_dict = conv.to_dict(include_messages=False)
+        return jsonify({'conversation': conv_dict}), 200
+    except Exception as e:
+        import traceback
+        from flask import current_app
+        current_app.logger.error(f"Error serializing conversation {conversation_id}: {e}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': f'Error serializing conversation: {str(e)}'}), 500
 
 
 @assignment_bp.route('/conversations/<int:conversation_id>/unassign', methods=['POST'])
@@ -156,11 +165,12 @@ def unassign(conversation_id):
     conv.updated_at = datetime.utcnow()
 
     if previous is not None:
+        handle = conv.user.handle if conv.user else 'a customer'
         create_notification(
             user_id=previous,
             type_='unassigned',
             title="Conversation unassigned",
-            body=f"{conv.handle or 'A conversation'} is no longer assigned to you",
+            body=f"{handle} is no longer assigned to you",
             resource_type='conversation',
             resource_id=conv.id,
         )
@@ -181,8 +191,16 @@ def unassign(conversation_id):
                   "unassigned_by_id": current_user.id,
                   "unassigned_by_email": current_user.email,
                   "channel": conv.channel,
-                  "handle": conv.handle,
+                  "handle": (conv.user.external_id if conv.user else None),
               },
               conversation_id=conv.id)
 
-    return jsonify({'conversation': conv.to_dict(include_messages=False)}), 200
+    try:
+        conv_dict = conv.to_dict(include_messages=False)
+        return jsonify({'conversation': conv_dict}), 200
+    except Exception as e:
+        import traceback
+        from flask import current_app
+        current_app.logger.error(f"Error serializing conversation {conversation_id}: {e}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': f'Error serializing conversation: {str(e)}'}), 500

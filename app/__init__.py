@@ -93,4 +93,8 @@ def create_app():
             traceback.print_exc()
             raise
 
+# Start Instagram DM poller (background thread)
+    from app.integrations.meta_poller import start_poller
+    start_poller(app)
+    
     return app

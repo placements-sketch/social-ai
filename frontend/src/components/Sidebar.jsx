@@ -43,6 +43,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       display: 'flex',
       flexDirection: 'column',
       minHeight: 0,
+      maxHeight: '100vh',
     }}
     >
 
@@ -88,7 +89,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
 
       {/* ── Nav links ── */}
       <nav className={clsx(
-        'flex-1 py-2 space-y-3',
+        'flex-1 py-2 space-y-3 overflow-y-auto hide-scrollbar',
         isMobile ? 'px-3' : (collapsed ? 'md:px-2 px-3' : 'px-3')
       )}>
         {/* Group navigation items */}

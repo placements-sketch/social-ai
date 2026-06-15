@@ -256,18 +256,58 @@ def _extract_location(message: str) -> str | None:
     return None
 
 
-def _dispatch_reply(channel: str, user_id: str, reply: str):
-    """Routes the outbound reply to the correct channel sender."""
-    if channel in ("instagram_dm", "instagram_comment"):
-        send_instagram_reply(user_id, reply)
-    elif channel == "whatsapp":
-        send_whatsapp_reply(user_id, reply)
-    elif channel in ("facebook_dm", "facebook_comment"):
-        send_facebook_reply(user_id, reply)
-    elif channel in ("tiktok_dm", "tiktok_comment"):
-        send_tiktok_reply(user_id, reply)
-    else:
-        log_event("warning", "services", f"Unknown channel '{channel}' — reply not sent")
+def _dispatch_reply(channel: str, user_id: str, reply: str) -> None:
+    """
+    Send the reply back to the customer through the right channel API.
+
+    Channels:
+      - instagram_dm      → Meta Graph API (implemented)
+      - facebook_dm       → Meta Graph API (TODO)
+      - whatsapp          → Meta WhatsApp Cloud API (TODO)
+      - tiktok_dm         → TikTok Business API (TODO)
+      - *_comment         → reply lands as a comment (TODO, different endpoint)
+
+    Failures here MUST NOT crash the pipeline. The reply is already saved
+    to our DB so a human agent can manually resend if dispatch fails.
+    """
+    if not reply:
+        return
+
+    if channel == "instagram_dm":
+        from app.integrations.meta import send_instagram_reply
+        send_instagram_reply(recipient_id=user_id, text=reply)
+        return
+
+    if channel == "facebook_dm":
+        # TODO: facebook send API — same shape but different endpoint
+        log_event("warning", "services.dispatch",
+                  f"Facebook send not implemented — reply saved to DB only",
+                  payload={"channel": channel, "user_external_id": user_id})
+        return
+
+    if channel == "whatsapp":
+        # TODO: WhatsApp Cloud API
+        log_event("warning", "services.dispatch",
+                  f"WhatsApp send not implemented — reply saved to DB only",
+                  payload={"channel": channel, "user_external_id": user_id})
+        return
+
+    if channel in ("tiktok_dm", "tiktok_comment"):
+        log_event("warning", "services.dispatch",
+                  f"TikTok send not implemented — reply saved to DB only",
+                  payload={"channel": channel, "user_external_id": user_id})
+        return
+
+    if channel in ("instagram_comment", "facebook_comment"):
+        # Comments use a different Graph endpoint than DMs.
+        log_event("warning", "services.dispatch",
+                  f"Comment reply not implemented — reply saved to DB only",
+                  payload={"channel": channel, "user_external_id": user_id})
+        return
+
+    log_event("warning", "services.dispatch",
+              f"Unknown channel '{channel}' — cannot dispatch reply",
+              payload={"channel": channel, "user_external_id": user_id})
 
 
 # ─────────────────────────────────────────────
