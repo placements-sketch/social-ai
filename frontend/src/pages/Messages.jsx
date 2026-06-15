@@ -588,7 +588,7 @@ export default function Messages() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-2 sm:p-3 md:p-4 space-y-3 sm:space-y-4">
             {(activeConv.messages || []).map((msg) => (
-              <div key={msg.id} className={clsx('flex', msg.from === 'user' ? 'justify-start' : 'justify-end')}>
+              <div key={msg.id} className={clsx('flex group', msg.from === 'user' ? 'justify-start' : 'justify-end')}>
                 <div className={clsx(
                   'max-w-[90%] sm:max-w-[75%] md:max-w-[70%] flex flex-col gap-1',
                   msg.from === 'user' ? 'items-start' : 'items-end'
@@ -610,16 +610,49 @@ export default function Messages() {
                   )}>
                     {msg.text}
                   </div>
-                  {msg.from === 'ai' && (
-                    <div className="flex gap-2 px-1 text-xs">
-                      <button className="text-gray-400 hover:text-gray-600 flex items-center gap-1 font-medium">
-                        <RefreshCw size={10} /> <span className="hidden sm:inline">Resend</span>
+                  
+                  {/* Action buttons - icons only */}
+                  <div className={clsx(
+                    'flex gap-2 px-1 text-xs flex-wrap'
+                  )}>
+                    {/* Reply button - always available for all messages */}
+                    <button 
+                      onClick={() => setReplyText(`Replying to: "${msg.text.substring(0, 30)}${msg.text.length > 30 ? '...' : ''}" - `)}
+                      className="text-gray-400 hover:text-blue-600 transition-colors"
+                      title="Reply"
+                    >
+                      <MessageCircle size={13} /> 
+                    </button>
+
+                    {/* Edit + Delete - only for AI and Human messages */}
+                    {(msg.from === 'ai' || msg.from === 'human') && (
+                      <>
+                        <button 
+                          className="text-gray-400 hover:text-amber-600 transition-colors"
+                          title="Edit"
+                        >
+                          <Edit size={13} />
+                        </button>
+
+                        <button 
+                          className="text-gray-400 hover:text-red-600 transition-colors"
+                          title="Delete"
+                        >
+                          <X size={13} />
+                        </button>
+                      </>
+                    )}
+
+                    {/* Resend button - only for AI messages */}
+                    {msg.from === 'ai' && (
+                      <button 
+                        className="text-gray-400 hover:text-green-600 transition-colors"
+                        title="Resend"
+                      >
+                        <RefreshCw size={13} />
                       </button>
-                      <button className="text-gray-400 hover:text-gray-600 flex items-center gap-1 font-medium">
-                        <Edit size={10} /> <span className="hidden sm:inline">Edit</span>
-                      </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -688,17 +721,17 @@ export default function Messages() {
       </div>
 
       {/* Main content area with border - fills remaining space */}
-      <div className="flex-1 flex flex-col gap-0 overflow-hidden px-0 lg:px-8 pb-2 md:pb-3">
+      <div className="flex-1 flex flex-col gap-0 overflow-hidden px-0 lg:px-8 pb-2 md:pb-3 min-h-0">
         <div className="flex-1 flex flex-col gap-0 overflow-hidden rounded-3xl border border-gray-200 bg-white min-h-0">
           {/* Main content area - responsive toggle for small screens */}
-          <div className="flex-1 flex gap-0 overflow-hidden">
+          <div className="flex-1 flex gap-0 overflow-hidden min-h-0">
             {/* On small/medium screens: show only ConvList by default, toggle to ChatPanel when selected */}
-            <div className="lg:hidden flex-1 flex overflow-hidden">
+            <div className="lg:hidden flex-1 flex overflow-hidden min-h-0">
               {selected ? ChatPanel : ConvList}
             </div>
             
             {/* On large screens: show all three panels */}
-            <div className="hidden lg:flex flex-1 gap-0 overflow-hidden">
+            <div className="hidden lg:flex flex-1 gap-0 overflow-hidden min-h-0">
               {ConvList}
               {ChatPanel}
               {ContextPanel}

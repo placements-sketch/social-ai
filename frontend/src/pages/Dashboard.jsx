@@ -537,22 +537,22 @@ export default function Dashboard() {
           </ResponsiveContainer>
           
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-5">
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 mt-5">
             <div className="flex items-center gap-2">
               <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#ec4899" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium">Instagram</span>
+              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Instagram</span>
             </div>
             <div className="flex items-center gap-2">
               <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#22c55e" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium">WhatsApp</span>
+              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">WhatsApp</span>
             </div>
             <div className="flex items-center gap-2">
               <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#3b82f6" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium">Facebook</span>
+              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Facebook</span>
             </div>
             <div className="flex items-center gap-2">
               <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#111111" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium">TikTok</span>
+              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">TikTok</span>
             </div>
           </div>
         </div>

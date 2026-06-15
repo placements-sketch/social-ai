@@ -40,6 +40,9 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       boxShadow: 'none',
       borderTop: '1px solid rgba(255,255,255,0.06)',
       borderLeft: '2px solid #ff5900',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: 0,
     }}
     >
 
