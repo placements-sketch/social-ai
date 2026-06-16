@@ -64,65 +64,66 @@ def instagram_verify():
 @bp.route("/webhook/instagram", methods=["POST"])
 def instagram_webhook():
     """
-    Receives Instagram DM events from Meta.
-    
-    Supports both payload shapes:
-    1. Legacy Messenger Platform shape:
-       { "entry": [{ "messaging": [{ "sender": {"id": "..."}, "message": {"text": "..."} }] }] }
-    2. New IG v25+ Webhooks shape:
-       { "entry": [{ "changes": [{ "field": "messages", "value": { "sender": {"id": "..."}, "message": {"text": "..."} } }] }] }
-    """
-    data = request.get_json(silent=True) or {}
-    import json
-    current_app.logger.info(f"[IG webhook RAW] {json.dumps(data, indent=2)}")
-    current_app.logger.info(f"[IG webhook] payload: {data}")
+    Receives Instagram DM events from Meta. Processes ALL events in the
+    payload (Meta may batch multiple messages in a single webhook).
 
-    sender_id = None
-    message_text = None
+    Supports both:
+      Shape 1 (legacy): entry[].messaging[]
+      Shape 2 (v25):    entry[].changes[].value where field=messages
+    """
+    import json
+    data = request.get_json(silent=True) or {}
+    current_app.logger.info(f"[IG webhook RAW] {json.dumps(data, indent=2)}")
+
+    events = []  # list of (sender_id, message_text) tuples
 
     try:
-        entries = data.get("entry", []) or []
-        if not entries:
-            return jsonify({"status": "ignored", "reason": "no entries"}), 200
+        for entry in (data.get("entry") or []):
 
-        for entry in entries:
             # Shape 1: messaging[]
             for messaging in (entry.get("messaging") or []):
-                sender_id = messaging.get("sender", {}).get("id")
-                message_text = messaging.get("message", {}).get("text")
-                if sender_id and message_text:
-                    break
-
-            if sender_id and message_text:
-                break
+                msg = messaging.get("message") or {}
+                text = msg.get("text")
+                sender_id = (messaging.get("sender") or {}).get("id")
+                if sender_id and text:
+                    events.append((sender_id, text))
 
             # Shape 2: changes[] with field=messages
             for change in (entry.get("changes") or []):
                 if change.get("field") != "messages":
                     continue
                 value = change.get("value") or {}
-                sender_id = value.get("sender", {}).get("id")
-                message_text = value.get("message", {}).get("text")
-                if sender_id and message_text:
-                    break
-
-            if sender_id and message_text:
-                break
+                msg = value.get("message") or {}
+                text = msg.get("text")
+                sender_id = (value.get("sender") or {}).get("id")
+                if sender_id and text:
+                    events.append((sender_id, text))
 
     except Exception as e:
         current_app.logger.error(f"[IG webhook] parse error: {e}")
         return jsonify({"error": "bad payload"}), 400
 
-    if not sender_id or not message_text:
+    if not events:
         return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
-    reply = process_message(
-        message=message_text,
-        user_id=sender_id,
-        channel="instagram_dm"
-    )
+    replies = []
+    for sender_id, message_text in events:
+        try:
+            reply = process_message(
+                message=message_text,
+                user_id=sender_id,
+                channel="instagram_dm",
+            )
+            replies.append({"sender_id": sender_id, "reply": reply})
+        except Exception as e:
+            current_app.logger.error(f"[IG webhook] process error for {sender_id}: {e}")
+            replies.append({"sender_id": sender_id, "error": str(e)})
 
-    return jsonify({"reply": reply}), 200
+    return jsonify({
+        "processed": len(replies),
+        "results": replies,
+    }), 200
+
 # ─────────────────────────────────────────────
 # Instagram Comments webhook
 # ─────────────────────────────────────────────

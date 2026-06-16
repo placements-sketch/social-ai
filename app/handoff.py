@@ -99,7 +99,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                           "reason": reason,
                           "detail": detail,
                           "channel": conversation.channel,
-                          "handle": conversation.handle,
+                          "handle": (conversation.user.external_id if conversation.user else None),
                       },
                       conversation_id=conversation.id)
 
@@ -127,7 +127,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                   "reason": reason,
                   "detail": detail,
                   "channel": conversation.channel,
-                  "handle": conversation.handle,
+                  "handle": (conversation.user.external_id if conversation.user else None),
               },
               conversation_id=conversation.id)
     

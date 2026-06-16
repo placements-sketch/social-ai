@@ -29,7 +29,7 @@ def _conversations_url():
         return None
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/conversations"
 
-POLL_INTERVAL_SECONDS = 60
+POLL_INTERVAL_SECONDS = 15
 
 # Module-level guard so we don't start the thread twice in debug mode
 # (Flask debug reloader spawns a second process; only the reloader-child
@@ -65,8 +65,7 @@ def start_poller(app):
         )
         thread.start()
         _poller_started = True
-        log_event("info", "ig_poller", "Instagram DM poller started (60s interval)")
-
+        log_event("info", "ig_poller", "Instagram DM poller started (15s interval)")
 
 def _poller_loop(app):
     """The actual loop. Each tick: fetch threads, process new messages."""
@@ -126,8 +125,16 @@ def _process_thread(thread: dict) -> int:
     A message is "new" if no Message row exists with that external mid.
     """
     from app import db
-    from app.models import Message
+    from app.models import Message, User
     from app.services import process_message
+
+    # Build a quick id → username map from this thread's participants.
+    # We'll patch each customer's User.name when we save their messages.
+    participant_usernames = {
+        p.get("id"): p.get("username")
+        for p in (thread.get("participants") or {}).get("data", [])
+        if p.get("id") and p.get("username")
+    }
 
     # Identify which participant is the BUSINESS (us) vs the CUSTOMER.
     # We assume IG_PAGE_ACCESS_TOKEN belongs to the business account, so
@@ -181,6 +188,17 @@ def _process_thread(thread: dict) -> int:
         try:
             process_message(message=text, user_id=sender_id, channel="instagram_dm")
             processed += 1
+
+            # Patch the customer's User.name from the IG participant data,
+            # so the platform UI shows "wittyselene" instead of the numeric ID.
+            username = participant_usernames.get(sender_id)
+            if username:
+                user_row = User.query.filter_by(
+                    external_id=sender_id, channel="instagram_dm"
+                ).first()
+                if user_row and user_row.name != username:
+                    user_row.name = username
+                    db.session.commit()
         except Exception as e:
             log_event("error", "ig_poller.process",
                       f"Failed to process message {mid}: {e}",

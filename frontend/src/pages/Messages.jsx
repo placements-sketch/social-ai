@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext } from 'react'
+import { useState, useEffect, useRef, useCallback, useContext } from 'react'
 import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
   RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
@@ -55,12 +55,13 @@ const statusBadge = (s) => {
 
 const handlerBadge = (conv) => {
   const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
-  // If AI is disabled, it's being handled by a human agent
-  if (!conv.ai_enabled) {
-    return <span className={`${baseClass} bg-amber-100 text-amber-600`}>Human Agent</span>
+  if (conv.status === 'resolved') {
+    return <span className={`${baseClass} bg-gray-100 text-gray-600`}>Resolved</span>
   }
-  // Otherwise it's being handled by Claude AI
-  return <span className={`${baseClass} bg-brand-100 text-brand-600`}>Claude</span>
+  if (!conv.ai_enabled) {
+    return <span className={`${baseClass} bg-amber-100 text-amber-700`}>Human Agent</span>
+  }
+  return <span className={`${baseClass} bg-brand-100 text-brand-700`}>Claude</span>
 }
 
 export default function Messages() {
@@ -133,6 +134,77 @@ export default function Messages() {
     const t = setTimeout(loadList, search ? 300 : 0)
     return () => clearTimeout(t)
   }, [loadList, search, channelFilter])
+
+  // ── Poll the conversation list every 10s for new conversations / messages.
+  // Silent refresh: doesn't toggle loadingList so the list never flickers.
+  useEffect(() => {
+    const silentRefresh = async () => {
+      try {
+        const data = await listConversations({
+          channel: channelFilter,
+          search,
+          page: 1,
+          per_page: 20,
+        })
+        setConversations(data.conversations || [])
+      } catch {
+        // Silent fail — the visible list should never crash on poll error
+      }
+    }
+    const timer = setInterval(silentRefresh, 10000)
+    return () => clearInterval(timer)
+  }, [channelFilter, search])
+
+  // Typing indicator: show ~3s after a new inbound message arrives,
+  // OR until the AI reply appears (whichever first).
+  const [aiTyping, setAiTyping] = useState(false)
+
+  // ── Poll the active conversation every 5s so new inbound messages appear
+  // without clicking back into the thread. Silent — no loading state.
+  useEffect(() => {
+    if (!selected) return
+    const silentRefresh = async () => {
+      try {
+        const data = await getConversation(selected)
+        setActiveConv(prev => {
+          if (!prev) return data.conversation
+          const newMsgs = data.conversation.messages || []
+          const oldMsgs = prev.messages || []
+          if (newMsgs.length < oldMsgs.length) return prev
+
+          // Detect new inbound from the customer — trigger typing indicator
+          // only if AI is enabled (so we don't tease a reply that won't come).
+          if (newMsgs.length > oldMsgs.length) {
+            const lastNew = newMsgs[newMsgs.length - 1]
+            const lastOld = oldMsgs[oldMsgs.length - 1]
+            const isNewCustomerMsg = lastNew?.from === 'user' && lastNew?.id !== lastOld?.id
+            if (isNewCustomerMsg && data.conversation.ai_enabled) {
+              setAiTyping(true)
+              setTimeout(() => setAiTyping(false), 3500)
+            }
+            // If a new AI/human reply appeared, clear the indicator early
+            if (lastNew?.from === 'ai' || lastNew?.from === 'human') {
+              setAiTyping(false)
+            }
+          }
+
+          return { ...prev, ...data.conversation }
+        })
+      } catch {
+        // Silent fail
+      }
+    }
+    const timer = setInterval(silentRefresh, 5000)
+    return () => clearInterval(timer)
+  }, [selected])
+
+  // Auto-scroll to latest message when active conversation updates.
+  const messagesEndRef = useRef(null)
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [activeConv?.messages?.length, aiTyping])
 
   // Load all channels on mount
   useEffect(() => {
@@ -414,7 +486,6 @@ export default function Messages() {
             </div>
             <p className="text-xs text-gray-600 truncate mb-1.5 line-clamp-1">{conv.lastMessage}</p>
             <div className="flex items-center gap-1 flex-wrap">
-              {statusBadge(conv.status)}
               {handlerBadge(conv)}
             </div>
           </button>
@@ -691,6 +762,28 @@ export default function Messages() {
             {(activeConv.messages || []).length === 0 && (
               <p className="text-center text-xs text-gray-400 py-8">No messages in this conversation.</p>
             )}
+
+            {/* AI typing indicator */}
+            {aiTyping && (
+              <div className="flex justify-end">
+                <div className="flex flex-col gap-1 items-end max-w-[70%]">
+                  <div className="flex items-center gap-1 px-1 text-xs">
+                    <Bot size={11} className="text-brand-500" />
+                    <span className="text-gray-400 font-medium">AI is typing…</span>
+                  </div>
+                  <div className="bg-black text-white px-3.5 py-3 rounded-2xl rounded-tr-sm shadow-sm">
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Scroll anchor — auto-scrolls to here on new message */}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Manual reply bar — shown when AI is disabled for this conversation */}
