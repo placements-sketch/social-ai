@@ -281,8 +281,8 @@ export default function Messages() {
 
   // Filter conversations based on attention flag
   const filteredConversations = attentionFilter
-    ? conversations.filter(c => !c.ai_enabled)
-    : conversations
+    ? conversations.filter(c => !c.ai_enabled && c.user_id !== 17841436602363779)
+    : conversations.filter(c => c.user_id !== 17841436602363779)
 
   // ── Toggle AI for the active conversation ─────────────────────────────────
   const handleToggleAI = async () => {
