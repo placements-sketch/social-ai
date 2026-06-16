@@ -74,8 +74,9 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
         body_preview = (r.text or "")[:400]
 
         if r.status_code >= 400:
+            print(f"[META SEND FAIL] {r.status_code}: {body_preview}", flush=True)
             log_event("error", "integrations.meta.send",
-                      f"Instagram send failed ({r.status_code})",
+                      f"Instagram send failed ({r.status_code}): {body_preview[:200]}",
                       payload={
                           "recipient_id": recipient_id,
                           "status": r.status_code,
