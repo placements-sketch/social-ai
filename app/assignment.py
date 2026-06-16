@@ -96,6 +96,21 @@ def assign(conversation_id):
             resource_type='conversation',
             resource_id=conv.id,
         )
+        
+        # Also notify all admins and supervisors
+        admin_supervisors = AuthUser.query.filter(
+            AuthUser.role.in_(['admin', 'supervisor']),
+            AuthUser.id != target.id  # Don't duplicate if target is admin/supervisor
+        ).all()
+        for admin in admin_supervisors:
+            create_notification(
+                user_id=admin.id,
+                type_='reassigned' if is_reassign else 'assigned',
+                title=f"Conversation assigned to {target.full_name}",
+                body=f"From {handle} on {conv.channel.replace('_', ' ')}",
+                resource_type='conversation',
+                resource_id=conv.id,
+            )
 
     # If this is a reassignment, notify the previous assignee that they're off the hook
     if previous_assignee is not None and previous_assignee != target.id:
@@ -108,6 +123,21 @@ def assign(conversation_id):
             resource_type='conversation',
             resource_id=conv.id,
         )
+        
+        # Also notify all admins and supervisors
+        admin_supervisors = AuthUser.query.filter(
+            AuthUser.role.in_(['admin', 'supervisor']),
+            AuthUser.id != previous_assignee  # Don't duplicate
+        ).all()
+        for admin in admin_supervisors:
+            create_notification(
+                user_id=admin.id,
+                type_='unassigned',
+                title=f"Conversation reassigned",
+                body=f"{handle} moved from {AuthUser.query.get(previous_assignee).full_name} to {target.full_name}",
+                resource_type='conversation',
+                resource_id=conv.id,
+            )
 
     db.session.commit()
 
@@ -174,6 +204,21 @@ def unassign(conversation_id):
             resource_type='conversation',
             resource_id=conv.id,
         )
+        
+        # Also notify all admins and supervisors
+        admin_supervisors = AuthUser.query.filter(
+            AuthUser.role.in_(['admin', 'supervisor']),
+            AuthUser.id != previous
+        ).all()
+        for admin in admin_supervisors:
+            create_notification(
+                user_id=admin.id,
+                type_='unassigned',
+                title="Conversation unassigned",
+                body=f"{handle} is no longer assigned to anyone",
+                resource_type='conversation',
+                resource_id=conv.id,
+            )
 
     db.session.commit()
 

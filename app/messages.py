@@ -42,6 +42,31 @@ def _current_user():
         return None
 
 
+def _agent_can_access_conversation(agent_user: AuthUser, conversation: Conversation) -> bool:
+    """
+    Check if an agent can access a conversation.
+    
+    Agents can access:
+    - Conversations assigned to them
+    - Unassigned conversations in 'human_override' status (available queue)
+    
+    Admins/supervisors can access all conversations.
+    """
+    if not agent_user or agent_user.role != 'agent':
+        return True  # Non-agents (admin/supervisor) can see all
+    
+    # Agent can see if:
+    # 1. Assigned to them, OR
+    # 2. Unassigned AND in human_override status (available queue)
+    return (
+        conversation.assigned_to == agent_user.id
+        or (
+            conversation.assigned_to is None
+            and conversation.status == 'human_override'
+        )
+    )
+
+
 @messages_bp.route('/conversations', methods=['GET'])
 @jwt_required()
 def list_conversations():
@@ -123,9 +148,17 @@ def list_conversations():
 @jwt_required()
 def get_conversation(conversation_id):
     """Get a single conversation with its full message thread."""
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+    
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
+
+    # Check access control
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
 
     return jsonify({'conversation': conv.to_dict(include_messages=True)}), 200
 
@@ -134,9 +167,17 @@ def get_conversation(conversation_id):
 @jwt_required()
 def list_messages(conversation_id):
     """List just the messages for a conversation."""
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+    
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
+
+    # Check access control
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
 
     msgs = (
         Message.query.filter_by(conversation_id=conversation_id)
@@ -165,6 +206,10 @@ def send_reply(conversation_id):
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
+
+    # Check access control
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
 
     data = request.get_json(silent=True) or {}
     content = (data.get('content') or '').strip()
@@ -248,6 +293,10 @@ def update_conversation(conversation_id):
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
 
+    # Check access control
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
+
     data = request.get_json(silent=True) or {}
     changes = {}
 
@@ -296,6 +345,10 @@ def toggle_ai(conversation_id):
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
 
+    # Check access control
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
+
     data = request.get_json(silent=True) or {}
     if 'ai_enabled' not in data:
         return jsonify({'error': 'ai_enabled (boolean) is required'}), 400
@@ -322,9 +375,17 @@ def toggle_ai(conversation_id):
 @jwt_required()
 def mark_read(conversation_id):
     """Mark a conversation as read (zero out unread_count)."""
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+    
     conv = Conversation.query.get(conversation_id)
     if not conv:
         return jsonify({'error': 'Conversation not found'}), 404
+
+    # Check access control
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
 
     conv.unread_count = 0
     conv.updated_at = datetime.utcnow()

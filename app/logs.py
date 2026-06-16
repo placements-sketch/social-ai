@@ -263,8 +263,14 @@ def feed_logs():
         return err
 
     page, per_page = _paginate_params()
+    exclude_pollers = request.args.get('exclude_pollers', '').lower() in ('1', 'true', 'yes')
 
     query = Log.query
+
+    # Exclude poller cycles if requested (they're noise in the live feed)
+    if exclude_pollers:
+        # Exclude logs where source contains '_poller' (ig_poller.cycle, tiktok_poller, etc.)
+        query = query.filter(~Log.source.ilike('%_poller%'))
 
     # Agents see only their assigned conversations
     if user.role == 'agent':

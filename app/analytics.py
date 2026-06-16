@@ -180,7 +180,7 @@ def summary():
 
     # Per-channel-per-day counts for the Dashboard channel graph.
     # We group all instagram_* into 'instagram', facebook_* into 'facebook', etc.
-    # Two counts per (day, channel): inbound, replied (any outbound).
+    # Three counts per (day, channel): inbound, ai_replied, human_replied
     channel_group = case(
         (Message.channel.like('instagram%'), 'instagram'),
         (Message.channel.like('facebook%'),  'facebook'),
@@ -193,7 +193,10 @@ def summary():
             func.date(Message.created_at).label('day'),
             channel_group.label('channel'),
             func.count(case((Message.direction == 'inbound', 1))).label('inbound'),
-            func.count(case((Message.direction == 'outbound', 1))).label('replied'),
+            func.count(case((db.and_(Message.direction == 'outbound',
+                                     Message.sender == 'ai'), 1))).label('ai_replied'),
+            func.count(case((db.and_(Message.direction == 'outbound',
+                                     Message.sender == 'human'), 1))).label('human_replied'),
         ).filter(Message.created_at >= cutoff)
          .group_by(func.date(Message.created_at), channel_group),
         Message, user,
@@ -202,7 +205,8 @@ def summary():
     for row in per_channel_q.all():
         per_channel.setdefault(row.day, {})[row.channel] = {
             'inbound': int(row.inbound),
-            'replied': int(row.replied),
+            'ai_replied': int(row.ai_replied),
+            'human_replied': int(row.human_replied),
         }
 
     # Fill missing days with zeros so the chart always has N points.
@@ -222,13 +226,17 @@ def summary():
             'inbound': int(inb),
             'ai_replied': int(ai_r),
             'instagram':       _ch('instagram', 'inbound'),
-            'instagram_resp':  _ch('instagram', 'replied'),
+            'instagram_ai':    _ch('instagram', 'ai_replied'),
+            'instagram_human': _ch('instagram', 'human_replied'),
             'whatsapp':        _ch('whatsapp',  'inbound'),
-            'whatsapp_resp':   _ch('whatsapp',  'replied'),
+            'whatsapp_ai':     _ch('whatsapp',  'ai_replied'),
+            'whatsapp_human':  _ch('whatsapp',  'human_replied'),
             'facebook':        _ch('facebook',  'inbound'),
-            'facebook_resp':   _ch('facebook',  'replied'),
+            'facebook_ai':     _ch('facebook',  'ai_replied'),
+            'facebook_human':  _ch('facebook',  'human_replied'),
             'tiktok':          _ch('tiktok',    'inbound'),
-            'tiktok_resp':     _ch('tiktok',    'replied'),
+            'tiktok_ai':       _ch('tiktok',    'ai_replied'),
+            'tiktok_human':    _ch('tiktok',    'human_replied'),
         })
 
     # ── Intent breakdown ──────────────────────────────────────────────────

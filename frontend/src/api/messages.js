@@ -24,12 +24,16 @@ async function handle(fetchPromise) {
     }
   } catch (err) {
     if (!res.ok) {
-      throw new Error(`Request failed (${res.status}): ${err.message}`)
+      const error = new Error(`Request failed (${res.status}): ${err.message}`)
+      error.status = res.status
+      throw error
     }
   }
   if (!res.ok) {
     const msg = (body && body.error) || `Request failed (${res.status})`
-    throw new Error(msg)
+    const error = new Error(msg)
+    error.status = res.status
+    throw error
   }
   return body
 }

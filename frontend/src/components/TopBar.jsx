@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ModalPortal } from '../context/ModalPortal'
 import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
+import { useTimeAgo } from '../hooks/useTimeAgo'
 import clsx from 'clsx'
 
 // Icon + color mapping per notification type
@@ -20,14 +21,35 @@ function notifVisuals(type) {
   }
 }
 
-function timeAgo(iso) {
-  if (!iso) return ''
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+// Separate component for notification item to use the useTimeAgo hook
+function NotificationItem({ notif, Icon, color, bg, onClickNotif }) {
+  const timeAgoStr = useTimeAgo(notif.created_at)
+  
+  return (
+    <button
+      onClick={() => onClickNotif(notif)}
+      className={clsx(
+        'w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
+        !notif.read && 'bg-blue-50/30'
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5', bg)}>
+          <Icon size={16} className={color} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-bold text-gray-900">{notif.title}</p>
+            {!notif.read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />}
+          </div>
+          {notif.body && (
+            <p className="text-xs text-gray-600 mt-0.5 leading-snug">{notif.body}</p>
+          )}
+          <p className="text-xs text-gray-400 mt-1.5 font-medium">{timeAgoStr}</p>
+        </div>
+      </div>
+    </button>
+  )
 }
 
 export default function TopBar({ onMenuClick }) {
@@ -43,43 +65,43 @@ export default function TopBar({ onMenuClick }) {
     hour: '2-digit', minute: '2-digit',
   })
 
-  // Load notifications on mount + poll every 30 seconds
-const { showToast } = useToast()
+    // Load notifications on mount + poll every 10 seconds
+  const { showToast } = useToast()
   const seenIdsRef = useRef(new Set())
+  const isFirstLoadRef = useRef(true)
 
   useEffect(() => {
-    let cancelled = false
-
-    const load = async (isFirstLoad) => {
+    const load = async () => {
       try {
         const data = await fetchNotifications({ limit: 20 })
-        if (cancelled) return
 
         const newList = data.notifications || []
         setNotifications(newList)
         setUnreadCount(data.unread_count || 0)
 
-        // Pop a toast for any unread we haven't shown yet.
-        // On first load: mark everything as seen without toasting
-        // (so the user isn't blasted with 20 toasts on login).
-        if (isFirstLoad) {
+        // Only on ACTUAL login (first load after component mount), mark all as seen so they don't pop in
+        if (isFirstLoadRef.current) {
           newList.forEach(n => seenIdsRef.current.add(n.id))
-        } else {
-          newList.forEach(n => {
-            if (!n.read && !seenIdsRef.current.has(n.id)) {
-              showToast({ title: n.title, body: n.body })
-              seenIdsRef.current.add(n.id)
-            }
-          })
+          isFirstLoadRef.current = false
+          return
         }
-      } catch {
-        // Silent fail
+
+        // On subsequent polls: show toasts for truly NEW notifications only
+        newList.forEach(n => {
+          if (!seenIdsRef.current.has(n.id)) {
+            console.log('[Toast] Showing new notification:', n.title, n.body)
+            showToast({ title: n.title, body: n.body })
+            seenIdsRef.current.add(n.id)
+          }
+        })
+      } catch (err) {
+        console.error('[Toast] Failed to load notifications:', err)
       }
     }
 
-    load(true)
-    const timer = setInterval(() => load(false), 30000)
-    return () => { cancelled = true; clearInterval(timer) }
+    load()
+    const timer = setInterval(() => load(), 10000) // Poll every 10 seconds
+    return () => { clearInterval(timer) }
   }, [showToast])
 
   const handleClickNotif = async (n) => {
@@ -184,32 +206,7 @@ const { showToast } = useToast()
                 ) : (
                   notifications.map((notif) => {
                     const { Icon, color, bg } = notifVisuals(notif.type)
-                    return (
-                      <button
-                        key={notif.id}
-                        onClick={() => handleClickNotif(notif)}
-                        className={clsx(
-                          'w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
-                          !notif.read && 'bg-blue-50/30'
-                        )}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5', bg)}>
-                            <Icon size={16} className={color} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs font-bold text-gray-900">{notif.title}</p>
-                              {!notif.read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />}
-                            </div>
-                            {notif.body && (
-                              <p className="text-xs text-gray-600 mt-0.5 leading-snug">{notif.body}</p>
-                            )}
-                            <p className="text-xs text-gray-400 mt-1.5 font-medium">{timeAgo(notif.created_at)}</p>
-                          </div>
-                        </div>
-                      </button>
-                    )
+                    return <NotificationItem key={notif.id} notif={notif} Icon={Icon} color={color} bg={bg} onClickNotif={handleClickNotif} />
                   })
                 )}
               </div>

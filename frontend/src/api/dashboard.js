@@ -75,10 +75,11 @@ export function getSystemLogs({ page = 1, per_page = 5, level = null, search = n
  * Get pipeline activity feed (logs table — not audit_logs).
  * Returns natural pipeline events for the Dashboard live feed.
  */
-export function getMyLogs({ page = 1, per_page = 12 } = {}) {
+export function getMyLogs({ page = 1, per_page = 12, exclude_pollers = true } = {}) {
   const params = new URLSearchParams()
   params.set('page', page)
   params.set('per_page', per_page)
+  if (exclude_pollers) params.set('exclude_pollers', 'true')
 
   return handle(
     fetch(`${API_BASE}/logs/feed?${params.toString()}`, {

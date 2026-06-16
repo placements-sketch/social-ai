@@ -39,13 +39,13 @@ channels_bp = Blueprint('channels', __name__, url_prefix='/api')
 # this map will make that channel always read as "not connected".
 
 CHANNEL_CREDENTIAL_KEYS = {
-    'instagram_dm':      ['META_PAGE_ACCESS_TOKEN', 'META_VERIFY_TOKEN', 'META_APP_SECRET'],
-    'instagram_comment': ['META_PAGE_ACCESS_TOKEN', 'META_VERIFY_TOKEN', 'META_APP_SECRET'],
-    'whatsapp':          ['META_PAGE_ACCESS_TOKEN', 'META_VERIFY_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
-    'facebook_dm':       ['META_PAGE_ACCESS_TOKEN', 'META_VERIFY_TOKEN', 'META_APP_SECRET'],
-    'facebook_comment':  ['META_PAGE_ACCESS_TOKEN', 'META_VERIFY_TOKEN', 'META_APP_SECRET'],
-    'tiktok_dm':         ['TIKTOK_APP_ID', 'TIKTOK_ACCESS_TOKEN', 'TIKTOK_VERIFY_TOKEN'],
-    'tiktok_comment':    ['TIKTOK_APP_ID', 'TIKTOK_ACCESS_TOKEN', 'TIKTOK_VERIFY_TOKEN'],
+    'instagram_dm':      ['FB_ACCESS_TOKEN'],
+    'instagram_comment': ['FB_ACCESS_TOKEN'],
+    'whatsapp':          ['FB_ACCESS_TOKEN'],
+    'facebook_dm':       ['FB_ACCESS_TOKEN'],
+    'facebook_comment':  ['FB_ACCESS_TOKEN'],
+    'tiktok_dm':         ['TIKTOK_ACCESS_TOKEN'],
+    'tiktok_comment':    ['TIKTOK_ACCESS_TOKEN'],
 }
 
 

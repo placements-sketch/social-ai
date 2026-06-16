@@ -2,7 +2,7 @@ import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
-  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown,
+  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react'
 import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
 import { SkeletonCard } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
+import { useTimeAgo } from '../hooks/useTimeAgo'
 
 // Custom tooltip to ensure text is visible
 const CustomTooltip = ({ active, payload }) => {
@@ -63,6 +64,23 @@ const channelIcon = (ch) => {
   return <Bot size={13} className="text-brand-500" />
 }
 
+// Separate component for activity item to use the useTimeAgo hook
+function ActivityItem({ item }) {
+  const timeAgoStr = useTimeAgo(item.created_at)
+  
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
+      <div className="mt-0.5 shrink-0 w-5 h-5 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
+        {channelIcon(item.channel)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-800 leading-relaxed">{item.text}</p>
+      </div>
+      <span className="text-xs text-gray-400 shrink-0 font-medium whitespace-nowrap ml-2">{timeAgoStr}</span>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [analyticsData, setAnalyticsData] = useState(null)
   const [systemAlerts, setSystemAlerts] = useState([])
@@ -70,6 +88,7 @@ export default function Dashboard() {
   const [loadingAnalytics, setLoadingAnalytics] = useState(true)
   const [loadingAlerts, setLoadingAlerts] = useState(true)
   const [loadingActivity, setLoadingActivity] = useState(true)
+  const [showChannelModal, setShowChannelModal] = useState(false)
 
   const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month'
 
@@ -247,6 +266,8 @@ export default function Dashboard() {
       // Fallback to mock so the section isn't empty during early dev
       return activityFeed
     }
+    // Poller logs are now filtered on the backend via ?exclude_pollers=true
+    
     return activityLogs.slice(0, 12).map(log => {
       // Prefer payload.channel (now richly populated); fall back to source-based guess.
       const src = (log.source || '').toLowerCase()
@@ -261,23 +282,9 @@ export default function Dashboard() {
         id: log.id,
         text: formatActivityText(log),
         channel: iconChannel,
-        time: formatTimeAgo(log.created_at),
+        created_at: log.created_at, // Pass timestamp, component will handle formatting
       }
     })
-  }
-
-  const formatTimeAgo = (timestamp) => {
-    const now = new Date()
-    const date = new Date(timestamp)
-    const seconds = Math.floor((now - date) / 1000)
-    
-    if (seconds < 60) return 'now'
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes} min ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return `${days}d ago`
   }
 
   const statCardsData = getStatCards()
@@ -301,17 +308,26 @@ export default function Dashboard() {
   )
   const trimmedWeekly = firstActiveIdx === -1 ? weekly : weekly.slice(firstActiveIdx)
 
-  const chartData = trimmedWeekly.map(w => ({    time: period === 'month'
+  const chartData = trimmedWeekly.map(w => ({
+    time: period === 'month'
       ? new Date(w.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       : w.day,
-    instagram:      w.instagram      || 0,
-    instagram_resp: w.instagram_resp || 0,
-    whatsapp:       w.whatsapp       || 0,
-    whatsapp_resp:  w.whatsapp_resp  || 0,
-    facebook:       w.facebook       || 0,
-    facebook_resp:  w.facebook_resp  || 0,
-    tiktok:         w.tiktok         || 0,
-    tiktok_resp:    w.tiktok_resp    || 0,
+    // Instagram
+    instagram: w.instagram || 0,
+    instagram_ai: w.instagram_ai || 0,
+    instagram_human: w.instagram_human || 0,
+    // WhatsApp
+    whatsapp: w.whatsapp || 0,
+    whatsapp_ai: w.whatsapp_ai || 0,
+    whatsapp_human: w.whatsapp_human || 0,
+    // Facebook
+    facebook: w.facebook || 0,
+    facebook_ai: w.facebook_ai || 0,
+    facebook_human: w.facebook_human || 0,
+    // TikTok
+    tiktok: w.tiktok || 0,
+    tiktok_ai: w.tiktok_ai || 0,
+    tiktok_human: w.tiktok_human || 0,
   }))
 
   const exportToCSV = () => {
@@ -505,9 +521,17 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Graph: 3/4 width */}
         <div className="lg:col-span-3 card p-6">
-          <div className="mb-6">
-            <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
-            <p className="text-xs text-gray-500 mt-1">Message throughput (solid = received, dotted = responded)</p>
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
+              <p className="text-xs text-gray-500 mt-1">Inbound messages (solid) vs AI replies (dotted) vs Human replies (dashed)</p>
+            </div>
+            <button
+              onClick={() => setShowChannelModal(true)}
+              className="text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors whitespace-nowrap"
+            >
+              View Details →
+            </button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
@@ -525,37 +549,54 @@ export default function Dashboard() {
               />
               <Tooltip content={<CustomTooltip />} />
               {/* Instagram */}
-              <Line type="natural" dataKey="instagram"      name="Instagram"             stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="instagram_resp" name="Instagram (Responded)" stroke="#ec4899" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="instagram"       name="Instagram (Inbound)"   stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="instagram_ai"    name="Instagram (AI)"        stroke="#ec4899" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="instagram_human" name="Instagram (Human)"     stroke="#ec4899" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
               {/* WhatsApp */}
-              <Line type="natural" dataKey="whatsapp"       name="WhatsApp"              stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="whatsapp_resp"  name="WhatsApp (Responded)"  stroke="#22c55e" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="whatsapp"        name="WhatsApp (Inbound)"    stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="whatsapp_ai"     name="WhatsApp (AI)"         stroke="#22c55e" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="whatsapp_human"  name="WhatsApp (Human)"      stroke="#22c55e" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
               {/* Facebook */}
-              <Line type="natural" dataKey="facebook"       name="Facebook"              stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="facebook_resp"  name="Facebook (Responded)"  stroke="#3b82f6" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="facebook"        name="Facebook (Inbound)"    stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="facebook_ai"     name="Facebook (AI)"         stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="facebook_human"  name="Facebook (Human)"      stroke="#3b82f6" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
               {/* TikTok */}
-              <Line type="natural" dataKey="tiktok"         name="TikTok"                stroke="#111111" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="tiktok_resp"    name="TikTok (Responded)"    stroke="#111111" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="tiktok"          name="TikTok (Inbound)"      stroke="#111111" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="tiktok_ai"       name="TikTok (AI)"           stroke="#111111" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="tiktok_human"    name="TikTok (Human)"        stroke="#111111" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
           
           {/* Legend */}
-          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 mt-5">
-            <div className="flex items-center gap-2">
-              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#ec4899" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Instagram</span>
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 mt-5 text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#ec4899" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">IG</span>
             </div>
-            <div className="flex items-center gap-2">
-              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#22c55e" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">WhatsApp</span>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#22c55e" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">WA</span>
             </div>
-            <div className="flex items-center gap-2">
-              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#3b82f6" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Facebook</span>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#3b82f6" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">FB</span>
             </div>
-            <div className="flex items-center gap-2">
-              <svg width="20" height="2" className="inline"><line x1="0" y1="1" x2="20" y2="1" stroke="#111111" strokeWidth="2.5" /></svg>
-              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">TikTok</span>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#111111" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">TT</span>
+            </div>
+            <span className="text-gray-400 mx-2">|</span>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" /></svg>
+              <span className="text-gray-600 font-medium">Inbound</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="4 2" /></svg>
+              <span className="text-gray-600 font-medium">AI</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="8 4" /></svg>
+              <span className="text-gray-600 font-medium">Human</span>
             </div>
           </div>
         </div>
@@ -592,15 +633,7 @@ export default function Dashboard() {
           </div>
           <div className="space-y-3">
             {activityFeedData.map((item) => (
-              <div key={item.id} className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
-                <div className="mt-0.5 shrink-0 w-5 h-5 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
-                  {channelIcon(item.channel)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-800 leading-relaxed">{item.text}</p>
-                </div>
-                <span className="text-xs text-gray-400 shrink-0 font-medium whitespace-nowrap ml-2">{item.time}</span>
-              </div>
+              <ActivityItem key={item.id} item={item} />
             ))}
           </div>
         </div>
@@ -675,6 +708,168 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Channel Performance Modal */}
+      {showChannelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowChannelModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="sticky top-0 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 px-6 py-5 flex items-start justify-between">
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold text-gray-900">Channel Performance</h2>
+                <p className="text-sm text-gray-500 mt-1">Detailed breakdown of inbound and outbound messages by channel • {PERIOD_LABELS[period]}</p>
+              </div>
+              <button
+                onClick={() => setShowChannelModal(false)}
+                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-8 space-y-8">
+              {/* Key Metrics */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { 
+                    label: 'Total Inbound', 
+                    value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), 
+                    color: 'from-blue-50 to-blue-100',
+                    textColor: 'text-blue-700',
+                    icon: '📥'
+                  },
+                  { 
+                    label: 'AI Replies', 
+                    value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), 
+                    color: 'from-brand-50 to-brand-100',
+                    textColor: 'text-brand-700',
+                    icon: '🤖'
+                  },
+                  { 
+                    label: 'Human Replies', 
+                    value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), 
+                    color: 'from-amber-50 to-amber-100',
+                    textColor: 'text-amber-700',
+                    icon: '👤'
+                  },
+                  { 
+                    label: 'Response Rate', 
+                    value: `${(chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0) / Math.max(chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), 1) * 100).toFixed(0)}%`, 
+                    color: 'from-green-50 to-green-100',
+                    textColor: 'text-green-700',
+                    icon: '📊'
+                  },
+                ].map(({ label, value, color, textColor, icon }) => (
+                  <div key={label} className={`bg-gradient-to-br ${color} rounded-xl p-5 border border-opacity-10 hover:shadow-md transition-shadow`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider">{label}</p>
+                      <span className="text-xl">{icon}</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${textColor}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Per-channel breakdown */}
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Messages by Channel</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {[
+                    { name: 'Instagram', color: '#ec4899', borderColor: '#fda4de', key: 'instagram', emoji: '📸' },
+                    { name: 'WhatsApp', color: '#22c55e', borderColor: '#86efac', key: 'whatsapp', emoji: '💬' },
+                    { name: 'Facebook', color: '#3b82f6', borderColor: '#93c5fd', key: 'facebook', emoji: 'f' },
+                    { name: 'TikTok', color: '#111111', borderColor: '#e5e7eb', key: 'tiktok', emoji: '♪' },
+                  ].map(({ name, color, borderColor, key, emoji }) => {
+                    const inbound = chartData.reduce((sum, d) => sum + (d[key] || 0), 0)
+                    const ai = chartData.reduce((sum, d) => sum + (d[`${key}_ai`] || 0), 0)
+                    const human = chartData.reduce((sum, d) => sum + (d[`${key}_human`] || 0), 0)
+                    const total = inbound + ai + human
+                    const inboundPct = total > 0 ? ((inbound / total) * 100).toFixed(1) : 0
+                    const aiPct = total > 0 ? ((ai / total) * 100).toFixed(1) : 0
+                    const humanPct = total > 0 ? ((human / total) * 100).toFixed(1) : 0
+                    
+                    return (
+                      <div key={name} className="border-l-4 rounded-xl p-5 bg-gray-50 hover:bg-white transition-colors" style={{ borderLeftColor: color }}>
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-white" style={{ background: color }}>
+                              {emoji.length > 1 ? emoji.charAt(0) : emoji}
+                            </div>
+                            <div>
+                              <h4 className="font-semibold text-gray-900">{name}</h4>
+                              <p className="text-xs text-gray-400">Total messages</p>
+                            </div>
+                          </div>
+                          <span className="text-2xl font-bold text-gray-900">{total}</span>
+                        </div>
+                        <div className="space-y-3">
+                          {[
+                            { label: 'Inbound', count: inbound, pct: inboundPct, opacity: 1 },
+                            { label: 'AI Replies', count: ai, pct: aiPct, opacity: 0.7 },
+                            { label: 'Human Replies', count: human, pct: humanPct, opacity: 0.4 },
+                          ].map(({ label, count, pct, opacity }) => (
+                            <div key={label}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-sm font-medium text-gray-700">{label}</span>
+                                <span className="text-sm font-bold text-gray-900">{count} <span className="text-xs text-gray-400">({pct}%)</span></span>
+                              </div>
+                              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-300"
+                                  style={{
+                                    width: `${pct}%`,
+                                    background: color,
+                                    opacity: opacity,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Response efficiency chart */}
+              <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-6">
+                <h3 className="text-sm font-bold text-gray-900 mb-4">Response Distribution</h3>
+                <div className="flex items-end justify-around h-24 gap-2">
+                  {[
+                    { label: 'Inbound', value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), color: '#3b82f6' },
+                    { label: 'AI', value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), color: '#f59e0b' },
+                    { label: 'Human', value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), color: '#10b981' },
+                  ].map(({ label, value, color }) => {
+                    const maxVal = Math.max(
+                      chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0),
+                      chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0),
+                      chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
+                    )
+                    const height = maxVal > 0 ? (value / maxVal) * 100 : 0
+                    return (
+                      <div key={label} className="flex flex-col items-center flex-1">
+                        <div
+                          className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
+                          style={{
+                            height: `${height || 10}%`,
+                            background: color,
+                            minHeight: '8px',
+                          }}
+                        />
+                        <p className="text-xs font-semibold text-gray-600 mt-2">{label}</p>
+                        <p className="text-sm font-bold text-gray-900">{value}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

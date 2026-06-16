@@ -304,12 +304,19 @@ class Channel(db.Model):
             f"{public_base_url.rstrip('/')}{self.webhook_path}"
             if public_base_url else self.webhook_path
         )
+        
+        # A channel is "connected" if:
+        # 1. Credentials are set, OR
+        # 2. There are recent messages (indicates it's receiving data)
+        has_messages = (stats.get('message_count', 0) or 0) > 0
+        connected = bool(credentials_set) or has_messages
+        
         return {
             'id': self.id,
             'channel': self.channel,
             'display_name': self.display_name,
             'enabled': self.enabled,
-            'connected': bool(credentials_set),
+            'connected': connected,
             'credentials_set': bool(credentials_set),
             'webhook_url': webhook_url,
             'webhook_path': self.webhook_path,

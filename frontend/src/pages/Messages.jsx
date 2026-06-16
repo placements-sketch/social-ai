@@ -80,6 +80,7 @@ export default function Messages() {
   const [loadingConv, setLoadingConv]   = useState(false)
   const [listError, setListError]       = useState(null)
   const [convError, setConvError]       = useState(null)
+  const [reassignedError, setReassignedError] = useState(false)  // Track if conv was reassigned
 
   const [replyText, setReplyText]       = useState('')
   const [sending, setSending]           = useState(false)
@@ -258,6 +259,7 @@ export default function Messages() {
     setSelected(conv.id)
     setLoadingConv(true)
     setConvError(null)
+    setReassignedError(false)
     setActiveConv(null)
     try {
       const data = await getConversation(conv.id)   // { conversation: {...} }
@@ -268,7 +270,14 @@ export default function Messages() {
           prev.map(c => (c.id === conv.id ? { ...c, unread: false, unread_count: 0 } : c)))
       }
     } catch (err) {
-      setConvError(err.message)
+      // Check if this is a 403 Forbidden error (conversation reassigned)
+      if (err.status === 403 || err.message?.includes('Forbidden')) {
+        setReassignedError(true)
+        setConvError(null)
+      } else {
+        setConvError(err.message)
+        setReassignedError(false)
+      }
     } finally {
       setLoadingConv(false)
     }
@@ -345,6 +354,22 @@ export default function Messages() {
   // ── Assign conversation to agent ───────────────────────────────────────────
   const handleAssign = async (agentId) => {
     if (!activeConv) return
+    
+    // Check if AI is enabled - if so, show warning
+    if (activeConv.ai_enabled) {
+      const confirmed = await confirm({
+        title: 'Cannot Assign - AI Enabled',
+        message: 'This conversation is currently being handled by AI. Please disable AI first before assigning to an agent.',
+        confirmText: 'Disable AI',
+        cancelText: 'Cancel',
+        isDangerous: false,
+      })
+      if (confirmed) {
+        handleToggleAI()
+      }
+      return
+    }
+    
     setAssigningConvId(activeConv.id)
     try {
       const data = await assignConversation(activeConv.id, agentId)
@@ -519,7 +544,30 @@ export default function Messages() {
         </div>
       )}
 
-      {selected && !loadingConv && convError && (
+      {selected && !loadingConv && reassignedError && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-4">
+          <div className="text-center max-w-sm">
+            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-3">
+              <Info size={24} className="text-amber-600" />
+            </div>
+            <h3 className="text-sm font-bold text-gray-900 mb-1">Conversation Unavailable</h3>
+            <p className="text-xs text-gray-600 mb-4">
+              This conversation was reassigned to another agent and is no longer accessible to you.
+            </p>
+            <button
+              onClick={() => {
+                backToList()
+                setReassignedError(false)
+              }}
+              className="text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+            >
+              Return to conversations
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selected && !loadingConv && convError && !reassignedError && (
         <div className="flex-1 flex flex-col items-center justify-center gap-2">
           <p className="text-xs text-red-500">{convError}</p>
           <button onClick={() => openConversation(selected)} className="text-xs text-brand-600 font-medium">Retry</button>
