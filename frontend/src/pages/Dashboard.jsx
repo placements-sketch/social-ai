@@ -2,7 +2,7 @@ import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
-  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X,
+  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
@@ -712,76 +712,76 @@ export default function Dashboard() {
       {/* Channel Performance Modal */}
       {showChannelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowChannelModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 px-6 py-5 flex items-start justify-between">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-md" onClick={() => setShowChannelModal(false)} />
+          <div className="relative bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto border border-gray-100">
+            {/* Header - Clean & Minimal */}
+            <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-8 py-6 flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-2xl font-bold text-gray-900">Channel Performance</h2>
-                <p className="text-sm text-gray-500 mt-1">Detailed breakdown of inbound and outbound messages by channel • {PERIOD_LABELS[period]}</p>
+                <h2 className="text-2xl font-semibold text-gray-900">Channel Performance</h2>
+                <p className="text-sm text-gray-500 mt-1">Message analytics across all platforms • {PERIOD_LABELS[period]}</p>
               </div>
               <button
                 onClick={() => setShowChannelModal(false)}
-                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
               >
-                <X size={22} />
+                <X size={20} />
               </button>
             </div>
 
             {/* Content */}
             <div className="p-8 space-y-8">
-              {/* Key Metrics */}
+              {/* Key Metrics - Subtle cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                   { 
                     label: 'Total Inbound', 
                     value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), 
-                    color: 'from-blue-50 to-blue-100',
-                    textColor: 'text-blue-700',
+                    bg: 'bg-gray-50',
+                    textColor: 'text-gray-900',
                     icon: '📥'
                   },
                   { 
                     label: 'AI Replies', 
                     value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), 
-                    color: 'from-brand-50 to-brand-100',
-                    textColor: 'text-brand-700',
+                    bg: 'bg-gray-50',
+                    textColor: 'text-gray-900',
                     icon: '🤖'
                   },
                   { 
                     label: 'Human Replies', 
                     value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), 
-                    color: 'from-amber-50 to-amber-100',
-                    textColor: 'text-amber-700',
+                    bg: 'bg-gray-50',
+                    textColor: 'text-gray-900',
                     icon: '👤'
                   },
                   { 
                     label: 'Response Rate', 
                     value: `${(chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0) / Math.max(chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), 1) * 100).toFixed(0)}%`, 
-                    color: 'from-green-50 to-green-100',
-                    textColor: 'text-green-700',
+                    bg: 'bg-gray-50',
+                    textColor: 'text-gray-900',
                     icon: '📊'
                   },
-                ].map(({ label, value, color, textColor, icon }) => (
-                  <div key={label} className={`bg-gradient-to-br ${color} rounded-xl p-5 border border-opacity-10 hover:shadow-md transition-shadow`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider">{label}</p>
-                      <span className="text-xl">{icon}</span>
+                ].map(({ label, value, bg, textColor, icon }) => (
+                  <div key={label} className={`${bg} rounded-2xl p-5 border border-gray-150 hover:border-gray-200 transition-all`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">{label}</p>
+                      <span className="text-lg">{icon}</span>
                     </div>
-                    <p className={`text-3xl font-bold ${textColor}`}>{value}</p>
+                    <p className={`text-3xl font-light ${textColor}`}>{value}</p>
                   </div>
                 ))}
               </div>
 
-              {/* Per-channel breakdown */}
+              {/* Per-channel breakdown - Minimal cards */}
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Messages by Channel</h3>
+                <h3 className="text-base font-semibold text-gray-900 mb-5">Messages by Channel</h3>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {[
-                    { name: 'Instagram', color: '#ec4899', borderColor: '#fda4de', key: 'instagram', emoji: '📸' },
-                    { name: 'WhatsApp', color: '#22c55e', borderColor: '#86efac', key: 'whatsapp', emoji: '💬' },
-                    { name: 'Facebook', color: '#3b82f6', borderColor: '#93c5fd', key: 'facebook', emoji: 'f' },
-                    { name: 'TikTok', color: '#111111', borderColor: '#e5e7eb', key: 'tiktok', emoji: '♪' },
-                  ].map(({ name, color, borderColor, key, emoji }) => {
+                    { name: 'Instagram', color: '#ec4899', icon: Instagram, key: 'instagram' },
+                    { name: 'WhatsApp', color: '#22c55e', icon: Smartphone, key: 'whatsapp' },
+                    { name: 'Facebook', color: '#3b82f6', icon: MessageSquare, key: 'facebook' },
+                    { name: 'TikTok', color: '#111111', icon: Music, key: 'tiktok' },
+                  ].map(({ name, color, icon: Icon, key }) => {
                     const inbound = chartData.reduce((sum, d) => sum + (d[key] || 0), 0)
                     const ai = chartData.reduce((sum, d) => sum + (d[`${key}_ai`] || 0), 0)
                     const human = chartData.reduce((sum, d) => sum + (d[`${key}_human`] || 0), 0)
@@ -791,37 +791,42 @@ export default function Dashboard() {
                     const humanPct = total > 0 ? ((human / total) * 100).toFixed(1) : 0
                     
                     return (
-                      <div key={name} className="border-l-4 rounded-xl p-5 bg-gray-50 hover:bg-white transition-colors" style={{ borderLeftColor: color }}>
-                        <div className="flex items-center justify-between mb-4">
+                      <div key={name} className="bg-white border border-gray-100 rounded-2xl p-5 hover:border-gray-200 transition-all">
+                        <div className="flex items-center justify-between mb-5">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-white" style={{ background: color }}>
-                              {emoji.length > 1 ? emoji.charAt(0) : emoji}
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white" style={{ background: color }}>
+                              <Icon size={18} />
                             </div>
                             <div>
-                              <h4 className="font-semibold text-gray-900">{name}</h4>
-                              <p className="text-xs text-gray-400">Total messages</p>
+                              <h4 className="font-medium text-gray-900 text-sm">{name}</h4>
+                              <p className="text-xs text-gray-400">Performance metrics</p>
                             </div>
                           </div>
-                          <span className="text-2xl font-bold text-gray-900">{total}</span>
+                          <span className="text-2xl font-light text-gray-900">{total}</span>
                         </div>
-                        <div className="space-y-3">
+                        
+                        {/* Metric bars */}
+                        <div className="space-y-3.5">
                           {[
-                            { label: 'Inbound', count: inbound, pct: inboundPct, opacity: 1 },
-                            { label: 'AI Replies', count: ai, pct: aiPct, opacity: 0.7 },
-                            { label: 'Human Replies', count: human, pct: humanPct, opacity: 0.4 },
-                          ].map(({ label, count, pct, opacity }) => (
+                            { label: 'Inbound', count: inbound, pct: inboundPct, shade: 1 },
+                            { label: 'AI Replies', count: ai, pct: aiPct, shade: 0.6 },
+                            { label: 'Human Replies', count: human, pct: humanPct, shade: 0.3 },
+                          ].map(({ label, count, pct, shade }) => (
                             <div key={label}>
                               <div className="flex items-center justify-between mb-1.5">
-                                <span className="text-sm font-medium text-gray-700">{label}</span>
-                                <span className="text-sm font-bold text-gray-900">{count} <span className="text-xs text-gray-400">({pct}%)</span></span>
+                                <span className="text-xs font-medium text-gray-700">{label}</span>
+                                <div className="flex items-baseline gap-1">
+                                  <span className="text-sm font-light text-gray-900">{count}</span>
+                                  <span className="text-xs text-gray-400">{pct}%</span>
+                                </div>
                               </div>
-                              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div
-                                  className="h-full rounded-full transition-all duration-300"
+                                  className="h-full rounded-full transition-all duration-500"
                                   style={{
                                     width: `${pct}%`,
                                     background: color,
-                                    opacity: opacity,
+                                    opacity: shade,
                                   }}
                                 />
                               </div>
@@ -834,36 +839,40 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Response efficiency chart */}
-              <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-6">
-                <h3 className="text-sm font-bold text-gray-900 mb-4">Response Distribution</h3>
-                <div className="flex items-end justify-around h-24 gap-2">
-                  {[
-                    { label: 'Inbound', value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), color: '#3b82f6' },
-                    { label: 'AI', value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), color: '#f59e0b' },
-                    { label: 'Human', value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), color: '#10b981' },
-                  ].map(({ label, value, color }) => {
-                    const maxVal = Math.max(
-                      chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0),
-                      chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0),
-                      chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
-                    )
-                    const height = maxVal > 0 ? (value / maxVal) * 100 : 0
-                    return (
-                      <div key={label} className="flex flex-col items-center flex-1">
-                        <div
-                          className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
-                          style={{
-                            height: `${height || 10}%`,
-                            background: color,
-                            minHeight: '8px',
-                          }}
-                        />
-                        <p className="text-xs font-semibold text-gray-600 mt-2">{label}</p>
-                        <p className="text-sm font-bold text-gray-900">{value}</p>
-                      </div>
-                    )
-                  })}
+              {/* Response Distribution - Clean chart */}
+              <div className="relative">
+                <div className="bg-white border border-gray-100 rounded-2xl p-6">
+                  <h3 className="text-base font-semibold text-gray-900 mb-6">Response Distribution</h3>
+                  <div className="flex items-end justify-between gap-3 h-28">
+                    {[
+                      { label: 'Inbound', value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), color: '#9ca3af' },
+                      { label: 'AI', value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), color: '#6b7280' },
+                      { label: 'Human', value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), color: '#374151' },
+                    ].map(({ label, value, color }) => {
+                      const maxVal = Math.max(
+                        chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0),
+                        chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0),
+                        chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
+                      )
+                      const height = maxVal > 0 ? (value / maxVal) * 100 : 0
+                      return (
+                        <div key={label} className="flex flex-col items-center flex-1">
+                          <div className="relative w-full flex flex-col items-center flex-1">
+                            <div
+                              className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
+                              style={{
+                                height: `${height || 15}%`,
+                                background: color,
+                                minHeight: '8px',
+                              }}
+                            />
+                          </div>
+                          <p className="text-xs font-medium text-gray-600 mt-3">{label}</p>
+                          <p className="text-lg font-light text-gray-900 mt-1">{value}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

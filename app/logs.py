@@ -249,10 +249,9 @@ def system_logs():
 
 # ─────────────────────────────────────────────
 # GET /api/logs/feed  — Dashboard live activity feed
-# Returns pipeline events from the `logs` table (not audit_logs),
-# scoped to the user's role:
-#   - admin/supervisor : all pipeline events
-#   - agent            : only events touching their assigned conversations
+# Returns pipeline events from the `logs` table (not audit_logs).
+# All authenticated users see the same feed (system-wide activity).
+# Note: Message access control is separate (/api/messages endpoints).
 # ─────────────────────────────────────────────
 
 @logs_bp.route('/logs/feed', methods=['GET'])
@@ -271,14 +270,6 @@ def feed_logs():
     if exclude_pollers:
         # Exclude logs where source contains '_poller' (ig_poller.cycle, tiktok_poller, etc.)
         query = query.filter(~Log.source.ilike('%_poller%'))
-
-    # Agents see only their assigned conversations
-    if user.role == 'agent':
-        from app.models import Conversation
-        assigned = db.session.query(Conversation.id).filter(
-            Conversation.assigned_to == user.id
-        ).subquery()
-        query = query.filter(Log.conversation_id.in_(assigned))
 
     rows = (query.order_by(Log.created_at.desc())
                  .limit(per_page).offset((page - 1) * per_page).all())
