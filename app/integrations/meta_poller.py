@@ -129,12 +129,37 @@ def _process_thread(thread: dict) -> int:
     from app.services import process_message
 
     # Build a quick id → username map from this thread's participants.
-    # We'll patch each customer's User.name when we save their messages.
     participant_usernames = {
         p.get("id"): p.get("username")
         for p in (thread.get("participants") or {}).get("data", [])
         if p.get("id") and p.get("username")
     }
+
+    # Patch User.name for every participant in this thread, regardless of
+    # whether they have new unprocessed messages. This catches users created
+    # via webhook (whose messages are already saved and would be deduped out
+    # of the loop below) and ensures their username shows in the UI.
+    our_ig_id = os.getenv("IG_BUSINESS_ACCOUNT_ID")
+    our_page_id = os.getenv("FB_PAGE_ID")
+    skip_ids = {x for x in (our_ig_id, our_page_id) if x}
+    try:
+        for participant_id, username in participant_usernames.items():
+            if participant_id in skip_ids:
+                continue  # don't patch our own business account
+            user_row = User.query.filter_by(
+                external_id=participant_id, channel="instagram_dm"
+            ).first()
+            if user_row and user_row.name != username:
+                user_row.name = username
+                db.session.commit()
+    except Exception as e:
+        log_event("error", "ig_poller.username_patch",
+                  f"Failed to patch usernames: {e}",
+                  payload={"error": str(e)})
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
     # Identify which participant is the BUSINESS (us) vs the CUSTOMER.
     # We assume IG_PAGE_ACCESS_TOKEN belongs to the business account, so

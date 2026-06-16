@@ -159,6 +159,11 @@ def process_message(message: str, user_id: str, channel: str) -> str:
     )
 
     # ── Step 6: Send reply back via the correct channel ────────────────────
+    # Brief delay so the frontend's poll sees the inbound first, displays the
+    # typing indicator, THEN the outbound appears — feels more like a real
+    # conversation than both messages popping in at once.
+    import time
+    time.sleep(2)
     _dispatch_reply(channel=channel, user_id=user_id, reply=reply)
 
     log_event("info", "services.ai_reply",
