@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
+import szLogo from '../images/sz.png'
 
 const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
@@ -52,14 +53,14 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         'flex items-center h-16 shrink-0 pt-5',
         isMobile ? 'justify-between px-4' : (collapsed ? 'md:justify-center md:px-0 px-4 justify-between' : 'justify-between px-4')
       )}>
-        {/* Logo — always show on mobile, hide text when desktop-collapsed */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
-            <Sparkles size={16} className="text-white" />
-          </div>
+        {/* Logo & Branding */}
+        <div className="flex items-center gap-3">
+          {/* Shop Zetu Logo */}
+          <img src={szLogo} alt="Shop Zetu" className="w-9 h-9 shrink-0" />
+          {/* Text: always show on mobile, hide when desktop-collapsed */}
           <div className={clsx(isMobile ? 'block' : (collapsed ? 'md:hidden' : 'block'))}>
-            <p className="text-sm font-bold text-white leading-none tracking-tight">Social AI</p>
-            <p className="text-[10px] text-gray-500 mt-0.5">Dashboard</p>
+            <p className="text-sm font-bold text-white leading-tight tracking-tight">Shop Zetu</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Social AI</p>
           </div>
         </div>
 

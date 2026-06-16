@@ -29,7 +29,7 @@ def _conversations_url():
         return None
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/conversations"
 
-POLL_INTERVAL_SECONDS = 15
+POLL_INTERVAL_SECONDS = 10
 
 # Module-level guard so we don't start the thread twice in debug mode
 # (Flask debug reloader spawns a second process; only the reloader-child
