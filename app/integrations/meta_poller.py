@@ -142,6 +142,8 @@ def _process_thread(thread: dict) -> int:
     # message. Simpler heuristic: anyone matching our IG user ID env var,
     # falling back to the participant that ISN'T the message sender.
     our_ig_id = os.getenv("IG_BUSINESS_ACCOUNT_ID")
+    our_page_id = os.getenv("FB_PAGE_ID")
+    our_ids = {x for x in (our_ig_id, our_page_id) if x}
 
     messages = (thread.get("messages") or {}).get("data") or []
     if not messages:
@@ -162,7 +164,9 @@ def _process_thread(thread: dict) -> int:
 
         # Skip our own outbound messages — those are already in the DB
         # (we wrote them when sending) and shouldn't be reprocessed.
-        if our_ig_id and sender_id == our_ig_id:
+        # Could be tagged with EITHER the IG business account ID OR the
+        # FB Page ID depending on which API was used to send.
+        if sender_id in our_ids:
             continue
 
         # Dedupe: have we already saved a message with this Graph mid?
