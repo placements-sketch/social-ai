@@ -73,6 +73,9 @@ def instagram_webhook():
     """
     import json
     data = request.get_json(silent=True) or {}
+    current_app.logger.warning(
+    f"[IG WEBHOOK HIT] headers={dict(request.headers)}"
+    )
     current_app.logger.info(f"[IG webhook RAW] {json.dumps(data, indent=2)}")
 
     events = []  # list of (sender_id, message_text) tuples
