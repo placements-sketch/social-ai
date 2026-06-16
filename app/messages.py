@@ -198,6 +198,25 @@ def send_reply(conversation_id):
 
     db.session.commit()
 
+    # Dispatch the reply to the customer via the channel API (IG/FB/WA).
+    # Same path the AI uses. Failures are logged but don't roll back the DB —
+    # the agent's reply is still recorded, and they can retry from the UI.
+    try:
+        from app.services import _dispatch_reply
+        customer = conv.user
+        if customer:
+            _dispatch_reply(
+                channel=conv.channel,
+                user_id=customer.external_id,
+                reply=content,
+            )
+    except Exception as e:
+        from app.utils.logger import log_event
+        log_event("error", "messages.send_reply.dispatch",
+                  f"Failed to dispatch manual reply for conv {conv.id}: {e}",
+                  payload={"conversation_id": conv.id, "error": str(e)},
+                  conversation_id=conv.id)
+
     log_audit(
         current_user.id,
         'send_reply',

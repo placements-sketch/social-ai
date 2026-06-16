@@ -872,40 +872,112 @@ export default function Messages() {
 
 // Extracted so it can be used in both desktop panel and mobile drawer
 function ContextContent({ conv }) {
-  const lastMeta = (conv.messages || []).filter(m => m.meta).slice(-1)[0]
+  // Pull the most recent INBOUND message — that's where the intent lives.
+  const messages = conv.messages || []
+  const lastInbound = [...messages].reverse().find(m => m.from === 'user')
+  const lastAiReply = [...messages].reverse().find(m => m.from === 'ai')
+
+  // Intent is stored pipe-joined ("greeting|order_status|complaint")
+  // Split, prettify, show as multiple badges.
+  const intents = (lastInbound?.intent || '')
+    .split('|')
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  // Response time: gap between the latest inbound and the latest AI reply.
+  // Both timestamps come from `created_at` on Message rows.
+  let responseTime = null
+  if (lastInbound?.created_at && lastAiReply?.created_at) {
+    const inboundTime = new Date(lastInbound.created_at).getTime()
+    const replyTime = new Date(lastAiReply.created_at).getTime()
+    const diffMs = replyTime - inboundTime
+    if (diffMs >= 0 && diffMs < 60_000) {
+      responseTime = `${(diffMs / 1000).toFixed(1)}s`
+    } else if (diffMs >= 60_000) {
+      responseTime = `${Math.round(diffMs / 60_000)}m`
+    }
+  }
+
+  const prettyIntent = (s) => s.replace(/_/g, ' ')
 
   return (
     <div className="space-y-4">
-      {lastMeta && (
-        <>
-          <div>
-            <p className="text-xs text-gray-400 font-medium mb-1">Intent</p>
-            <span className="badge bg-brand-50 text-brand-600 border border-brand-100">
-              {lastMeta.meta.intent || '—'}
-            </span>
+      {/* Intents */}
+      <div>
+        <p className="text-xs text-gray-400 font-medium mb-1.5">Detected Intent</p>
+        {intents.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {intents.map(i => (
+              <span
+                key={i}
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100"
+              >
+                {prettyIntent(i)}
+              </span>
+            ))}
           </div>
-          <div>
-            <p className="text-xs text-gray-400 font-medium mb-1">Product</p>
-            <p className="text-xs text-gray-800 font-semibold">{lastMeta.meta.product || '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 font-medium mb-1">Stock</p>
-            <p className="text-xs text-gray-800 font-semibold">{lastMeta.meta.stock ?? '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 font-medium mb-1">Response Time</p>
-            <p className="text-xs text-green-600 font-bold">{lastMeta.meta.responseTime || '—'}</p>
-          </div>
-        </>
-      )}
+        ) : (
+          <p className="text-xs text-gray-400">—</p>
+        )}
+      </div>
+
+      {/* Last message preview */}
+      <div>
+        <p className="text-xs text-gray-400 font-medium mb-1">Last Message</p>
+        <p className="text-xs text-gray-800 leading-relaxed line-clamp-3">
+          {lastInbound?.text || '—'}
+        </p>
+      </div>
+
+      {/* Response time */}
+      <div>
+        <p className="text-xs text-gray-400 font-medium mb-1">AI Response Time</p>
+        <p className={clsx(
+          'text-xs font-bold',
+          responseTime ? 'text-green-600' : 'text-gray-400'
+        )}>
+          {responseTime || '—'}
+        </p>
+      </div>
+
+      {/* Customer */}
+      <div className="pt-3 border-t border-gray-100">
+        <p className="section-title mb-2">Customer</p>
+        <p className="text-xs text-gray-700 font-medium truncate">{conv.handle || '—'}</p>
+      </div>
+
+      {/* Channel */}
       <div className="pt-3 border-t border-gray-100">
         <p className="section-title mb-2">Channel</p>
-        <p className="text-xs text-gray-700 font-medium">{(conv.platform || '').replace('_', ' ')}</p>
+        <p className="text-xs text-gray-700 font-medium capitalize">
+          {(conv.platform || '').replace(/_/g, ' ')}
+        </p>
       </div>
+
+      {/* Handler */}
       <div className="pt-3 border-t border-gray-100">
-        <p className="section-title mb-2">Status</p>
-        {statusBadge(conv.status)}
+        <p className="section-title mb-2">Handler</p>
+        {handlerBadge(conv)}
       </div>
+
+      {/* Assigned agent (if any) */}
+      {conv.assignee && (
+        <div className="pt-3 border-t border-gray-100">
+          <p className="section-title mb-2">Assigned To</p>
+          <p className="text-xs text-gray-700 font-medium">{conv.assignee.full_name}</p>
+          <p className="text-[10px] text-gray-400">{conv.assignee.email}</p>
+        </div>
+      )}
+
+      {/* Handoff reason if escalated */}
+      {conv.handoff_reason && (
+        <div className="pt-3 border-t border-gray-100">
+          <p className="section-title mb-2">Escalation Reason</p>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-100 capitalize">
+            {conv.handoff_reason}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
