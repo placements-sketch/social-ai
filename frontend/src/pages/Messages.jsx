@@ -6,7 +6,7 @@ import {
 import clsx from 'clsx'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
-  assignConversation, unassignConversation, listAgents, deleteMessage,
+  assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
