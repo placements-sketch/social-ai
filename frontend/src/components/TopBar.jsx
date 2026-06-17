@@ -65,7 +65,7 @@ export default function TopBar({ onMenuClick }) {
     hour: '2-digit', minute: '2-digit',
   })
 
-    // Load notifications on mount + poll every 10 seconds
+  // Load notifications on mount + poll every 10 seconds
   const { showToast } = useToast()
   const seenIdsRef = useRef(new Set())
   const isFirstLoadRef = useRef(true)
@@ -102,6 +102,57 @@ export default function TopBar({ onMenuClick }) {
     load()
     const timer = setInterval(() => load(), 10000) // Poll every 10 seconds
     return () => { clearInterval(timer) }
+  }, [showToast])
+
+  // Poll the conversations list every 10s and pop a toast for new inbound DMs.
+  const seenMsgIdsRef = useRef(new Set())
+  const isFirstMsgLoadRef = useRef(true)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadMessages = async () => {
+      try {
+        // Import lazily to avoid circular dep issues
+        const { listConversations } = await import('../api/messages')
+        const data = await listConversations({ channel: 'all', page: 1, per_page: 20 })
+        if (cancelled) return
+
+        const convs = data.conversations || []
+
+        // First load: mark every current "last message" as seen, don't pop.
+        if (isFirstMsgLoadRef.current) {
+          convs.forEach(c => {
+            const key = `${c.id}:${c.last_message_at || c.time || ''}`
+            seenMsgIdsRef.current.add(key)
+          })
+          isFirstMsgLoadRef.current = false
+          return
+        }
+
+        // Subsequent polls: if the latest message timestamp changed on a
+        // conversation AND that conversation has unread > 0, it's a new
+        // customer message. Toast it.
+        convs.forEach(c => {
+          const key = `${c.id}:${c.last_message_at || c.time || ''}`
+          if (!seenMsgIdsRef.current.has(key) && (c.unread_count || 0) > 0) {
+            showToast({
+              title: `New message from ${c.handle || 'customer'}`,
+              body: c.lastMessage || '',
+            })
+            seenMsgIdsRef.current.add(key)
+          } else {
+            seenMsgIdsRef.current.add(key)
+          }
+        })
+      } catch (err) {
+        console.error('[Toast] Failed to poll messages:', err)
+      }
+    }
+
+    loadMessages()
+    const timer = setInterval(loadMessages, 10000)
+    return () => { cancelled = true; clearInterval(timer) }
   }, [showToast])
 
   const handleClickNotif = async (n) => {
