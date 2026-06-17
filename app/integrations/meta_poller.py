@@ -29,7 +29,7 @@ def _conversations_url():
         return None
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/conversations"
 
-POLL_INTERVAL_SECONDS = 10
+POLL_INTERVAL_SECONDS = 300
 
 # Module-level guard so we don't start the thread twice in debug mode
 # (Flask debug reloader spawns a second process; only the reloader-child
@@ -65,7 +65,7 @@ def start_poller(app):
         )
         thread.start()
         _poller_started = True
-        log_event("info", "ig_poller", "Instagram DM poller started (15s interval)")
+        log_event("info", "ig_poller", "Instagram DM poller started (5min safety-net interval)")
 
 def _poller_loop(app):
     """The actual loop. Each tick: fetch threads, process new messages."""
