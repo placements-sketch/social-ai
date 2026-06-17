@@ -480,7 +480,7 @@ def edit_message(message_id):
         return jsonify({'error': 'Can only edit outbound messages'}), 403
 
     conv = Conversation.query.get(original.conversation_id)
-    customer = original.user
+    customer = conv.user if conv else None
 
     # Step 1: Unsend the original from IG
     ig_unsent = False

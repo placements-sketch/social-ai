@@ -91,6 +91,7 @@ export default function Messages() {
   const [showAssignDropdown, setShowAssignDropdown] = useState(false)
   const [assigningConvId, setAssigningConvId] = useState(null)
 
+  const [replyContext, setReplyContext] = useState(null) // { id, text, from }
   const [editingMsgId, setEditingMsgId] = useState(null)
   const [editText, setEditText] = useState('')
 
@@ -323,14 +324,24 @@ export default function Messages() {
   }
 
   // ── Send a manual reply ───────────────────────────────────────────────────
-  const handleSend = async () => {
+const handleSend = async () => {
     const content = replyText.trim()
     if (!content || !activeConv || sending) return
     setSending(true)
     try {
+      // If replying to a specific message, prepend a quote line so the
+      // customer sees what we're responding to. Truncate long quotes.
+      let outgoing = content
+      if (replyContext) {
+        const quoted = replyContext.text.length > 100
+          ? `${replyContext.text.substring(0, 100)}…`
+          : replyContext.text
+        outgoing = `Replying to: "${quoted}"\n⠀\n${content}`
+      }
+
       // Canonical: sendReply(id, content, sender='human')
       // -> { message, conversation }
-      const data = await sendReply(activeConv.id, content, 'human')
+      const data = await sendReply(activeConv.id, outgoing, 'human')
       setActiveConv(c => ({
         ...c,
         ...data.conversation,
@@ -347,6 +358,7 @@ export default function Messages() {
             }
           : c))
       setReplyText('')
+      setReplyContext(null)
     } catch (err) {
       setConvError(err.message)
     } finally {
@@ -799,9 +811,7 @@ export default function Messages() {
                             if (confirmed) handleToggleAI()
                           })
                         } else {
-                          const quoted = msg.text.length > 60 ? `${msg.text.substring(0, 60)}…` : msg.text
-                          setReplyText(`> ${quoted}\n\n`)
-                          // Focus input after a tick
+                          setReplyContext({ id: msg.id, text: msg.text, from: msg.from })
                           setTimeout(() => {
                             const input = document.querySelector('input[placeholder="Reply…"]')
                             if (input) input.focus()
@@ -892,23 +902,46 @@ export default function Messages() {
 
           {/* Manual reply bar — shown when AI is disabled for this conversation */}
           {activeConv && !activeConv.ai_enabled && (
-            <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 border-t border-gray-100 bg-white flex gap-1.5 sm:gap-2">
-              <input
-                className="input flex-1 text-xs sm:text-sm"
-                placeholder="Reply…"
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-                disabled={sending}
-              />
-              <button
-                onClick={handleSend}
-                disabled={sending || !replyText.trim()}
-                className="btn-primary flex items-center gap-1 px-2 sm:px-4 py-2 disabled:opacity-50 whitespace-nowrap text-xs sm:text-sm"
-              >
-                {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                <span className="hidden sm:inline">Send</span>
-              </button>
+            <div className="border-t border-gray-100 bg-white">
+              {/* Reply context bar */}
+              {replyContext && (
+                <div className="px-3 md:px-4 pt-2 pb-1.5 flex items-start gap-2 border-l-2 border-brand-500 bg-brand-50/40 mx-2 sm:mx-3 md:mx-4 mt-2 rounded-tr-md">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wide mb-0.5">
+                      Replying to {replyContext.from === 'user' ? 'Customer' : replyContext.from === 'ai' ? 'AI' : 'Agent'}
+                    </p>
+                    <p className="text-xs text-gray-700 truncate">
+                      {replyContext.text}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setReplyContext(null)}
+                    className="text-gray-400 hover:text-gray-700 p-0.5 shrink-0"
+                    title="Cancel reply"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 flex gap-1.5 sm:gap-2">
+                <input
+                  className="input flex-1 text-xs sm:text-sm"
+                  placeholder="Reply…"
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                  disabled={sending}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={sending || !replyText.trim()}
+                  className="btn-primary flex items-center gap-1 px-2 sm:px-4 py-2 disabled:opacity-50 whitespace-nowrap text-xs sm:text-sm"
+                >
+                  {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                  <span className="hidden sm:inline">Send</span>
+                </button>
+              </div>
             </div>
           )}
         </>
