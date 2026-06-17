@@ -105,7 +105,8 @@ export default function TopBar({ onMenuClick }) {
   }, [showToast])
 
   // Poll the conversations list every 10s and pop a toast for new inbound DMs.
-  const seenMsgIdsRef = useRef(new Set())
+  // Track previous unread_count per conversation to detect TRUE new inbound.
+  const prevUnreadRef = useRef(new Map())
   const isFirstMsgLoadRef = useRef(true)
 
   useEffect(() => {
@@ -113,37 +114,32 @@ export default function TopBar({ onMenuClick }) {
 
     const loadMessages = async () => {
       try {
-        // Import lazily to avoid circular dep issues
         const { listConversations } = await import('../api/messages')
         const data = await listConversations({ channel: 'all', page: 1, per_page: 20 })
         if (cancelled) return
 
         const convs = data.conversations || []
 
-        // First load: mark every current "last message" as seen, don't pop.
+        // First load: seed the unread map, don't pop anything.
         if (isFirstMsgLoadRef.current) {
-          convs.forEach(c => {
-            const key = `${c.id}:${c.last_message_at || c.time || ''}`
-            seenMsgIdsRef.current.add(key)
-          })
+          convs.forEach(c => prevUnreadRef.current.set(c.id, c.unread_count || 0))
           isFirstMsgLoadRef.current = false
           return
         }
 
-        // Subsequent polls: if the latest message timestamp changed on a
-        // conversation AND that conversation has unread > 0, it's a new
-        // customer message. Toast it.
+        // For each conversation, toast only if unread_count INCREASED.
+        // That can only happen on a real new inbound — outbound replies
+        // reset/don't change unread.
         convs.forEach(c => {
-          const key = `${c.id}:${c.last_message_at || c.time || ''}`
-          if (!seenMsgIdsRef.current.has(key) && (c.unread_count || 0) > 0) {
+          const prev = prevUnreadRef.current.get(c.id) ?? 0
+          const curr = c.unread_count || 0
+          if (curr > prev) {
             showToast({
               title: `New message from ${c.handle || 'customer'}`,
               body: c.lastMessage || '',
             })
-            seenMsgIdsRef.current.add(key)
-          } else {
-            seenMsgIdsRef.current.add(key)
           }
+          prevUnreadRef.current.set(c.id, curr)
         })
       } catch (err) {
         console.error('[Toast] Failed to poll messages:', err)
