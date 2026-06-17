@@ -215,7 +215,7 @@ def _process_thread(thread: dict) -> int:
 
         # Route through the same pipeline as webhooks
         try:
-            process_message(message=text, user_id=sender_id, channel="instagram_dm")
+            process_message(message=text, user_id=sender_id, channel="instagram_dm", external_id=mid)
             processed += 1
 
             # Patch the customer's User.name from the IG participant data,

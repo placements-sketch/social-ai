@@ -102,8 +102,10 @@ def instagram_webhook():
                 sender_id = (messaging.get("sender") or {}).get("id")
                 if sender_id in our_ids:
                     continue
+
+                mid = msg.get("mid")
                 if sender_id and text:
-                    events.append((sender_id, text))
+                    events.append((sender_id, text, mid))
 
             # Shape 2: changes[] with field=messages
             for change in (entry.get("changes") or []):
@@ -117,8 +119,10 @@ def instagram_webhook():
                 sender_id = (value.get("sender") or {}).get("id")
                 if sender_id in our_ids:
                     continue
+
+                mid = msg.get("mid")
                 if sender_id and text:
-                    events.append((sender_id, text))
+                    events.append((sender_id, text, mid))
     except Exception as e:
         current_app.logger.error(f"[IG webhook] parse error: {e}")
         return jsonify({"error": "bad payload"}), 400
@@ -127,12 +131,13 @@ def instagram_webhook():
         return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
     replies = []
-    for sender_id, message_text in events:
+    for sender_id, message_text, mid in events:
         try:
             reply = process_message(
                 message=message_text,
                 user_id=sender_id,
                 channel="instagram_dm",
+                external_id=mid,
             )
             replies.append({"sender_id": sender_id, "reply": reply})
         except Exception as e:
