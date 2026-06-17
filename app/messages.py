@@ -543,3 +543,40 @@ def edit_message(message_id):
         'ig_unsent': ig_unsent,
         'conversation': conv.to_dict(include_messages=False),
     }), 200
+
+@messages_bp.route('/instagram/media/<media_id>', methods=['GET'])
+@jwt_required()
+def get_instagram_media(media_id):
+    """
+    Fetch IG post info (caption, thumbnail, permalink) from Meta Graph API.
+    Used by the Messages page to show post context on comment conversations.
+    """
+    import os
+    import requests
+    
+    token = os.getenv("FB_ACCESS_TOKEN")
+    if not token:
+        return jsonify({'error': 'FB_ACCESS_TOKEN not configured'}), 500
+    
+    url = f"https://graph.facebook.com/v25.0/{media_id}"
+    params = {
+        'fields': 'id,caption,media_url,thumbnail_url,permalink,media_type,timestamp',
+        'access_token': token,
+    }
+    
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code >= 400:
+            return jsonify({'error': f'Meta API error: {r.status_code}', 'detail': r.text[:200]}), r.status_code
+        data = r.json()
+        return jsonify({
+            'id': data.get('id'),
+            'caption': data.get('caption'),
+            'media_url': data.get('media_url'),
+            'thumbnail_url': data.get('thumbnail_url'),
+            'permalink': data.get('permalink'),
+            'media_type': data.get('media_type'),
+            'timestamp': data.get('timestamp'),
+        }), 200
+    except requests.RequestException as e:
+        return jsonify({'error': str(e)}), 502

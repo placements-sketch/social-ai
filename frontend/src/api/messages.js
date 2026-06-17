@@ -193,3 +193,12 @@ export function editMessage(messageId, newContent) {
     })
   )
 }
+
+export function fetchInstagramMedia(mediaId) {
+  return handle(
+    fetch(`${API_BASE}/instagram/media/${mediaId}`, {
+      method: 'GET',
+      headers: authHeaders(),
+    })
+  )
+}

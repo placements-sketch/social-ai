@@ -31,7 +31,7 @@ from app.handoff import check_handoff
 AI_SUPPRESSED = ""
 
 
-def process_message(message: str, user_id: str, channel: str, external_id: str | None = None) -> str:
+def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None) -> str:
     """
     Main pipeline entry point. Called by every webhook route.
 
@@ -60,6 +60,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     inbound_record = _save_message(
         user_id=user_id, channel=channel, content=message,
         intent=None, direction="inbound", external_id=external_id,
+        media_id=media_id,
     )
 
     # ── Step 2: Gate — should the AI respond? ──────────────────────────────
@@ -349,7 +350,8 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> None:
 
 def _save_message(user_id: str, channel: str, content: str,
                   intent: str | None, direction: str,
-                  external_id: str | None = None):
+                  external_id: str | None = None,
+                  media_id: str | None = None):
     """
     Persist a message and return the Message row (or None on failure).
     Creates the User and Conversation if they don't exist yet.
@@ -402,6 +404,7 @@ def _save_message(user_id: str, channel: str, content: str,
             content=content,
             intent=intent,
             external_id=external_id,
+            media_id=media_id,
         )
         db.session.add(msg)
         db.session.commit()

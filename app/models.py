@@ -241,6 +241,7 @@ class Message(db.Model):
     ai_model            = db.Column(db.String(64), nullable=True)
     platform_message_id = db.Column(db.String(256), nullable=True, unique=True)
     external_id = db.Column(db.String(255), nullable=True, index=True)
+    media_id = db.Column(db.String(128), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     sender_user = db.relationship("AuthUser", foreign_keys=[sender_id])
@@ -277,6 +278,7 @@ class Message(db.Model):
             'product_keyword': self.product_keyword,
             'meta': meta,
             'external_id': self.external_id,
+            'media_id': self.media_id,
         }
 
     def __repr__(self):

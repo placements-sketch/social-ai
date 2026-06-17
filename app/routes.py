@@ -133,14 +133,13 @@ def instagram_webhook():
                 text = value.get("text")
                 from_user = value.get("from") or {}
                 sender_id = from_user.get("id")
+                username = from_user.get("username")
                 # Skip if it's our own comment (a previous reply we sent)
                 if sender_id in our_ids:
                     continue
+                media_id = (value.get("media") or {}).get("id")
                 if sender_id and text and comment_id:
-                    # We piggyback the existing (sender_id, text, mid) tuple
-                    # by using comment_id as the "mid". The channel string in
-                    # process_message tells services.py how to route.
-                    comment_events.append((sender_id, text, comment_id))
+                    comment_events.append((sender_id, text, comment_id, username, media_id))
 
     except Exception as e:
         current_app.logger.error(f"[IG webhook] parse error: {e}")
@@ -166,14 +165,29 @@ def instagram_webhook():
             replies.append({"sender_id": sender_id, "error": str(e), "type": "dm"})
 
     # Process Comment events
-    for sender_id, comment_text, comment_id in comment_events:
+    for sender_id, comment_text, comment_id, username, media_id in comment_events:
         try:
             reply = process_message(
                 message=comment_text,
                 user_id=sender_id,
                 channel="instagram_comment",
                 external_id=comment_id,
+                media_id=media_id,
             )
+            # Patch the username on the User row so the UI shows the
+            # handle instead of the numeric ID.
+            if username:
+                try:
+                    from app import db
+                    from app.models import User
+                    user_row = User.query.filter_by(
+                        external_id=sender_id, channel="instagram_comment"
+                    ).first()
+                    if user_row and user_row.name != username:
+                        user_row.name = username
+                        db.session.commit()
+                except Exception:
+                    pass
             replies.append({"sender_id": sender_id, "reply": reply, "type": "comment"})
         except Exception as e:
             current_app.logger.error(f"[IG webhook] Comment process error for {sender_id}: {e}")

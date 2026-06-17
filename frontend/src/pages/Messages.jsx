@@ -7,6 +7,7 @@ import clsx from 'clsx'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
   assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
+  fetchInstagramMedia,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -94,6 +95,9 @@ export default function Messages() {
   const [replyContext, setReplyContext] = useState(null) // { id, text, from }
   const [editingMsgId, setEditingMsgId] = useState(null)
   const [editText, setEditText] = useState('')
+
+  const [postContext, setPostContext] = useState(null)
+  const [loadingPost, setLoadingPost] = useState(false)
 
   const { confirm } = useContext(ConfirmationContext)
 
@@ -202,6 +206,24 @@ export default function Messages() {
     const timer = setInterval(silentRefresh, 5000)
     return () => clearInterval(timer)
   }, [selected])
+
+  // Fetch the IG post info when an IG-comment conversation is opened.
+  useEffect(() => {
+    setPostContext(null)
+    if (!activeConv) return
+    if (!activeConv.platform?.includes('comment')) return
+
+    // Find the first inbound message with a media_id (the post the comment is on)
+    const inboundWithMedia = (activeConv.messages || [])
+      .find(m => m.from === 'user' && m.media_id)
+    if (!inboundWithMedia?.media_id) return
+
+    setLoadingPost(true)
+    fetchInstagramMedia(inboundWithMedia.media_id)
+      .then(data => setPostContext(data))
+      .catch(err => console.warn('Failed to load post context:', err))
+      .finally(() => setLoadingPost(false))
+  }, [activeConv?.id, activeConv?.platform])
 
   // Auto-scroll to latest message when active conversation updates.
   const messagesEndRef = useRef(null)
@@ -514,6 +536,11 @@ const handleSend = async () => {
                 <span className="text-xs font-semibold text-gray-900 truncate">
                   {conv.handle}
                 </span>
+                {conv.platform && conv.platform.includes('comment') && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 uppercase tracking-wide shrink-0">
+                    Comment
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.time}</span>
@@ -591,7 +618,46 @@ const handleSend = async () => {
 
       {selected && !loadingConv && activeConv && (
         <>
-          {/* Chat header */}
+        
+          {/* IG Post context banner — only for comment conversations */}
+          {activeConv.platform?.includes('comment') && (loadingPost || postContext) && (
+            <div className="flex items-center gap-3 px-3 md:px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50">
+              {loadingPost ? (
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <Loader2 size={12} className="animate-spin" />
+                  Loading post context…
+                </div>
+              ) : postContext && (
+                <>
+                  {(postContext.thumbnail_url || postContext.media_url) && (
+                    <img
+                      src={postContext.thumbnail_url || postContext.media_url}
+                      alt="Post"
+                      className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0 cursor-pointer"
+                      onClick={() => postContext.permalink && window.open(postContext.permalink, '_blank')}
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wide mb-0.5">
+                      Commenting on
+                    </p>
+                    <p className="text-xs text-gray-800 truncate">
+                      {postContext.caption || 'Untitled post'}
+                    </p>
+                    {postContext.permalink && (
+                      <button
+                        onClick={() => window.open(postContext.permalink, '_blank')}
+                        className="text-[10px] text-purple-600 hover:text-purple-800 font-semibold"
+                      >
+                        View on Instagram →
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <div className="flex items-center justify-between px-2 sm:px-3 md:px-4 py-2 sm:py-3 border-b border-gray-100 bg-white gap-1 sm:gap-2 min-h-[56px] sm:min-h-auto">
             {/* Left: Back button + Chat info */}
             <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
