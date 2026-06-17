@@ -6,7 +6,7 @@ import {
 import clsx from 'clsx'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
-  assignConversation, unassignConversation, listAgents,
+  assignConversation, unassignConversation, listAgents, deleteMessage,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -90,6 +90,9 @@ export default function Messages() {
   const [agents, setAgents]             = useState([]) // list of active agents
   const [showAssignDropdown, setShowAssignDropdown] = useState(false)
   const [assigningConvId, setAssigningConvId] = useState(null)
+
+  const [editingMsgId, setEditingMsgId] = useState(null)
+  const [editText, setEditText] = useState('')
 
   const { confirm } = useContext(ConfirmationContext)
 
@@ -721,14 +724,62 @@ export default function Messages() {
                       {' · '}{msg.time}
                     </span>
                   </div>
-                  <div className={clsx(
-                    'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
-                    msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
-                    msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
-                    msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
-                  )}>
-                    {msg.text}
-                  </div>
+                  {editingMsgId === msg.id ? (
+                    <div className="flex flex-col gap-2 w-full">
+                      <textarea
+                        className="px-3 py-2 rounded-xl text-xs sm:text-sm border border-amber-300 bg-amber-50 text-gray-800 focus:outline-none focus:border-amber-500 resize-none"
+                        rows={3}
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            const confirmed = await confirm({
+                              title: 'Edit Message?',
+                              message: 'This will unsend the original from Instagram and send the new version. The customer will see two notifications.',
+                              confirmText: 'Edit & Send',
+                              cancelText: 'Cancel',
+                              isDangerous: false,
+                            })
+                            if (!confirmed) return
+                            try {
+                              const result = await editMessage(msg.id, editText)
+                              setActiveConv(c => ({
+                                ...c,
+                                messages: (c.messages || []).map(m =>
+                                  m.id === msg.id ? result.message : m
+                                ),
+                              }))
+                              setEditingMsgId(null)
+                              setEditText('')
+                            } catch (err) {
+                              setConvError(err.message)
+                            }
+                          }}
+                          className="text-xs font-semibold px-3 py-1 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => { setEditingMsgId(null); setEditText('') }}
+                          className="text-xs font-semibold px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={clsx(
+                      'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
+                      msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
+                      msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
+                      msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
+                    )}>
+                      {msg.text}
+                    </div>
+                  )}
                   
                   {/* Action buttons - icons only */}
                   <div className={clsx(
@@ -748,7 +799,13 @@ export default function Messages() {
                             if (confirmed) handleToggleAI()
                           })
                         } else {
-                          setReplyText(`Replying to: "${msg.text.substring(0, 30)}${msg.text.length > 30 ? '...' : ''}" - `)
+                          const quoted = msg.text.length > 60 ? `${msg.text.substring(0, 60)}…` : msg.text
+                          setReplyText(`> ${quoted}\n\n`)
+                          // Focus input after a tick
+                          setTimeout(() => {
+                            const input = document.querySelector('input[placeholder="Reply…"]')
+                            if (input) input.focus()
+                          }, 50)
                         }
                       }}
                       className="text-gray-400 hover:text-blue-600 transition-colors"
@@ -762,18 +819,8 @@ export default function Messages() {
                       <>
                         <button 
                           onClick={() => {
-                            if (activeConv.ai_enabled) {
-                              confirm({
-                                title: 'AI is Enabled',
-                                message: 'You cannot edit messages while AI is enabled for this conversation. Disable AI first.',
-                                confirmText: 'Disable AI',
-                                cancelText: 'Cancel',
-                                isDangerous: false,
-                              }).then(confirmed => {
-                                if (confirmed) handleToggleAI()
-                              })
-                            }
-                            // TODO: Implement actual edit functionality
+                            setEditingMsgId(msg.id)
+                            setEditText(msg.text)
                           }}
                           className="text-gray-400 hover:text-amber-600 transition-colors"
                           title="Edit"
@@ -782,19 +829,28 @@ export default function Messages() {
                         </button>
 
                         <button 
-                          onClick={() => {
-                            if (activeConv.ai_enabled) {
-                              confirm({
-                                title: 'AI is Enabled',
-                                message: 'You cannot delete messages while AI is enabled for this conversation. Disable AI first.',
-                                confirmText: 'Disable AI',
-                                cancelText: 'Cancel',
-                                isDangerous: false,
-                              }).then(confirmed => {
-                                if (confirmed) handleToggleAI()
-                              })
+                          onClick={async () => {
+                            const confirmed = await confirm({
+                              title: 'Delete Message?',
+                              message: 'This will remove the message from the platform and unsend it from Instagram. Unsend only works within 24 hours of sending.',
+                              confirmText: 'Delete',
+                              cancelText: 'Cancel',
+                              isDangerous: true,
+                            })
+                            if (!confirmed) return
+                            try {
+                              const result = await deleteMessage(msg.id)
+                              setActiveConv(c => ({
+                                ...c,
+                                messages: (c.messages || []).filter(m => m.id !== msg.id),
+                              }))
+                              if (!result.ig_unsent && msg.channel === 'instagram_dm') {
+                                // Soft notice — DB deleted but IG unsend failed
+                                console.warn('Message removed from platform; IG unsend failed (likely past 24h window)')
+                              }
+                            } catch (err) {
+                              setConvError(err.message)
                             }
-                            // TODO: Implement actual delete functionality
                           }}
                           className="text-gray-400 hover:text-red-600 transition-colors"
                           title="Delete"

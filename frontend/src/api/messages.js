@@ -174,3 +174,22 @@ export function listAgents() {
     })
   )
 }
+
+export function deleteMessage(messageId) {
+  return handle(
+    fetch(`${API_BASE}/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+  )
+}
+
+export function editMessage(messageId, newContent) {
+  return handle(
+    fetch(`${API_BASE}/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ content: newContent }),
+    })
+  )
+}

@@ -392,3 +392,142 @@ def mark_read(conversation_id):
     db.session.commit()
 
     return jsonify({'conversation': conv.to_dict(include_messages=False)}), 200
+
+
+@messages_bp.route('/messages/<int:message_id>', methods=['DELETE'])
+@jwt_required()
+def delete_message(message_id):
+    """
+    Delete a message: unsends from IG (if outbound and within 24h)
+    and removes from our DB. Soft-fails the IG unsend — DB delete still goes through.
+    """
+    from app.integrations.meta import unsend_instagram_message
+
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+
+    msg = Message.query.get(message_id)
+    if not msg:
+        return jsonify({'error': 'Message not found'}), 404
+
+    # Only allow deleting outbound messages (your own sent replies)
+    if msg.direction != 'outbound':
+        return jsonify({'error': 'Can only delete outbound messages'}), 403
+
+    conv = Conversation.query.get(msg.conversation_id)
+
+    # Try to unsend from IG first if it's an IG message with an external_id
+    ig_unsent = False
+    if msg.channel == 'instagram_dm' and msg.external_id:
+        ig_unsent = unsend_instagram_message(msg.external_id)
+
+    # Delete from our DB regardless of IG result
+    db.session.delete(msg)
+
+    # If this was the conv's last message, recalc
+    if conv:
+        latest = (Message.query
+                  .filter_by(conversation_id=conv.id)
+                  .order_by(Message.created_at.desc())
+                  .first())
+        if latest and latest.id != msg.id:
+            conv.last_message = latest.content[:200] if latest.content else ''
+            conv.last_message_at = latest.created_at
+
+    db.session.commit()
+
+    log_audit(
+        current_user.id,
+        'delete_message',
+        resource_type='message',
+        resource_id=str(message_id),
+        changes={'ig_unsent': ig_unsent, 'channel': msg.channel},
+    )
+
+    return jsonify({
+        'deleted': True,
+        'ig_unsent': ig_unsent,
+        'conversation': conv.to_dict(include_messages=False) if conv else None,
+    }), 200
+
+@messages_bp.route('/messages/<int:message_id>', methods=['PATCH'])
+@jwt_required()
+def edit_message(message_id):
+    """
+    "Edit" an outbound message. Meta has no real edit API, so we:
+      1. Unsend the original IG message (if within 24h)
+      2. Save the new content as a separate outbound message
+      3. Send the new content to IG
+    """
+    from app.integrations.meta import unsend_instagram_message
+    from app.services import _dispatch_reply
+
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    new_content = (data.get('content') or '').strip()
+    if not new_content:
+        return jsonify({'error': 'New content required'}), 400
+
+    original = Message.query.get(message_id)
+    if not original:
+        return jsonify({'error': 'Message not found'}), 404
+
+    if original.direction != 'outbound':
+        return jsonify({'error': 'Can only edit outbound messages'}), 403
+
+    conv = Conversation.query.get(original.conversation_id)
+    customer = original.user
+
+    # Step 1: Unsend the original from IG
+    ig_unsent = False
+    if original.channel == 'instagram_dm' and original.external_id:
+        ig_unsent = unsend_instagram_message(original.external_id)
+
+    # Step 2: Delete the original from our DB
+    db.session.delete(original)
+
+    # Step 3: Create the new outbound message
+    now = datetime.utcnow()
+    new_msg = Message(
+        conversation_id=conv.id,
+        user_id=conv.user_id,
+        channel=conv.channel,
+        direction='outbound',
+        sender=original.sender,  # preserve who originally sent ('ai' or 'human')
+        sender_id=current_user.id,
+        content=new_content,
+        created_at=now,
+    )
+    db.session.add(new_msg)
+    conv.last_message = new_content[:200]
+    conv.last_message_at = now
+    conv.updated_at = now
+
+    db.session.commit()
+
+    # Step 4: Send the new content to IG
+    if customer:
+        try:
+            _dispatch_reply(channel=conv.channel, user_id=customer.external_id, reply=new_content)
+        except Exception as e:
+            log_event("error", "messages.edit_message.dispatch",
+                      f"Edit dispatch failed: {e}",
+                      payload={"message_id": message_id, "error": str(e)})
+
+    log_audit(
+        current_user.id,
+        'edit_message',
+        resource_type='message',
+        resource_id=str(message_id),
+        changes={'ig_unsent': ig_unsent, 'new_preview': new_content[:80]},
+    )
+
+    return jsonify({
+        'message': new_msg.to_dict(),
+        'ig_unsent': ig_unsent,
+        'conversation': conv.to_dict(include_messages=False),
+    }), 200

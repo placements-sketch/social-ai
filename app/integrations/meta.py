@@ -153,3 +153,45 @@ def send_whatsapp_reply(phone_number: str, message: str) -> None:
                   "channel": "whatsapp",
                   "text_preview": (message or "")[:120],
               })
+    
+
+def unsend_instagram_message(message_id: str) -> bool:
+    """
+    Unsend (delete) an Instagram message that we previously sent.
+    Meta allows this within 24 hours of send.
+    Returns True on success, False on failure (logs the reason).
+    """
+    token = os.getenv("FB_ACCESS_TOKEN")
+    if not token:
+        log_event("error", "integrations.meta.unsend",
+                  "FB_ACCESS_TOKEN not set — cannot unsend",
+                  payload={"message_id": message_id})
+        return False
+
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{message_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        r = requests.delete(url, headers=headers, timeout=10)
+        body_preview = (r.text or "")[:300]
+
+        if r.status_code >= 400:
+            log_event("error", "integrations.meta.unsend",
+                      f"Instagram unsend failed ({r.status_code}): {body_preview[:200]}",
+                      payload={
+                          "message_id": message_id,
+                          "status": r.status_code,
+                          "response": body_preview,
+                      })
+            return False
+
+        log_event("info", "integrations.meta.unsend",
+                  f"Unsent IG message {message_id}",
+                  payload={"message_id": message_id})
+        return True
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.meta.unsend",
+                  f"Unsend exception: {e}",
+                  payload={"message_id": message_id, "error": str(e)})
+        return False
