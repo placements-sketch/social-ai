@@ -250,10 +250,22 @@ def send_reply(conversation_id):
         from app.services import _dispatch_reply
         customer = conv.user
         if customer:
+            # For comment replies, we need the comment_id of the LAST inbound
+            # message in this conversation — that's the comment we're replying to.
+            comment_ext_id = None
+            if conv.channel.endswith("_comment"):
+                last_inbound = (Message.query
+                    .filter_by(conversation_id=conv.id, direction='inbound')
+                    .order_by(Message.created_at.desc())
+                    .first())
+                if last_inbound:
+                    comment_ext_id = last_inbound.external_id
+
             _dispatch_reply(
                 channel=conv.channel,
                 user_id=customer.external_id,
                 reply=content,
+                comment_external_id=comment_ext_id,
             )
     except Exception as e:
         from app.utils.logger import log_event

@@ -78,7 +78,8 @@ def instagram_webhook():
     )
     current_app.logger.info(f"[IG webhook RAW] {json.dumps(data, indent=2)}")
 
-    events = []  # list of (sender_id, message_text) tuples
+    events = []          # DM events
+    comment_events = []  # IG comment events
 
     try:
         for entry in (data.get("entry") or []):
@@ -119,18 +120,38 @@ def instagram_webhook():
                 sender_id = (value.get("sender") or {}).get("id")
                 if sender_id in our_ids:
                     continue
-
                 mid = msg.get("mid")
                 if sender_id and text:
                     events.append((sender_id, text, mid))
+
+            # Shape 3: changes[] with field=comments  →  IG comment events
+            for change in (entry.get("changes") or []):
+                if change.get("field") != "comments":
+                    continue
+                value = change.get("value") or {}
+                comment_id = value.get("id")
+                text = value.get("text")
+                from_user = value.get("from") or {}
+                sender_id = from_user.get("id")
+                # Skip if it's our own comment (a previous reply we sent)
+                if sender_id in our_ids:
+                    continue
+                if sender_id and text and comment_id:
+                    # We piggyback the existing (sender_id, text, mid) tuple
+                    # by using comment_id as the "mid". The channel string in
+                    # process_message tells services.py how to route.
+                    comment_events.append((sender_id, text, comment_id))
+
     except Exception as e:
         current_app.logger.error(f"[IG webhook] parse error: {e}")
         return jsonify({"error": "bad payload"}), 400
 
-    if not events:
+    if not events and not comment_events:
         return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
     replies = []
+
+    # Process DM events
     for sender_id, message_text, mid in events:
         try:
             reply = process_message(
@@ -139,10 +160,24 @@ def instagram_webhook():
                 channel="instagram_dm",
                 external_id=mid,
             )
-            replies.append({"sender_id": sender_id, "reply": reply})
+            replies.append({"sender_id": sender_id, "reply": reply, "type": "dm"})
         except Exception as e:
-            current_app.logger.error(f"[IG webhook] process error for {sender_id}: {e}")
-            replies.append({"sender_id": sender_id, "error": str(e)})
+            current_app.logger.error(f"[IG webhook] DM process error for {sender_id}: {e}")
+            replies.append({"sender_id": sender_id, "error": str(e), "type": "dm"})
+
+    # Process Comment events
+    for sender_id, comment_text, comment_id in comment_events:
+        try:
+            reply = process_message(
+                message=comment_text,
+                user_id=sender_id,
+                channel="instagram_comment",
+                external_id=comment_id,
+            )
+            replies.append({"sender_id": sender_id, "reply": reply, "type": "comment"})
+        except Exception as e:
+            current_app.logger.error(f"[IG webhook] Comment process error for {sender_id}: {e}")
+            replies.append({"sender_id": sender_id, "error": str(e), "type": "comment"})
 
     return jsonify({
         "processed": len(replies),

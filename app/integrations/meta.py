@@ -106,6 +106,74 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
         return None
 
 
+def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
+    """
+    Reply to an Instagram comment via Meta Graph API.
+
+    Args:
+        comment_id: The Meta comment ID we're replying to (the external_id
+                    of the inbound message in our DB).
+        text:       The reply text.
+
+    Returns:
+        Meta's response dict on success (contains new reply's `id`), or
+        None on failure. Failures are logged but never raised.
+    """
+    token = os.getenv("FB_ACCESS_TOKEN")
+    if not token:
+        log_event("error", "integrations.meta.comment_send",
+                  "FB_ACCESS_TOKEN not set — cannot reply to comment",
+                  payload={"comment_id": comment_id})
+        return None
+
+    if not text:
+        log_event("warning", "integrations.meta.comment_send",
+                  "Empty reply text — skipping",
+                  payload={"comment_id": comment_id})
+        return None
+
+    safe_text = text[:1000]
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}/replies"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {"message": safe_text}
+
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        body_preview = (r.text or "")[:400]
+
+        if r.status_code >= 400:
+            print(f"[META COMMENT SEND FAIL] {r.status_code}: {body_preview}", flush=True)
+            log_event("error", "integrations.meta.comment_send",
+                      f"Comment reply failed ({r.status_code}): {body_preview[:200]}",
+                      payload={
+                          "comment_id": comment_id,
+                          "status": r.status_code,
+                          "response": body_preview,
+                          "text_preview": safe_text[:120],
+                      })
+            return None
+
+        data = r.json() if r.text else {}
+        log_event("info", "integrations.meta.comment_send",
+                  f"Comment reply posted to {comment_id}",
+                  payload={
+                      "comment_id": comment_id,
+                      "new_reply_id": data.get("id"),
+                      "channel": "instagram_comment",
+                      "text_preview": safe_text[:120],
+                  })
+        return data
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.meta.comment_send",
+                  f"Comment send exception: {e}",
+                  payload={"comment_id": comment_id, "error": str(e)})
+        return None
+
 # ─────────────────────────────────────────────
 # Facebook Messenger — stub (logs + no-op)
 # ─────────────────────────────────────────────

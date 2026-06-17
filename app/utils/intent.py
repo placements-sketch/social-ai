@@ -110,3 +110,48 @@ def intents_to_label(intents: list[str]) -> str:
     e.g. ["stock_inquiry", "price_inquiry"] → "stock_inquiry|price_inquiry"
     """
     return "|".join(intents)
+
+def is_question(text: str) -> bool:
+    """
+    Returns True if the text appears to be a question deserving a reply.
+    Used as a gate on PUBLIC comment replies — we don't want to AI-respond
+    to every "love it!" or emoji-only comment.
+
+    Heuristic (intentionally loose — better to under-reply than over-reply
+    on public posts):
+      - Ends with '?'
+      - Contains question words (what, where, when, why, how, is, are, do,
+        does, can, will, would, could, should, any, anyone)
+      - Contains intent-revealing phrases ("how much", "in stock", "do you
+        have", "ships to", etc.)
+    """
+    if not text:
+        return False
+
+    t = text.lower().strip()
+
+    # 1. Explicit question mark
+    if "?" in t:
+        return True
+
+    # 2. Question words at the start of the message
+    question_starters = {
+        "what", "where", "when", "why", "how", "who", "which",
+        "is", "are", "do", "does", "did", "can", "could",
+        "will", "would", "should", "any", "anyone",
+    }
+    first_word = t.split()[0] if t.split() else ""
+    if first_word in question_starters:
+        return True
+
+    # 3. Intent-revealing phrases anywhere in the message
+    inquiry_phrases = [
+        "how much", "how many", "in stock", "available",
+        "do you have", "you have any", "you ship", "ship to",
+        "deliver to", "delivery to", "size", "what's the price",
+        "looking for", "where can i", "where to buy",
+    ]
+    if any(p in t for p in inquiry_phrases):
+        return True
+
+    return False

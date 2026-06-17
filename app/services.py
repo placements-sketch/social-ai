@@ -68,13 +68,18 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     #                            Channels admin page)
     #   - Conversation.ai_enabled (per-thread, flipped when a human takes
     #                              over a specific conversation)
-    if not _ai_should_respond(channel=channel, user_id=user_id):
+    if not _ai_should_respond(channel=channel, user_id=user_id, message=message):
+        reason = (
+            "not_a_question"
+            if channel.endswith("_comment")
+            else "channel_disabled_or_handed_over"
+        )
         log_event("info", "services.ai_suppressed",
-                  f"AI suppressed for [{channel}] {user_id}",
+                  f"AI suppressed for [{channel}] {user_id}: {reason}",
                   payload={
                       "user_external_id": user_id,
                       "channel": channel,
-                      "reason": "channel_disabled_or_handed_over",
+                      "reason": reason,
                   },
                   conversation_id=(inbound_record.conversation_id if inbound_record else None))
         return AI_SUPPRESSED
@@ -100,7 +105,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     handoff = _check_handoff_for_inbound(message, intents, inbound_record)
     if handoff:
         bridging = handoff["bridging_reply"]
-        _dispatch_reply(channel=channel, user_id=user_id, reply=bridging)
+        _dispatch_reply(channel=channel, user_id=user_id, reply=bridging, comment_external_id=external_id)
         _save_message(user_id=user_id, channel=channel, content=bridging,
                       intent=None, direction="outbound")
         return bridging
@@ -110,7 +115,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # (e.g. "Out of stock"). First matching rule wins.
     template = _check_template_rule(message, intents, channel)
     if template:
-        _dispatch_reply(channel=channel, user_id=user_id, reply=template)
+        _dispatch_reply(channel=channel, user_id=user_id, reply=template, comment_external_id=external_id)
         _save_message(user_id=user_id, channel=channel, content=template,
                       intent=None, direction="outbound")
         log_event("info", "services.template_reply",
@@ -164,7 +169,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # conversation than both messages popping in at once.
     import time
     time.sleep(2)
-    _dispatch_reply(channel=channel, user_id=user_id, reply=reply)
+    _dispatch_reply(channel=channel, user_id=user_id, reply=reply, comment_external_id=external_id)
 
     log_event("info", "services.ai_reply",
               f"AI replied via {channel} to {user_id}",
@@ -189,31 +194,32 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
 # Gate helpers
 # ─────────────────────────────────────────────
 
-def _ai_should_respond(channel: str, user_id: str) -> bool:
+def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -> bool:
     """
     Returns True iff:
       - the channel is enabled (or no Channel row exists — fail open), AND
-      - the conversation has ai_enabled (or no conversation exists yet — fail open).
+      - the conversation has ai_enabled (or no conversation exists yet — fail open), AND
+      - for *_comment channels: the message looks like a question
 
-    Both checks fail open so a brand new customer on a brand new channel
-    still gets an AI reply (the common case). Disabling is opt-in.
+    The question-gate exists because comments are PUBLIC. We don't want
+    the bot replying to "love this!" or pure emoji praise on a post.
+    DMs reply to everything (private 1:1, expected behavior).
     """
     try:
         from app.models import Channel, Conversation, User
+        from app.utils.intent import is_question
 
         ch = Channel.query.filter_by(channel=channel).first()
         if ch is not None and not ch.enabled:
             return False
 
-        # We only know the conversation if the customer already exists.
         customer = User.query.filter_by(external_id=user_id, channel=channel).first()
         if customer is None:
-            return True  # brand new customer, AI engages
+            # Brand new customer — apply the comment gate but still allow DMs
+            if channel.endswith("_comment") and message is not None:
+                return is_question(message)
+            return True
 
-        # Find the most recent active conversation for this customer.
-        # (Mirrors _save_message's lookup so we're consistent.)
-        # Find the customer's most recent conversation on this channel,
-        # regardless of status (mirrors _save_message's lookup).
         conv = (
             Conversation.query
             .filter_by(user_id=customer.id, channel=channel)
@@ -221,14 +227,22 @@ def _ai_should_respond(channel: str, user_id: str) -> bool:
             .first()
         )
         if conv is None:
-            return True  # no active conversation — engage
+            if channel.endswith("_comment") and message is not None:
+                return is_question(message)
+            return True
 
-        return bool(conv.ai_enabled)
-    except Exception as e:
-        # Never let a DB hiccup silence the AI — fail open and log.
-        log_event("error", "services._ai_should_respond", str(e))
+        if not bool(conv.ai_enabled):
+            return False
+
+        # Final gate: for comments, must be a question
+        if channel.endswith("_comment") and message is not None:
+            return is_question(message)
+
         return True
 
+    except Exception as e:
+        log_event("error", "services._ai_should_respond", str(e))
+        return True
 
 # ─────────────────────────────────────────────
 # Internal helpers (extraction)
@@ -261,7 +275,7 @@ def _extract_location(message: str) -> str | None:
     return None
 
 
-def _dispatch_reply(channel: str, user_id: str, reply: str) -> None:
+def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> None:
     """
     Send the reply back to the customer through the right channel API.
 
@@ -303,10 +317,24 @@ def _dispatch_reply(channel: str, user_id: str, reply: str) -> None:
                   payload={"channel": channel, "user_external_id": user_id})
         return
 
-    if channel in ("instagram_comment", "facebook_comment"):
-        # Comments use a different Graph endpoint than DMs.
+    if channel == "instagram_comment":
+        # For IG comments, user_id passed in is actually the commenter's
+        # external_id, but to reply we need the COMMENT_ID. The caller
+        # (services.process_message) doesn't have it directly — we pass
+        # it via the `external_id` kwarg below. See _dispatch_reply call sites.
+        from app.integrations.meta import send_instagram_comment_reply
+        comment_external_id = kwargs.get("comment_external_id")
+        if not comment_external_id:
+            log_event("error", "services.dispatch",
+                      "Missing comment_external_id for instagram_comment dispatch",
+                      payload={"channel": channel, "user_external_id": user_id})
+            return
+        send_instagram_comment_reply(comment_id=comment_external_id, text=reply)
+        return
+
+    if channel == "facebook_comment":
         log_event("warning", "services.dispatch",
-                  f"Comment reply not implemented — reply saved to DB only",
+                  f"Facebook comment reply not implemented — reply saved to DB only",
                   payload={"channel": channel, "user_external_id": user_id})
         return
 
