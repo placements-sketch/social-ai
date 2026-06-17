@@ -83,11 +83,25 @@ def instagram_webhook():
     try:
         for entry in (data.get("entry") or []):
 
+            # Build the set of "our own" IDs to filter out — webhook fires
+            # for outbound messages too, and we must NOT process them as
+            # if a customer sent them.
+            import os
+            our_ids = {x for x in (
+                os.getenv("IG_BUSINESS_ACCOUNT_ID"),
+                os.getenv("FB_PAGE_ID"),
+            ) if x}
+
             # Shape 1: messaging[]
             for messaging in (entry.get("messaging") or []):
                 msg = messaging.get("message") or {}
+                # Skip echoes of our own outbound messages
+                if msg.get("is_echo"):
+                    continue
                 text = msg.get("text")
                 sender_id = (messaging.get("sender") or {}).get("id")
+                if sender_id in our_ids:
+                    continue
                 if sender_id and text:
                     events.append((sender_id, text))
 
@@ -97,11 +111,14 @@ def instagram_webhook():
                     continue
                 value = change.get("value") or {}
                 msg = value.get("message") or {}
+                if msg.get("is_echo"):
+                    continue
                 text = msg.get("text")
                 sender_id = (value.get("sender") or {}).get("id")
+                if sender_id in our_ids:
+                    continue
                 if sender_id and text:
                     events.append((sender_id, text))
-
     except Exception as e:
         current_app.logger.error(f"[IG webhook] parse error: {e}")
         return jsonify({"error": "bad payload"}), 400
