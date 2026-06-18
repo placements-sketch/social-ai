@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import clsx from 'clsx'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 // Brand palette for charts
 const BRAND_COLORS  = ['#ff5900', '#ff7733', '#ff9966', '#ffbb99', '#ffddcc', '#fff0e8']
 const CHANNEL_COLORS = ['#ec4899', '#22c55e', '#f97316', '#1877F2', '#60a5fa', '#000000']
@@ -82,7 +84,7 @@ export default function Analytics() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/analytics/summary?days=${days}`, {
+      const res = await fetch(`${API_BASE}/analytics/summary?days=${days}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load analytics')
@@ -92,7 +94,7 @@ export default function Analytics() {
       // Fetch agent breakdown if user is supervisor or admin
       if (user?.role === 'supervisor' || user?.role === 'admin') {
         try {
-          const agentRes = await fetch(`/api/analytics/agents?days=${days}`, {
+          const agentRes = await fetch(`${API_BASE}/analytics/agents?days=${days}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
           })
           if (agentRes.ok) {
