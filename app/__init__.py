@@ -94,7 +94,7 @@ def create_app():
             raise
 
 # Start Instagram DM poller (background thread)
-    from app.integrations.meta_poller import start_poller
-    start_poller(app)
+    # from app.integrations.meta_poller import start_poller
+    # start_poller(app)
     
     return app
