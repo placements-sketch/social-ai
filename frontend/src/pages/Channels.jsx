@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 // ── Platform icons ──────────────────────────────────────────────────────────
 const FacebookIcon = ({ size = 20 }) => (
   <span
@@ -249,7 +251,7 @@ export default function Channels() {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch('/api/channels', {
+        const res = await fetch(`${API_BASE}/channels`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
         })
         if (!res.ok) throw new Error('Failed to load channels')
@@ -277,7 +279,7 @@ export default function Channels() {
     })
     if (!confirmed) return
     try {
-      const res = await fetch(`/api/channels/${id}`, {
+      const res = await fetch(`${API_BASE}/channels/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -296,7 +298,7 @@ export default function Channels() {
   const testConnection = async (id) => {
     setTestingChannelId(id)
     try {
-      const res = await fetch(`/api/channels/${id}/test`, {
+      const res = await fetch(`${API_BASE}/channels/${id}/test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
