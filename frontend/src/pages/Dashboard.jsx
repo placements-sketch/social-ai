@@ -1,5 +1,5 @@
 import {
-  MessageSquare, Bot, UserCheck, XCircle, PackageX,
+  MessageSquare, Inbox, Bot, UserCheck, XCircle, PackageX, UserRound, Activity,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
   Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
 } from 'lucide-react'
@@ -736,44 +736,26 @@ export default function Dashboard() {
 
             {/* Content */}
             <div className="p-8 space-y-8">
-              {/* Key Metrics - Subtle cards */}
+              {/* Key Metrics */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { 
-                    label: 'Total Inbound', 
-                    value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), 
-                    bg: 'bg-gray-50',
-                    textColor: 'text-gray-900',
-                    icon: '📥'
-                  },
-                  { 
-                    label: 'AI Replies', 
-                    value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), 
-                    bg: 'bg-gray-50',
-                    textColor: 'text-gray-900',
-                    icon: '🤖'
-                  },
-                  { 
-                    label: 'Human Replies', 
-                    value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), 
-                    bg: 'bg-gray-50',
-                    textColor: 'text-gray-900',
-                    icon: '👤'
-                  },
-                  { 
-                    label: 'Response Rate', 
-                    value: `${(chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0) / Math.max(chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), 1) * 100).toFixed(0)}%`, 
-                    bg: 'bg-gray-50',
-                    textColor: 'text-gray-900',
-                    icon: '📊'
-                  },
-                ].map(({ label, value, bg, textColor, icon }) => (
-                  <div key={label} className={`${bg} rounded-2xl p-5 border border-gray-150 hover:border-gray-200 transition-all`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">{label}</p>
-                      <span className="text-lg">{icon}</span>
+                {(() => {
+                  const totalInbound = chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0)
+                  const totalAI = chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0)
+                  const totalHuman = chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
+                  const responseRate = totalInbound > 0 ? Math.round(((totalAI + totalHuman) / totalInbound) * 100) : 0
+                  return [
+                    { label: 'Total Inbound', value: totalInbound, Icon: Inbox, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+                    { label: 'AI Replies', value: totalAI, Icon: Bot, iconBg: 'bg-brand-50', iconColor: 'text-brand-600' },
+                    { label: 'Human Replies', value: totalHuman, Icon: UserRound, iconBg: 'bg-amber-50', iconColor: 'text-amber-600' },
+                    { label: 'Response Rate', value: `${responseRate}%`, Icon: Activity, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
+                  ]
+                })().map(({ label, value, Icon, iconBg, iconColor }) => (
+                  <div key={label} className="bg-white border border-gray-100 rounded-2xl p-5 hover:border-gray-200 hover:shadow-sm transition-all">
+                    <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center mb-3', iconBg)}>
+                      <Icon size={18} className={iconColor} />
                     </div>
-                    <p className={`text-3xl font-light ${textColor}`}>{value}</p>
+                    <p className="text-3xl font-bold text-gray-900 tabular-nums leading-none">{value}</p>
+                    <p className="text-xs text-gray-500 font-semibold mt-2 uppercase tracking-wide">{label}</p>
                   </div>
                 ))}
               </div>
@@ -796,46 +778,72 @@ export default function Dashboard() {
                     const aiPct = total > 0 ? ((ai / total) * 100).toFixed(1) : 0
                     const humanPct = total > 0 ? ((human / total) * 100).toFixed(1) : 0
                     
+                    // Compute platform's share of all messages across all platforms
+                    const grandTotal = chartData.reduce((sum, d) =>
+                      sum + d.instagram + d.whatsapp + d.facebook + d.tiktok +
+                      d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai +
+                      d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
+                    const platformShare = grandTotal > 0 ? ((total / grandTotal) * 100).toFixed(0) : 0
+
                     return (
-                      <div key={name} className="bg-white border border-gray-100 rounded-2xl p-5 hover:border-gray-200 transition-all">
+                      <div
+                        key={name}
+                        className="rounded-2xl p-5 transition-all relative overflow-hidden"
+                        style={{
+                          background: `linear-gradient(135deg, ${color}08 0%, ${color}02 100%)`,
+                          border: `1px solid ${color}20`,
+                        }}
+                      >
+                        {/* Platform header */}
                         <div className="flex items-center justify-between mb-5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white" style={{ background: color }}>
-                              <Icon size={18} />
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className="w-11 h-11 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+                              style={{ background: color }}
+                            >
+                              <Icon size={20} />
                             </div>
-                            <div>
-                              <h4 className="font-medium text-gray-900 text-sm">{name}</h4>
-                              <p className="text-xs text-gray-400">Performance metrics</p>
+                            <div className="min-w-0">
+                              <h4 className="font-semibold text-gray-900 text-sm truncate">{name}</h4>
+                              <p className="text-xs font-medium" style={{ color }}>
+                                {platformShare}% of total volume
+                              </p>
                             </div>
                           </div>
-                          <span className="text-2xl font-light text-gray-900">{total}</span>
+                          <div className="text-right shrink-0">
+                            <p className="text-2xl font-bold text-gray-900 leading-none">{total}</p>
+                            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-wide">messages</p>
+                          </div>
                         </div>
-                        
-                        {/* Metric bars */}
-                        <div className="space-y-3.5">
+
+                        {/* Stacked composition bar */}
+                        {total > 0 && (
+                          <div className="mb-4">
+                            <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100">
+                              <div style={{ width: `${inboundPct}%`, background: color, opacity: 1 }} />
+                              <div style={{ width: `${aiPct}%`, background: color, opacity: 0.55 }} />
+                              <div style={{ width: `${humanPct}%`, background: color, opacity: 0.25 }} />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Three-up stats row */}
+                        <div className="grid grid-cols-3 gap-2">
                           {[
-                            { label: 'Inbound', count: inbound, pct: inboundPct, shade: 1 },
-                            { label: 'AI Replies', count: ai, pct: aiPct, shade: 0.6 },
-                            { label: 'Human Replies', count: human, pct: humanPct, shade: 0.3 },
-                          ].map(({ label, count, pct, shade }) => (
-                            <div key={label}>
-                              <div className="flex items-center justify-between mb-1.5">
-                                <span className="text-xs font-medium text-gray-700">{label}</span>
-                                <div className="flex items-baseline gap-1">
-                                  <span className="text-sm font-light text-gray-900">{count}</span>
-                                  <span className="text-xs text-gray-400">{pct}%</span>
-                                </div>
-                              </div>
-                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all duration-500"
-                                  style={{
-                                    width: `${pct}%`,
-                                    background: color,
-                                    opacity: shade,
-                                  }}
+                            { label: 'Inbound', count: inbound, pct: inboundPct, opacity: 1 },
+                            { label: 'AI', count: ai, pct: aiPct, opacity: 0.55 },
+                            { label: 'Human', count: human, pct: humanPct, opacity: 0.25 },
+                          ].map(({ label, count, pct, opacity }) => (
+                            <div key={label} className="bg-white/60 backdrop-blur-sm rounded-lg p-2.5 border border-white/40">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ background: color, opacity }}
                                 />
+                                <span className="text-[10px] font-semibold text-gray-600 uppercase tracking-wide truncate">{label}</span>
                               </div>
+                              <p className="text-base font-bold text-gray-900 leading-none">{count}</p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">{pct}%</p>
                             </div>
                           ))}
                         </div>
@@ -845,40 +853,67 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Response Distribution - Clean chart */}
-              <div className="relative">
-                <div className="bg-white border border-gray-100 rounded-2xl p-6">
-                  <h3 className="text-base font-semibold text-gray-900 mb-6">Response Distribution</h3>
-                  <div className="flex items-end justify-between gap-3 h-28">
-                    {[
-                      { label: 'Inbound', value: chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0), color: '#9ca3af' },
-                      { label: 'AI', value: chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0), color: '#6b7280' },
-                      { label: 'Human', value: chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0), color: '#374151' },
-                    ].map(({ label, value, color }) => {
-                      const maxVal = Math.max(
-                        chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0),
-                        chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0),
-                        chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
-                      )
-                      const height = maxVal > 0 ? (value / maxVal) * 100 : 0
-                      return (
-                        <div key={label} className="flex flex-col items-center flex-1">
-                          <div className="relative w-full flex flex-col items-center flex-1">
-                            <div
-                              className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
-                              style={{
-                                height: `${height || 15}%`,
-                                background: color,
-                                minHeight: '8px',
-                              }}
-                            />
-                          </div>
-                          <p className="text-xs font-medium text-gray-600 mt-3">{label}</p>
-                          <p className="text-lg font-light text-gray-900 mt-1">{value}</p>
-                        </div>
-                      )
-                    })}
+              {/* Response Mix by Platform */}
+              <div className="bg-white border border-gray-100 rounded-2xl p-6">
+                <div className="flex items-start justify-between mb-1">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">Response Mix by Platform</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">How each channel splits between AI and human replies</p>
                   </div>
+                  <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300" />Inbound</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand-500" />AI</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />Human</span>
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-5">
+                  {[
+                    { name: 'Instagram', key: 'instagram', color: '#ec4899' },
+                    { name: 'WhatsApp', key: 'whatsapp', color: '#22c55e' },
+                    { name: 'Facebook', key: 'facebook', color: '#3b82f6' },
+                    { name: 'TikTok', key: 'tiktok', color: '#111111' },
+                  ].map(({ name, key, color }) => {
+                    const inbound = chartData.reduce((s, d) => s + (d[key] || 0), 0)
+                    const ai = chartData.reduce((s, d) => s + (d[`${key}_ai`] || 0), 0)
+                    const human = chartData.reduce((s, d) => s + (d[`${key}_human`] || 0), 0)
+                    const total = inbound + ai + human
+                    // Scale across all platforms so bars are comparable
+                    const grandMax = Math.max(
+                      ...['instagram', 'whatsapp', 'facebook', 'tiktok'].map(k =>
+                        chartData.reduce((s, d) => s + (d[k] || 0) + (d[`${k}_ai`] || 0) + (d[`${k}_human`] || 0), 0)
+                      )
+                    )
+                    const widthPct = grandMax > 0 ? (total / grandMax) * 100 : 0
+                    const inboundShare = total > 0 ? (inbound / total) * 100 : 0
+                    const aiShare = total > 0 ? (ai / total) * 100 : 0
+                    const humanShare = total > 0 ? (human / total) * 100 : 0
+
+                    return (
+                      <div key={name}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                            <span className="text-xs font-semibold text-gray-700">{name}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] font-medium text-gray-500 tabular-nums">
+                            <span><span className="text-gray-900 font-bold">{inbound}</span> in</span>
+                            <span><span className="text-gray-900 font-bold">{ai}</span> ai</span>
+                            <span><span className="text-gray-900 font-bold">{human}</span> hu</span>
+                          </div>
+                        </div>
+                        <div className="h-6 rounded-lg bg-gray-50 overflow-hidden" style={{ width: `${Math.max(widthPct, 2)}%`, minWidth: '40px', transition: 'width 600ms' }}>
+                          {total > 0 ? (
+                            <div className="flex h-full">
+                              <div style={{ width: `${inboundShare}%`, background: '#d1d5db' }} title={`${inbound} inbound`} />
+                              <div style={{ width: `${aiShare}%`, background: '#ff5900' }} title={`${ai} AI replies`} />
+                              <div style={{ width: `${humanShare}%`, background: '#f59e0b' }} title={`${human} human replies`} />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
