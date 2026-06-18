@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Loader2, X, Check, Users as UsersIcon } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, X, Check, Users as UsersIcon } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
@@ -20,13 +20,19 @@ export default function Users() {
   const [submitting, setSubmitting] = useState(false)
   const [modalError, setModalError] = useState(null)
   const [modalSuccess, setModalSuccess] = useState(false)
+  // Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editData, setEditData] = useState({ id: null, full_name: '', role: 'agent', status: 'active' })
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editError, setEditError] = useState(null)
+  const [editSuccess, setEditSuccess] = useState(false)
 
   // Fetch users
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/auth/users', {
+      const res = await fetch(`${API_BASE}/auth/users`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load users')
@@ -70,7 +76,7 @@ export default function Users() {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/auth/signup', {
+      const res = await fetch(`${API_BASE}/auth/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -101,11 +107,71 @@ export default function Users() {
     }
   }
 
+  const openEditModal = (user) => {
+    setEditData({
+      id: user.id,
+      full_name: user.full_name,
+      role: user.role,
+      status: user.status,
+    })
+    setEditError(null)
+    setEditSuccess(false)
+    setShowEditModal(true)
+  }
+
+  const closeEditModal = () => {
+    setShowEditModal(false)
+    setEditError(null)
+    setEditSuccess(false)
+    setEditData({ id: null, full_name: '', role: 'agent', status: 'active' })
+  }
+
+  const updateUser = async (e) => {
+    e.preventDefault()
+    setEditError(null)
+    setEditSuccess(false)
+
+    if (!editData.full_name.trim() || editData.full_name.length < 2) {
+      setEditError('Full name must be at least 2 characters')
+      return
+    }
+
+    setEditSubmitting(true)
+    try {
+      const res = await fetch(`${API_BASE}/auth/users/${editData.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify({
+          full_name: editData.full_name.trim(),
+          role: editData.role,
+          status: editData.status,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update user')
+
+      setEditSuccess(true)
+      setUsers(prev => prev.map(u => u.id === editData.id ? data.user : u))
+
+      setTimeout(() => {
+        closeEditModal()
+      }, 1200)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
   const deleteUser = async (userId, userName) => {
     if (!confirm(`Delete user "${userName}"? This cannot be undone.`)) return
 
     try {
-      const res = await fetch(`/api/auth/users/${userId}`, {
+      const res = await fetch(`${API_BASE}/auth/users/${userId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
@@ -204,14 +270,23 @@ export default function Users() {
                         </div>
                       </div>
 
-                      {/* Delete button */}
-                      <button
-                        onClick={() => deleteUser(user.id, user.full_name)}
-                        className="text-gray-400 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
-                        title="Delete user"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => openEditModal(user)}
+                          className="text-gray-400 hover:text-gray-700 transition-colors p-2 hover:bg-gray-100 rounded-lg"
+                          title="Edit user"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => deleteUser(user.id, user.full_name)}
+                          className="text-gray-400 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                          title="Delete user"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -345,6 +420,108 @@ export default function Users() {
             </form>
           </div>
         </div>
+        </ModalPortal>
+      )}
+
+      {/* Edit User Modal */}
+      {showEditModal && (
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <h2 className="text-lg font-bold text-gray-900">Edit User</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Update role, status, or name</p>
+                </div>
+                <button onClick={closeEditModal} className="btn-ghost p-1 shrink-0">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {editError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600 font-medium">
+                  {editError}
+                </div>
+              )}
+
+              {editSuccess && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700 font-medium flex items-center gap-2">
+                  <Check size={14} className="shrink-0" /> User updated successfully!
+                </div>
+              )}
+
+              <form onSubmit={updateUser} className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Full Name</label>
+                  <input
+                    type="text"
+                    value={editData.full_name}
+                    onChange={(e) => setEditData(prev => ({ ...prev, full_name: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Role</label>
+                  <select
+                    value={editData.role}
+                    onChange={(e) => setEditData(prev => ({ ...prev, role: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  >
+                    <option value="agent">Agent</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Status</label>
+                  <select
+                    value={editData.status}
+                    onChange={(e) => setEditData(prev => ({ ...prev, status: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeEditModal}
+                    className="btn-ghost flex-1 text-sm"
+                    disabled={editSubmitting || editSuccess}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editSubmitting || editSuccess}
+                    className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-all text-white bg-black hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {editSubmitting ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" /> Saving...
+                      </>
+                    ) : editSuccess ? (
+                      <>
+                        <Check size={13} /> Saved!
+                      </>
+                    ) : (
+                      <>
+                        <Check size={13} /> Save
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         </ModalPortal>
       )}
     </div>
