@@ -148,54 +148,62 @@ def instagram_webhook():
     if not events and not comment_events:
         return jsonify({"status": "ignored", "reason": "no text content or sender"}), 200
 
-    replies = []
+    # ─────────────────────────────────────────────────────────────
+    # Return 200 to Meta IMMEDIATELY, process in background thread.
+    # Meta retries webhooks that take >5s. The 2s sleep + AI generation
+    # + DB writes were pushing us past that, causing duplicate sends.
+    # By returning 200 fast, Meta never retries → no duplicates.
+    # ─────────────────────────────────────────────────────────────
+    import threading
+    app_obj = current_app._get_current_object()
 
-    # Process DM events
-    for sender_id, message_text, mid in events:
-        try:
-            reply = process_message(
-                message=message_text,
-                user_id=sender_id,
-                channel="instagram_dm",
-                external_id=mid,
-            )
-            replies.append({"sender_id": sender_id, "reply": reply, "type": "dm"})
-        except Exception as e:
-            current_app.logger.error(f"[IG webhook] DM process error for {sender_id}: {e}")
-            replies.append({"sender_id": sender_id, "error": str(e), "type": "dm"})
-
-    # Process Comment events
-    for sender_id, comment_text, comment_id, username, media_id in comment_events:
-        try:
-            reply = process_message(
-                message=comment_text,
-                user_id=sender_id,
-                channel="instagram_comment",
-                external_id=comment_id,
-                media_id=media_id,
-            )
-            # Patch the username on the User row so the UI shows the
-            # handle instead of the numeric ID.
-            if username:
+    def process_in_background():
+        with app_obj.app_context():
+            # Process DM events
+            for sender_id, message_text, mid in events:
                 try:
-                    from app import db
-                    from app.models import User
-                    user_row = User.query.filter_by(
-                        external_id=sender_id, channel="instagram_comment"
-                    ).first()
-                    if user_row and user_row.name != username:
-                        user_row.name = username
-                        db.session.commit()
-                except Exception:
-                    pass
-            replies.append({"sender_id": sender_id, "reply": reply, "type": "comment"})
-        except Exception as e:
-            current_app.logger.error(f"[IG webhook] Comment process error for {sender_id}: {e}")
-            replies.append({"sender_id": sender_id, "error": str(e), "type": "comment"})
+                    process_message(
+                        message=message_text,
+                        user_id=sender_id,
+                        channel="instagram_dm",
+                        external_id=mid,
+                    )
+                except Exception as e:
+                    app_obj.logger.error(f"[IG webhook bg] DM process error for {sender_id}: {e}")
+
+            # Process Comment events
+            for sender_id, comment_text, comment_id, username, media_id in comment_events:
+                try:
+                    process_message(
+                        message=comment_text,
+                        user_id=sender_id,
+                        channel="instagram_comment",
+                        external_id=comment_id,
+                        media_id=media_id,
+                    )
+                    # Patch the username on the User row so the UI shows the
+                    # handle instead of the numeric ID.
+                    if username:
+                        try:
+                            from app import db
+                            from app.models import User
+                            user_row = User.query.filter_by(
+                                external_id=sender_id, channel="instagram_comment"
+                            ).first()
+                            if user_row and user_row.name != username:
+                                user_row.name = username
+                                db.session.commit()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    app_obj.logger.error(f"[IG webhook bg] Comment process error for {sender_id}: {e}")
+
+    threading.Thread(target=process_in_background, daemon=True).start()
 
     return jsonify({
-        "processed": len(replies),
-        "results": replies,
+        "status": "accepted",
+        "dm_count": len(events),
+        "comment_count": len(comment_events),
     }), 200
 
 # ─────────────────────────────────────────────
