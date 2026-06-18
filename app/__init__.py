@@ -28,7 +28,15 @@ def create_app():
     jwt.init_app(app)
 
     # Enable CORS for frontend
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    import os
+    cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": cors_origins}},
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    )
     # JWT error handlers
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_data):
