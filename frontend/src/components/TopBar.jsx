@@ -100,7 +100,7 @@ export default function TopBar({ onMenuClick }) {
     }
 
     load()
-    const timer = setInterval(() => load(), 10000) // Poll every 10 seconds
+    const timer = setInterval(() => load(), 5000) // Poll every 5 seconds
     return () => { clearInterval(timer) }
   }, [showToast])
 
@@ -147,7 +147,7 @@ export default function TopBar({ onMenuClick }) {
     }
 
     loadMessages()
-    const timer = setInterval(loadMessages, 10000)
+    const timer = setInterval(loadMessages, 5000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [showToast])
 

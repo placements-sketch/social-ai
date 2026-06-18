@@ -164,12 +164,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         channel=channel,
     )
 
-    # ── Step 6: Send reply back via the correct channel ────────────────────
-    # Brief delay so the frontend's poll sees the inbound first, displays the
-    # typing indicator, THEN the outbound appears — feels more like a real
-    # conversation than both messages popping in at once.
-    import time
-    time.sleep(2)
+    # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     _dispatch_reply(channel=channel, user_id=user_id, reply=reply, comment_external_id=external_id)
 
     log_event("info", "services.ai_reply",
@@ -182,12 +177,17 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
               },
               conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
-    # ── Step 7: Persist outbound ──────────────────────────────────────────
+    # ── Step 7: Brief delay before persisting outbound, so the platform's
+    # poll sees the inbound first (and shows the typing indicator), THEN the
+    # outbound appears. The customer on IG already has the reply by now —
+    # this delay only affects the IN-PLATFORM rendering, not the actual send.
+    import time
+    time.sleep(2)
     _save_message(
         user_id=user_id, channel=channel, content=reply,
         intent=None, direction="outbound",
     )
-
+    
     return reply
 
 
