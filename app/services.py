@@ -45,6 +45,29 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         The reply string that was sent, or AI_SUPPRESSED ("") if the AI
         was gated off for this conversation/channel.
     """
+    # ── Dispatch idempotency ──
+    # Meta sometimes retries webhooks if we're slow to return 200, causing
+    # duplicate AI replies to land in the customer's IG inbox even when the
+    # DB dedupe stops duplicate rows. Track which mids we've already 
+    # dispatched a reply for, in-process.
+    if external_id:
+        from app import db
+        from app.models import Message
+        already_replied = Message.query.filter_by(
+            external_id=external_id
+        ).first()
+        if already_replied:
+            # We've already processed this exact webhook. Skip entirely
+            # to prevent re-sending the AI reply to the customer.
+            log_event("info", "services.duplicate_webhook",
+                      f"Duplicate webhook for mid={external_id} — skipping",
+                      payload={
+                          "external_id": external_id,
+                          "user_external_id": user_id,
+                          "channel": channel,
+                      })
+            return AI_SUPPRESSED
+        
     log_event("info", "services.inbound",
               f"Inbound [{channel}] from {user_id}: {message[:80]}",
               payload={
@@ -182,12 +205,12 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # outbound appears. The customer on IG already has the reply by now —
     # this delay only affects the IN-PLATFORM rendering, not the actual send.
     import time
-    time.sleep(2)
+    time.sleep(5)
     _save_message(
         user_id=user_id, channel=channel, content=reply,
         intent=None, direction="outbound",
     )
-    
+
     return reply
 
 

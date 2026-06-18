@@ -181,18 +181,21 @@ export default function Messages() {
           const oldMsgs = prev.messages || []
           if (newMsgs.length < oldMsgs.length) return prev
 
-          // Detect new inbound from the customer — trigger typing indicator
-          // only if AI is enabled (so we don't tease a reply that won't come).
+          // Detect new messages — find any NEW inbound that wasn't there before.
+          // We can't just check the last message because the poll might catch
+          // both the inbound AND the AI's outbound reply in the same cycle.
           if (newMsgs.length > oldMsgs.length) {
-            const lastNew = newMsgs[newMsgs.length - 1]
-            const lastOld = oldMsgs[oldMsgs.length - 1]
-            const isNewCustomerMsg = lastNew?.from === 'user' && lastNew?.id !== lastOld?.id
-            if (isNewCustomerMsg && data.conversation.ai_enabled) {
+            const oldIds = new Set(oldMsgs.map(m => m.id))
+            const newOnes = newMsgs.filter(m => !oldIds.has(m.id))
+            const hasNewInbound = newOnes.some(m => m.from === 'user')
+            const hasNewOutbound = newOnes.some(m => m.from === 'ai' || m.from === 'human')
+
+            if (hasNewInbound && !hasNewOutbound && data.conversation.ai_enabled) {
+              // New inbound alone — show typing indicator
               setAiTyping(true)
-              setTimeout(() => setAiTyping(false), 3500)
-            }
-            // If a new AI/human reply appeared, clear the indicator early
-            if (lastNew?.from === 'ai' || lastNew?.from === 'human') {
+              setTimeout(() => setAiTyping(false), 5000)
+            } else if (hasNewOutbound) {
+              // AI/human reply arrived — clear typing
               setAiTyping(false)
             }
           }
@@ -203,7 +206,7 @@ export default function Messages() {
         // Silent fail
       }
     }
-    const timer = setInterval(silentRefresh, 5000)
+    const timer = setInterval(silentRefresh, 1000)
     return () => clearInterval(timer)
   }, [selected])
 

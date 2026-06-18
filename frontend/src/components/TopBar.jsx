@@ -130,17 +130,32 @@ export default function TopBar({ onMenuClick }) {
         // For each conversation, toast only if unread_count INCREASED.
         // That can only happen on a real new inbound — outbound replies
         // reset/don't change unread.
-        convs.forEach(c => {
+        for (const c of convs) {
           const prev = prevUnreadRef.current.get(c.id) ?? 0
           const curr = c.unread_count || 0
           if (curr > prev) {
-            showToast({
-              title: `New message from ${c.handle || 'customer'}`,
-              body: c.lastMessage || '',
-            })
+            // Fetch the conv to get the actual latest INBOUND message
+            // (lastMessage on the list reflects the most recent message
+            // overall, which is usually the AI's outbound reply).
+            try {
+              const { getConversation } = await import('../api/messages')
+              const detail = await getConversation(c.id)
+              const msgs = detail.conversation?.messages || []
+              const lastInbound = [...msgs].reverse().find(m => m.from === 'user')
+              showToast({
+                title: `New message from ${c.handle || 'customer'}`,
+                body: lastInbound?.text || c.lastMessage || '',
+              })
+            } catch {
+              // Fallback to lastMessage on error
+              showToast({
+                title: `New message from ${c.handle || 'customer'}`,
+                body: c.lastMessage || '',
+              })
+            }
           }
           prevUnreadRef.current.set(c.id, curr)
-        })
+        }
       } catch (err) {
         console.error('[Toast] Failed to poll messages:', err)
       }
