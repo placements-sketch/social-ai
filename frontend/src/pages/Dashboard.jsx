@@ -1,4 +1,3 @@
-import { stats, activityFeed, alerts } from '../data/mock'
 import {
   MessageSquare, Bot, UserCheck, XCircle, PackageX,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
@@ -36,15 +35,6 @@ const CustomTooltip = ({ active, payload }) => {
   }
   return null
 }
-
-const statCards = [
-  { label: 'Messages Today',       value: stats.messagesToday,      icon: MessageSquare, color: 'text-blue-500',    bg: 'bg-blue-50'        },
-  { label: 'Auto-Replies Sent',    value: stats.autoRepliesSent,    icon: Bot,           color: 'text-brand-500',   bg: 'bg-brand-50'       },
-  { label: 'Human Overrides',      value: stats.humanOverrides,     icon: UserCheck,     color: 'text-amber-500',   bg: 'bg-amber-50'       },
-  { label: 'Failed Responses',     value: stats.failedResponses,    icon: XCircle,       color: 'text-red-500',     bg: 'bg-red-50'         },
-  { label: 'Out-of-Stock Queries', value: stats.outOfStockQueries,  icon: PackageX,      color: 'text-orange-500',  bg: 'bg-orange-50'      },
-  { label: 'Escalated',            value: 12,                       icon: TrendingUp,    color: 'text-purple-500',  bg: 'bg-purple-50'      },
-]
 
 const alertStyles = {
   error:   { icon: AlertCircle,   cls: 'border-red-200 bg-red-50 text-red-600'       },
@@ -158,18 +148,13 @@ export default function Dashboard() {
 
   // Map system logs to alert format
   const getSystemAlerts = () => {
-    if (systemAlerts.length > 0) {
-      return systemAlerts.slice(0, 3).map(log => ({
-        id: log.id,
-        level: log.level || 'info',
-        message: log.message || 'System event',
-      }))
-    }
-    // Fallback to mock data
-    return alerts
+    return systemAlerts.slice(0, 3).map(log => ({
+      id: log.id,
+      level: log.level || 'info',
+      message: log.message || 'System event',
+    }))
   }
 
-  // Compose a human-readable line from a log row.
 // Compose a natural-language sentence from a structured log row.
   const formatActivityText = (log) => {
     const src = (log.source || '').toLowerCase()
@@ -262,12 +247,6 @@ export default function Dashboard() {
   }
 
   const getActivityFeed = () => {
-    if (activityLogs.length === 0) {
-      // Fallback to mock so the section isn't empty during early dev
-      return activityFeed
-    }
-    // Poller logs are now filtered on the backend via ?exclude_pollers=true
-    
     return activityLogs.slice(0, 12).map(log => {
       // Prefer payload.channel (now richly populated); fall back to source-based guess.
       const src = (log.source || '').toLowerCase()
@@ -282,7 +261,7 @@ export default function Dashboard() {
         id: log.id,
         text: formatActivityText(log),
         channel: iconChannel,
-        created_at: log.created_at, // Pass timestamp, component will handle formatting
+        created_at: log.created_at,
       }
     })
   }
@@ -334,9 +313,9 @@ export default function Dashboard() {
     const headers = ['Metric', 'Value']
     const kpis = analyticsData?.kpis || {}
     const rows = [
-      ['Total Messages', kpis.messages_total || stats.messagesToday],
-      ['AI Replies', kpis.ai_replies_total || stats.autoRepliesSent],
-      ['Human Overrides', kpis.human_override_total || stats.humanOverrides],
+      ['Total Messages', kpis.messages_total || 0],
+      ['AI Replies', kpis.ai_replies_total || 0],
+      ['Human Overrides', kpis.human_override_total || 0],
       ['Success Rate', `${((kpis.ai_success_rate || 0) * 100).toFixed(1)}%`],
       ['Conversations', kpis.conversations_total || 0],
     ]
@@ -358,9 +337,9 @@ export default function Dashboard() {
     const headers = ['Metric', 'Value']
     const kpis = analyticsData?.kpis || {}
     const rows = [
-      ['Total Messages', kpis.messages_total || stats.messagesToday],
-      ['AI Replies', kpis.ai_replies_total || stats.autoRepliesSent],
-      ['Human Overrides', kpis.human_override_total || stats.humanOverrides],
+      ['Total Messages', kpis.messages_total || 0],
+      ['AI Replies', kpis.ai_replies_total || 0],
+      ['Human Overrides', kpis.human_override_total || 0],
       ['Success Rate', `${((kpis.ai_success_rate || 0) * 100).toFixed(1)}%`],
       ['Conversations', kpis.conversations_total || 0],
     ]
@@ -632,9 +611,15 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="space-y-3">
-            {activityFeedData.map((item) => (
-              <ActivityItem key={item.id} item={item} />
-            ))}
+            {loadingActivity ? (
+              <div className="py-8 text-center text-xs text-gray-400">Loading activity…</div>
+            ) : activityFeedData.length === 0 ? (
+              <div className="py-8 text-center text-xs text-gray-400">No recent activity</div>
+            ) : (
+              activityFeedData.map((item) => (
+                <ActivityItem key={item.id} item={item} />
+              ))
+            )}
           </div>
         </div>
 
@@ -648,31 +633,52 @@ export default function Dashboard() {
               </a>
             </div>
             <div className="space-y-2.5">
-              {systemAlertsData.map((alert) => {
-                const { icon: Icon, cls } = alertStyles[alert.level] || alertStyles.info
-                return (
-                  <div key={alert.id} className={clsx('flex items-start gap-2.5 p-3 rounded-lg border text-xs font-medium', cls)}>
-                    <Icon size={13} className="mt-0.5 shrink-0" />
-                    <p className="leading-snug">{alert.message}</p>
-                  </div>
-                )
-              })}
+              {loadingAlerts ? (
+                <div className="py-6 text-center text-xs text-gray-400">Loading…</div>
+              ) : systemAlertsData.length === 0 ? (
+                <div className="py-6 text-center text-xs text-gray-400">All systems normal</div>
+              ) : (
+                systemAlertsData.map((alert) => {
+                  const { icon: Icon, cls } = alertStyles[alert.level] || alertStyles.info
+                  return (
+                    <div key={alert.id} className={clsx('flex items-start gap-2.5 p-3 rounded-lg border text-xs font-medium', cls)}>
+                      <Icon size={13} className="mt-0.5 shrink-0" />
+                      <p className="leading-snug">{alert.message}</p>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
 
           <div className="card p-5">
-            <p className="section-title mb-3">AI Performance Today</p>
+            <p className="section-title mb-3">AI Performance {PERIOD_LABELS[period]}</p>
             <div className="space-y-2.5">
-              {[
-                { label: 'Success rate',    value: '97.2%', color: 'text-green-600'  },
-                { label: 'Avg response',    value: '1.1s',  color: 'text-gray-900'   },
-                { label: 'Override rate',   value: '2.8%',  color: 'text-amber-600'  },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">{label}</span>
-                  <span className={clsx('text-sm font-bold', color)}>{value}</span>
-                </div>
-              ))}
+              {(() => {
+                const kpis = analyticsData?.kpis || {}
+                const successRate = ((kpis.ai_success_rate || 0) * 100).toFixed(1)
+                const avgResponseMs = kpis.avg_response_time_ms
+                const avgResponseStr = avgResponseMs
+                  ? avgResponseMs < 1000
+                    ? `${avgResponseMs}ms`
+                    : `${(avgResponseMs / 1000).toFixed(1)}s`
+                  : '—'
+                const aiReplies = kpis.ai_replies_total || 0
+                const overrides = kpis.human_override_total || 0
+                const overrideRate = aiReplies > 0
+                  ? ((overrides / aiReplies) * 100).toFixed(1)
+                  : '0.0'
+                return [
+                  { label: 'Success rate',  value: `${successRate}%`,  color: 'text-green-600' },
+                  { label: 'Avg response',  value: avgResponseStr,     color: 'text-gray-900'  },
+                  { label: 'Override rate', value: `${overrideRate}%`, color: 'text-amber-600' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">{label}</span>
+                    <span className={clsx('text-sm font-bold', color)}>{value}</span>
+                  </div>
+                ))
+              })()}
             </div>
           </div>
 

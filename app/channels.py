@@ -221,15 +221,23 @@ def update_channel(channel_id):
 @jwt_required()
 def test_channel(channel_id):
     """
-    Test connection for a channel. STUBBED — returns a realistic structured
-    response that the UI can render. When real credentials land, replace the
-    body with calls to the integrations.* layer (e.g. ping Meta /me).
+    Test connection for a channel by hitting the upstream API.
+
+    Meta channels: GET graph.facebook.com/v25.0/me?access_token=<token>
+      - 200 + name field → token valid
+      - error JSON → token invalid / expired / wrong scope
+
+    TikTok: not implemented yet — credential presence only.
 
     Behaviour:
-      - If credentials are not set     -> ok=false, "credentials_not_set"
-      - If channel disabled            -> ok=false, "channel_disabled"
-      - Otherwise                      -> ok=true, mocked details
+      - credentials not set     → ok=false, "credentials_not_set"
+      - channel disabled        → ok=false, "channel_disabled"
+      - upstream API call fails → ok=false, "api_error" with detail
+      - everything OK           → ok=true with token info
     """
+    import os
+    import requests as _requests
+
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -250,7 +258,6 @@ def test_channel(channel_id):
                 f'are not set ({", ".join(CHANNEL_CREDENTIAL_KEYS.get(channel.channel, []))}).'
             ),
             'checked_at': now.isoformat(),
-            'mocked': True,
         }), 200
 
     if not channel.enabled:
@@ -259,30 +266,82 @@ def test_channel(channel_id):
             'reason': 'channel_disabled',
             'message': f'{channel.display_name} is disabled. Enable it before testing.',
             'checked_at': now.isoformat(),
-            'mocked': True,
         }), 200
 
-    # Stubbed "happy path" — replace with real integration calls when ready.
-    channel.last_verified_at = now
-    db.session.commit()
+    # ── Meta channels: real /me ping ───────────────────────────────────
+    meta_channels = {
+        'instagram_dm', 'instagram_comment',
+        'facebook_dm', 'facebook_comment',
+        'whatsapp',
+    }
+    if channel.channel in meta_channels:
+        token = os.getenv('FB_ACCESS_TOKEN')
+        try:
+            r = _requests.get(
+                'https://graph.facebook.com/v25.0/me',
+                params={'access_token': token, 'fields': 'id,name'},
+                timeout=10,
+            )
+            body = r.json() if r.text else {}
+        except _requests.RequestException as e:
+            return jsonify({
+                'ok': False,
+                'reason': 'network_error',
+                'message': f'Could not reach Meta Graph API: {str(e)[:150]}',
+                'checked_at': now.isoformat(),
+            }), 200
 
-    log_audit(
-        current_user.id,
-        'test_channel',
-        resource_type='channel',
-        resource_id=str(channel.id),
-        changes={'result': 'ok_mocked'},
-    )
+        if r.status_code >= 400 or 'error' in body:
+            err = body.get('error', {})
+            return jsonify({
+                'ok': False,
+                'reason': 'api_error',
+                'message': (
+                    f'Meta returned an error: '
+                    f'{err.get("message", "Unknown error")[:200]}'
+                ),
+                'details': {
+                    'status': r.status_code,
+                    'code': err.get('code'),
+                    'type': err.get('type'),
+                },
+                'checked_at': now.isoformat(),
+            }), 200
+
+        # Success
+        channel.last_verified_at = now
+        db.session.commit()
+
+        log_audit(
+            current_user.id,
+            'test_channel',
+            resource_type='channel',
+            resource_id=str(channel.id),
+            changes={'result': 'ok'},
+        )
+
+        return jsonify({
+            'ok': True,
+            'message': f'Connected as "{body.get("name", "unknown")}"',
+            'checked_at': now.isoformat(),
+            'details': {
+                'page_id': body.get('id'),
+                'page_name': body.get('name'),
+            },
+        }), 200
+
+    # ── TikTok: not implemented yet ────────────────────────────────────
+    if channel.channel in ('tiktok_dm', 'tiktok_comment'):
+        return jsonify({
+            'ok': False,
+            'reason': 'not_implemented',
+            'message': 'TikTok connection test not implemented yet. Credentials are set but cannot be verified.',
+            'checked_at': now.isoformat(),
+        }), 200
 
     return jsonify({
-        'ok': True,
-        'message': f'{channel.display_name} connection healthy (mocked).',
+        'ok': False,
+        'reason': 'unknown_channel',
+        'message': f'No test implementation for channel "{channel.channel}".',
         'checked_at': now.isoformat(),
-        'mocked': True,
-        'details': {
-            'token_valid': True,
-            'token_expires_in_days': 47,
-            'webhook_subscribed': True,
-            'permissions_granted': True,
-        },
     }), 200
