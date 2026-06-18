@@ -40,7 +40,7 @@ export default function Logs() {
   useEffect(() => {
     const checkRole = async () => {
       try {
-        const res = await fetch('/api/auth/me', {
+        const res = await fetch(`${API_BASE}/auth/me`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
         })
         if (res.ok) {
@@ -80,7 +80,7 @@ export default function Logs() {
         params.set('days', daysFilter)
       }
 
-      const endpoint = `/api/logs/${logType}`
+      const endpoint = `${API_BASE}/logs/${logType}`
       const res = await fetch(`${endpoint}?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
