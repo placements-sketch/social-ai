@@ -126,6 +126,41 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-gray-900">{config.name}</p>
         <p className="text-xs text-gray-400 mt-0.5">{config.description}</p>
+
+        {/* Token expiry — persistent, from DB */}
+        {(() => {
+          if (!ch.token_expires_at && !ch.last_verified_at) return null
+          if (!ch.token_expires_at) {
+            // Verified but no expiry stored → long-lived token
+            return (
+              <p className="text-[11px] font-medium mt-1 text-gray-500">
+                Token: no expiry (long-lived)
+              </p>
+            )
+          }
+          const expiresAt = new Date(ch.token_expires_at)
+          const now = new Date()
+          const daysLeft = Math.floor((expiresAt - now) / (1000 * 60 * 60 * 24))
+          let cls = 'text-gray-500'
+          let label = `Token expires in ${daysLeft} days`
+          if (daysLeft < 0) {
+            cls = 'text-red-600'
+            label = 'Token expired'
+          } else if (daysLeft < 7) {
+            cls = 'text-red-600'
+            label = `Token expires in ${daysLeft} days — renew soon`
+          } else if (daysLeft < 14) {
+            cls = 'text-amber-600'
+            label = `Token expires in ${daysLeft} days`
+          }
+          return (
+            <p className={clsx('text-[11px] font-medium mt-1', cls)}>
+              {label}
+            </p>
+          )
+        })()}
+
+        {/* Live test result — transient, only after click */}
         {testResult && (
           <p className={clsx(
             'text-[11px] font-medium mt-1',

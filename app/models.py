@@ -298,6 +298,8 @@ class Channel(db.Model):
     enabled      = db.Column(db.Boolean, nullable=False, default=True)
     webhook_path = db.Column(db.String(128), nullable=False)
     last_verified_at = db.Column(db.DateTime, nullable=True)
+    token_expires_at = db.Column(db.DateTime, nullable=True)
+    token_scopes     = db.Column(db.Text, nullable=True)
     created_at   = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at   = db.Column(db.DateTime, default=datetime.utcnow,
                              onupdate=datetime.utcnow, nullable=False)
@@ -325,6 +327,8 @@ class Channel(db.Model):
             'webhook_url': webhook_url,
             'webhook_path': self.webhook_path,
             'last_verified_at': self.last_verified_at.isoformat() if self.last_verified_at else None,
+            'token_expires_at': self.token_expires_at.isoformat() if self.token_expires_at else None,
+            'token_scopes': self.token_scopes.split(',') if self.token_scopes else [],
             'message_count': stats.get('message_count', 0),
             'unread_count': stats.get('unread_count', 0),
             'last_message_at': stats.get('last_message_at'),

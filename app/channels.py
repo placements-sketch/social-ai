@@ -55,10 +55,11 @@ CHANNEL_CREDENTIAL_KEYS = {
 
 def _credentials_set(channel_key: str) -> bool:
     """True iff every .env key required for this channel is populated."""
+    import os
     keys = CHANNEL_CREDENTIAL_KEYS.get(channel_key, [])
     if not keys:
         return False
-    return all(bool(current_app.config.get(k)) for k in keys)
+    return all(bool(os.getenv(k)) for k in keys)
 
 
 def _public_base_url() -> str:
@@ -308,8 +309,47 @@ def test_channel(channel_id):
                 'checked_at': now.isoformat(),
             }), 200
 
-        # Success
+        # ── /me succeeded. Now query /debug_token for expiry + scopes ──
+        app_id = os.getenv('META_APP_ID')
+        app_secret = os.getenv('META_APP_SECRET')
+        token_expires_at = None
+        token_scopes = None
+        debug_error = None
+
+        if app_id and app_secret:
+            try:
+                dr = _requests.get(
+                    'https://graph.facebook.com/v25.0/debug_token',
+                    params={
+                        'input_token': token,
+                        'access_token': f'{app_id}|{app_secret}',
+                    },
+                    timeout=10,
+                )
+                dbody = dr.json() if dr.text else {}
+                ddata = dbody.get('data') or {}
+
+                # expires_at: Unix timestamp. 0 means "never expires" (long-lived).
+                expires_unix = ddata.get('expires_at')
+                if expires_unix and expires_unix > 0:
+                    token_expires_at = datetime.utcfromtimestamp(expires_unix)
+                # else: leave as None — we'll interpret None as "no expiry"
+
+                scopes = ddata.get('scopes') or []
+                if scopes:
+                    token_scopes = ','.join(scopes)
+
+                if 'error' in dbody:
+                    debug_error = dbody['error'].get('message')
+            except _requests.RequestException as e:
+                debug_error = f'debug_token request failed: {str(e)[:120]}'
+        else:
+            debug_error = 'META_APP_ID or META_APP_SECRET not set — token expiry unknown'
+
+        # Persist verification + token metadata
         channel.last_verified_at = now
+        channel.token_expires_at = token_expires_at
+        channel.token_scopes = token_scopes
         db.session.commit()
 
         log_audit(
@@ -320,13 +360,25 @@ def test_channel(channel_id):
             changes={'result': 'ok'},
         )
 
+        # Build response with expiry info
+        if token_expires_at:
+            days_left = (token_expires_at - now).days
+            expiry_display = f'Expires in {days_left} days' if days_left > 0 else 'Expired'
+        elif debug_error:
+            expiry_display = 'Expiry unknown'
+        else:
+            expiry_display = 'No expiry (long-lived)'
+
         return jsonify({
             'ok': True,
-            'message': f'Connected as "{body.get("name", "unknown")}"',
+            'message': f'Connected as "{body.get("name", "unknown")}" — {expiry_display}',
             'checked_at': now.isoformat(),
             'details': {
                 'page_id': body.get('id'),
                 'page_name': body.get('name'),
+                'token_expires_at': token_expires_at.isoformat() if token_expires_at else None,
+                'token_scopes': token_scopes.split(',') if token_scopes else [],
+                'debug_error': debug_error,
             },
         }), 200
 
