@@ -46,7 +46,7 @@ export default function AISettings() {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/ai-settings', {
+      const res = await fetch(`${API_BASE}/ai-settings`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load settings')
@@ -72,7 +72,7 @@ export default function AISettings() {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/ai-settings', {
+      const res = await fetch(`${API_BASE}/ai-settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -109,7 +109,7 @@ export default function AISettings() {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/ai-settings/reset', {
+      const res = await fetch(`${API_BASE}/ai-settings/reset`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })

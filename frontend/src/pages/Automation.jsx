@@ -26,7 +26,7 @@ export default function Automation() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/automation-rules', {
+      const res = await fetch(`${API_BASE}/automation-rules`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load rules')
@@ -56,7 +56,7 @@ export default function Automation() {
     if (!confirmed) return
 
     try {
-      const res = await fetch(`/api/automation-rules/${id}/toggle`, {
+      const res = await fetch(`${API_BASE}/automation-rules/${id}/toggle`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
@@ -80,7 +80,7 @@ export default function Automation() {
     if (!confirmed) return
 
     try {
-      const res = await fetch(`/api/automation-rules/${id}`, {
+      const res = await fetch(`${API_BASE}/automation-rules/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
@@ -101,7 +101,7 @@ export default function Automation() {
     setSubmitting(true)
     setModalError(null)
     try {
-      const res = await fetch('/api/automation-rules', {
+      const res = await fetch(`${API_BASE}/automation-rules`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export default function Automation() {
 
     // Send reorder to backend
     const order = newRules.map(r => r.id)
-    fetch('/api/automation-rules/reorder', {
+    fetch(`${API_BASE}/automation-rules/reorder`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

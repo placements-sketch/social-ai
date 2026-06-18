@@ -40,13 +40,31 @@ export default function Settings() {
   return (
     <div className="space-y-6 w-full max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-sm text-gray-500 mt-0.5">API keys, webhooks, and system configuration</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+            <p className="text-sm text-gray-500 mt-0.5">API keys, webhooks, and system configuration</p>
+          </div>
+          <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            Preview
+          </span>
         </div>
-        <button className="btn-primary flex items-center gap-2">
+        <button
+          disabled
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-400 text-xs font-semibold cursor-not-allowed"
+          title="Settings management is in preview — values managed via environment variables for now"
+        >
           <Save size={14} /> Save All
         </button>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p className="text-sm font-semibold text-amber-900 mb-1">Preview interface</p>
+        <p className="text-xs text-amber-800 leading-relaxed">
+          This page is a visual preview of upcoming settings management. For now, all API keys, tokens, and webhook URLs
+          are managed via environment variables on the backend. Use the Channels page to verify Meta/Instagram credentials
+          are connected, and Render's dashboard to update environment variables.
+        </p>
       </div>
 
       <Section title="AI & LLM Configuration">
