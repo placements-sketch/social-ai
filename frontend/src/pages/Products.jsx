@@ -66,7 +66,7 @@ export default function Products() {
       params.set('per_page', perPage)
       if (search) params.set('search', search)
 
-      const res = await fetch(`/api/products?${params}`, {
+      const res = await fetch(`${API_BASE}/products?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load products')
@@ -83,7 +83,7 @@ export default function Products() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE}/products/sync/status`', {
+      const res = await fetch(`${API_BASE}/products/sync/status`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load sync status')
@@ -97,7 +97,7 @@ export default function Products() {
   const handleCheckSync = async () => {
     setChecking(true)
     try {
-      const res = await fetch(`${API_BASE}/products/sync/check`', {
+      const res = await fetch(`${API_BASE}/products/sync/check`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
@@ -119,7 +119,7 @@ export default function Products() {
   const handleSync = async () => {
     setSyncing(true)
     try {
-      const res = await fetch(`${API_BASE}/products/sync`', {
+      const res = await fetch(`${API_BASE}/products/sync`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
