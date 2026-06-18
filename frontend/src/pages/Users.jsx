@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 export default function Users() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)

@@ -19,16 +19,25 @@ const DATE_RANGES = [
   { label: 'Last 90 days', days: 90 },
 ]
 
-// KPI Cards Component - extracted to avoid hook issue in map
 function KPICards({ kpis, formatTime, formatPercent }) {
-  const animatedResponseTime = useCountAnimation(parseInt(formatTime(kpis.avg_response_time_ms)) || 0, 1500)
-  const animatedSuccessRate = useCountAnimation(parseFloat(formatPercent(kpis.ai_success_rate)) || 0, 2000)
+  // Response time: animate the seconds value (with decimals), or show "—" if null
+  const hasResponseTime = kpis.avg_response_time_ms != null
+  const responseSeconds = hasResponseTime ? kpis.avg_response_time_ms / 1000 : 0
+  const animatedResponseTime = useCountAnimation(responseSeconds, 1500, true) // true = floats
+
+  // Success rate: animate the percentage
+  const successPct = (kpis.ai_success_rate || 0) * 100
+  const animatedSuccessRate = useCountAnimation(successPct, 2000, true)
+
+  // Overrides: integer count
   const animatedOverrides = useCountAnimation(kpis.human_override_total || 0, 2000)
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div className="stat-card text-center">
-        <p className="text-4xl font-bold text-green-600">{animatedResponseTime}s</p>
+        <p className="text-4xl font-bold text-green-600">
+          {hasResponseTime ? `${animatedResponseTime.toFixed(1)}s` : '—'}
+        </p>
         <p className="text-xs text-gray-500 font-semibold mt-1">Avg Response Time</p>
       </div>
       <div className="stat-card text-center">

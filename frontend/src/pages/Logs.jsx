@@ -3,6 +3,8 @@ import { CheckCircle, Info, AlertTriangle, XCircle, Search, Loader2, ChevronDown
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 const levelConfig = {
   success: { icon: CheckCircle,  color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-200'  },
   info:    { icon: Info,          color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200'   },

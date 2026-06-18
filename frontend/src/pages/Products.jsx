@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 // ProductKPIs Component - animated KPI cards
 function ProductKPIs({ status, products, lastSynced, formatTime }) {
   const animatedTotal = useCountAnimation(status?.product_count || 0, 2000)
@@ -81,7 +83,7 @@ export default function Products() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/products/sync/status', {
+      const res = await fetch(`${API_BASE}/products/sync/status`', {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Failed to load sync status')
@@ -95,7 +97,7 @@ export default function Products() {
   const handleCheckSync = async () => {
     setChecking(true)
     try {
-      const res = await fetch('/api/products/sync/check', {
+      const res = await fetch(`${API_BASE}/products/sync/check`', {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
@@ -117,7 +119,7 @@ export default function Products() {
   const handleSync = async () => {
     setSyncing(true)
     try {
-      const res = await fetch('/api/products/sync', {
+      const res = await fetch(`${API_BASE}/products/sync`', {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })

@@ -5,6 +5,8 @@ import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { ModalPortal } from '../context/ModalPortal'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 export default function Automation() {
   const [rules, setRules] = useState([])
   const [loading, setLoading] = useState(true)

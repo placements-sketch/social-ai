@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { SkeletonHeader } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const TONES = ['friendly', 'luxury', 'gen_z', 'minimalist', 'bold_sales']
 
 const TONE_LABELS = {
