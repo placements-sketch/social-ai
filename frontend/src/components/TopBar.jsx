@@ -397,7 +397,7 @@ export default function TopBar({ onMenuClick }) {
                 )}
               </div>
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
-                <button onClick={() => { navigate('/logs'); setShowNotifications(false) }} className="w-full text-xs font-semibold text-brand-600 hover:text-brand-700 py-1.5 transition-colors">
+                <button onClick={() => { navigate('/notifications'); setShowNotifications(false) }} className="w-full text-xs font-semibold text-brand-600 hover:text-brand-700 py-1.5 transition-colors">
                   View all notifications →
                 </button>
               </div>

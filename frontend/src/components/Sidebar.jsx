@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, MessageSquare, Package, Bot,
-  Zap, Radio, BarChart2, ScrollText, Settings,
-  ChevronLeft, ChevronRight, X, Users, UserCircle,
+  Zap, Radio, BarChart2, ScrollText, Settings, Sparkles,
+  ChevronLeft, ChevronRight, X, Users, UserCircle, Bell,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
@@ -20,9 +20,10 @@ const allNav = [
   { to: '/ai',         icon: Bot,             label: 'AI Settings',         roles: ['admin'], group: 'Setup' },
   { to: '/automation', icon: Zap,             label: 'Automation',          roles: ['admin'], group: 'Setup' },
 
-  { to: '/logs',       icon: ScrollText,      label: 'Logs',                roles: ['admin', 'agent', 'supervisor'], group: 'System' },
-  { to: '/users',      icon: Users,           label: 'Users',               roles: ['admin'], group: 'System' },
-  { to: '/settings',   icon: Settings,        label: 'Settings',            roles: ['admin'], group: 'System' },
+  { to: '/logs',          icon: ScrollText,      label: 'Logs',          roles: ['admin', 'agent', 'supervisor'], group: 'System' },
+  { to: '/notifications', icon: Bell,            label: 'Notifications', roles: ['admin', 'agent', 'supervisor'], group: 'System' },
+  { to: '/users',         icon: Users,           label: 'Users',         roles: ['admin'], group: 'System' },
+  { to: '/settings',      icon: Settings,        label: 'Settings',      roles: ['admin'], group: 'System' },
 ]
 
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
