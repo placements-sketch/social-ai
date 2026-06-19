@@ -545,11 +545,14 @@ class Notification(db.Model):
     id            = db.Column(db.Integer, primary_key=True)
     user_id       = db.Column(db.Integer, db.ForeignKey('auth_users.id', ondelete='CASCADE'),
                               nullable=False)
-    type          = db.Column(db.String(64), nullable=False)  # 'assigned' | 'reassigned' | 'unassigned'
+    type          = db.Column(db.String(64), nullable=False)
+    severity      = db.Column(db.String(16), nullable=False, default='info')  # 'info' | 'warning' | 'urgent'
     title         = db.Column(db.String(256), nullable=False)
     body          = db.Column(db.Text, nullable=True)
     resource_type = db.Column(db.String(64), nullable=True)
     resource_id   = db.Column(db.String(64), nullable=True)
+    actor_id      = db.Column(db.Integer, db.ForeignKey('auth_users.id', ondelete='SET NULL'),
+                              nullable=True)
     read_at       = db.Column(db.DateTime, nullable=True)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -557,10 +560,12 @@ class Notification(db.Model):
         return {
             'id': self.id,
             'type': self.type,
+            'severity': self.severity or 'info',
             'title': self.title,
             'body': self.body,
             'resource_type': self.resource_type,
             'resource_id': self.resource_id,
+            'actor_id': self.actor_id,
             'read': self.read_at is not None,
             'read_at': self.read_at.isoformat() if self.read_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,

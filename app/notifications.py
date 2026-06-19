@@ -20,21 +20,78 @@ from app.auth import current_user_id
 notifications_bp = Blueprint('notifications', __name__, url_prefix='/api')
 
 
-def create_notification(user_id, type_, title, body=None, resource_type=None, resource_id=None):
+from datetime import datetime, timedelta
+
+VALID_SEVERITIES = {'info', 'warning', 'urgent'}
+
+# How recent an existing notification must be to coalesce a new one into it.
+COALESCE_WINDOW_MINUTES = 5
+
+
+def create_notification(
+    user_id,
+    type_,
+    title,
+    body=None,
+    severity='info',
+    resource_type=None,
+    resource_id=None,
+    actor_id=None,
+    coalesce=False,
+):
     """
-    Internal helper to create a notification. Called from assignment.py,
-    handoff.py, or anywhere else that needs to alert a user.
+    Internal helper to create a notification.
+
+    Args:
+        user_id: who receives this
+        type_: notification type, e.g. 'conversation_escalated', 'automation_rule_changed'
+        title: short summary shown in the bell + page
+        body: optional fuller description
+        severity: 'info' (default), 'warning', or 'urgent'. Urgent drives the toast.
+        resource_type / resource_id: link target, e.g. 'conversation' + 123
+        actor_id: who triggered this action; used to suppress self-notifications upstream
+        coalesce: if True, merge into an existing unread notif of the same type
+                  for the same (user, resource) within the last COALESCE_WINDOW_MINUTES.
+                  Use for high-frequency events like automation toggles.
+
+    Returns the Notification row (existing if coalesced, new otherwise).
+    Caller is responsible for the commit.
     """
+    sev = severity if severity in VALID_SEVERITIES else 'info'
+
+    # Don't notify the user about their own action.
+    if actor_id is not None and actor_id == user_id:
+        return None
+
+    if coalesce:
+        cutoff = datetime.utcnow() - timedelta(minutes=COALESCE_WINDOW_MINUTES)
+        existing = (Notification.query
+                    .filter(Notification.user_id == user_id)
+                    .filter(Notification.type == type_)
+                    .filter(Notification.resource_type == resource_type)
+                    .filter(Notification.resource_id == (str(resource_id) if resource_id is not None else None))
+                    .filter(Notification.read_at.is_(None))
+                    .filter(Notification.created_at >= cutoff)
+                    .order_by(Notification.created_at.desc())
+                    .first())
+        if existing:
+            existing.title = title
+            if body is not None:
+                existing.body = body
+            existing.created_at = datetime.utcnow()  # bump so it sorts to top
+            return existing
+
     notif = Notification(
         user_id=user_id,
         type=type_,
+        severity=sev,
         title=title,
         body=body,
         resource_type=resource_type,
         resource_id=str(resource_id) if resource_id is not None else None,
+        actor_id=actor_id,
     )
     db.session.add(notif)
-    # No commit — caller commits as part of their transaction
     return notif
 
 
