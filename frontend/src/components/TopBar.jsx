@@ -178,12 +178,24 @@ export default function TopBar({ onMenuClick }) {
           return
         }
 
-        // On subsequent polls: show toasts for truly NEW notifications only
+        // On subsequent polls: show toasts for truly NEW notifications,
+        // but ONLY if urgent + unread + not where current user is the actor.
+        // Info and warning notifications go silently to the bell.
         newList.forEach(n => {
-          if (!seenIdsRef.current.has(n.id)) {
-            console.log('[Toast] Showing new notification:', n.title, n.body)
-            showToast({ title: n.title, body: n.body })
-            seenIdsRef.current.add(n.id)
+          if (seenIdsRef.current.has(n.id)) return
+          seenIdsRef.current.add(n.id)
+
+          const isUrgent = n.severity === 'urgent'
+          const isUnread = !n.read
+          const isMyOwnAction = n.actor_id && user?.id && n.actor_id === user.id
+
+          if (isUrgent && isUnread && !isMyOwnAction) {
+            console.log('[Toast] Showing urgent notification:', n.title)
+            showToast({
+              title: n.title,
+              body: n.body,
+              severity: n.severity,
+            })
           }
         })
       } catch (err) {
@@ -237,12 +249,14 @@ export default function TopBar({ onMenuClick }) {
               showToast({
                 title: `New message from ${c.handle || 'customer'}`,
                 body: lastInbound?.text || c.lastMessage || '',
+                severity: 'urgent',
               })
             } catch {
               // Fallback to lastMessage on error
               showToast({
                 title: `New message from ${c.handle || 'customer'}`,
                 body: c.lastMessage || '',
+                severity: 'urgent',
               })
             }
           }
