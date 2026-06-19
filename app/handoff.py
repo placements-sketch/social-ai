@@ -119,6 +119,37 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                           payload={"agent_id": agent.id, "error": str(e)},
                           conversation_id=conversation.id)
 
+    # Notify supervisors and admins of the escalation.
+    # No actor_id — this is system-triggered, not user-triggered.
+    # Skip the auto-assigned agent (if any) since they already got their own notification.
+    try:
+        from app.notifications import notify_supervisors
+        handle = conversation.user.external_id if conversation.user else 'a customer'
+        channel_label = conversation.channel.replace('_', ' ')
+        assignee_blurb = ''
+        if conversation.assigned_to:
+            from app.models import AuthUser
+            assignee = AuthUser.query.get(conversation.assigned_to)
+            if assignee:
+                assignee_blurb = f" Auto-assigned to {assignee.full_name}."
+
+        notify_supervisors(
+            type_='conversation_escalated',
+            title=f"Conversation escalated ({reason}): {handle}",
+            body=(
+                f"Reason: {detail}. Channel: {channel_label}.{assignee_blurb}"
+            ),
+            severity='urgent',
+            resource_type='conversation',
+            resource_id=conversation.id,
+            coalesce=False,  # each escalation is worth seeing on its own
+        )
+    except Exception as e:
+        log_event("error", "handoff.notify_supervisors_fail",
+                  f"notify_supervisors failed: {e}",
+                  payload={"conversation_id": conversation.id, "error": str(e)},
+                  conversation_id=conversation.id)
+
     db.session.commit()
 
     log_event("info", "handoff.triggered",
