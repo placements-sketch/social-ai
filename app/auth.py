@@ -16,7 +16,6 @@ from datetime import datetime, timezone, timedelta
 from app import db
 from app.models import AuthUser, AuditLog
 import re
-from app.notifications import notify_admins
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -152,6 +151,7 @@ def signup():
     db.session.add(new_user)
     db.session.flush()  # get new_user.id for the notification
 
+    from app.notifications import notify_admins
     notify_admins(
         type_='user_created',
         title=f"New user: {full_name}",
@@ -283,6 +283,7 @@ def update_user(user_id):
     user.updated_at = datetime.utcnow()
 
     # Notify other admins. Role changes are warning-level; name/status info-level.
+    from app.notifications import notify_admins
     sev = 'warning' if 'role' in changes else 'info'
     field_summary = ', '.join(sorted(changes.keys()))
     notify_admins(
@@ -349,6 +350,7 @@ def delete_user(user_id):
 
     db.session.delete(user)
 
+    from app.notifications import notify_admins
     notify_admins(
         type_='user_deleted',
         title=f"User deleted: {deleted_name}",
