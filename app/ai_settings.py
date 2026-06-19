@@ -21,6 +21,7 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models import AuthUser, AISettings
 from app.auth import log_audit, current_user_id
+from app.notifications import notify_admins
 
 ai_settings_bp = Blueprint('ai_settings', __name__, url_prefix='/api')
 
@@ -131,6 +132,20 @@ def update_settings():
         return jsonify({'error': 'No updatable fields provided'}), 400
 
     settings.updated_at = datetime.utcnow()
+
+    # Notify other admins of the change. Skip the actor.
+    field_summary = ', '.join(sorted(changes.keys()))
+    notify_admins(
+        type_='ai_settings_changed',
+        title=f"{current_user.full_name} updated AI Settings",
+        body=f"Changed: {field_summary}",
+        severity='info',
+        resource_type='ai_settings',
+        resource_id=1,
+        actor_id=current_user.id,
+        coalesce=True,
+    )
+
     db.session.commit()
 
     log_audit(
@@ -156,6 +171,17 @@ def reset_settings():
     for key, value in DEFAULTS.items():
         setattr(settings, key, value)
     settings.updated_at = utcnow()
+
+    notify_admins(
+        type_='ai_settings_reset',
+        title=f"{current_user.full_name} reset AI Settings to defaults",
+        body="All AI personalization (tone, sliders, system prompt, rules) restored to defaults.",
+        severity='warning',  # bigger deal than a tweak
+        resource_type='ai_settings',
+        resource_id=1,
+        actor_id=current_user.id,
+    )
+
     db.session.commit()
 
     log_audit(

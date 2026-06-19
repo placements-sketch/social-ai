@@ -17,6 +17,50 @@ from app import db
 from app.models import AuthUser, Notification, Conversation
 from app.auth import current_user_id
 
+def _notify_role(roles, type_, title, body=None, severity='info',
+                 resource_type=None, resource_id=None, actor_id=None,
+                 coalesce=False):
+    """
+    Create one notification per user matching the given role(s).
+    Skips the actor (they don't need to be notified of their own action).
+    """
+    if isinstance(roles, str):
+        roles = [roles]
+
+    targets_q = AuthUser.query.filter(AuthUser.role.in_(roles),
+                                      AuthUser.status == 'active')
+    if actor_id is not None:
+        targets_q = targets_q.filter(AuthUser.id != actor_id)
+
+    for target in targets_q.all():
+        create_notification(
+            user_id=target.id,
+            type_=type_,
+            title=title,
+            body=body,
+            severity=severity,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            actor_id=actor_id,
+            coalesce=coalesce,
+        )
+
+
+def notify_admins(type_, title, body=None, severity='info',
+                  resource_type=None, resource_id=None, actor_id=None,
+                  coalesce=False):
+    """Shortcut: notify all admins."""
+    _notify_role('admin', type_, title, body, severity,
+                 resource_type, resource_id, actor_id, coalesce)
+
+
+def notify_supervisors(type_, title, body=None, severity='info',
+                       resource_type=None, resource_id=None, actor_id=None,
+                       coalesce=False):
+    """Shortcut: notify all admins + supervisors."""
+    _notify_role(['admin', 'supervisor'], type_, title, body, severity,
+                 resource_type, resource_id, actor_id, coalesce)
+
 notifications_bp = Blueprint('notifications', __name__, url_prefix='/api')
 
 
