@@ -128,7 +128,10 @@ def summary():
         ).scalar()
 
         total_convs    = conv_q.count()
-        human_override = conv_q.filter(Conversation.ai_enabled == False).count()
+        human_override = conv_q.filter(
+            Conversation.ai_enabled == False,
+            Conversation.handoff_reason.is_(None),
+        ).count()
         escalated      = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
         failed         = max(0, inbound - ai_repl)
         ai_success     = (ai_repl / inbound) if inbound else 0.0
