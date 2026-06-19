@@ -56,6 +56,13 @@ def _verify_meta_signature(request, channel_label: str) -> tuple[bool, str | Non
     ).hexdigest()
 
     if not hmac.compare_digest(received_sig, expected_sig):
+        # Diagnostic: log first 12 chars of each so we can compare without
+        # exposing the full secret-derived hash in logs.
+        current_app.logger.warning(
+            f"[SIG MISMATCH] received={received_sig[:12]}... expected={expected_sig[:12]}... "
+            f"body_len={len(raw_body)} secret_present={bool(app_secret)} "
+            f"secret_len={len(app_secret) if app_secret else 0}"
+        )
         return False, 'Signature mismatch'
 
     return True, None
