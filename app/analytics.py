@@ -20,7 +20,7 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func, case
 
 from app import db
-from app.models import AuthUser, Conversation, Message
+from app.models import AuthUser, Conversation, Message, Channel
 from app.auth import current_user_id
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/api')
@@ -133,8 +133,46 @@ def summary():
             Conversation.handoff_reason.is_(None),
         ).count()
         escalated      = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
-        failed         = max(0, inbound - ai_repl)
-        ai_success     = (ai_repl / inbound) if inbound else 0.0
+
+        # ── AI eligibility: inbound on convs where AI was supposed to reply ─
+        # A message is "AI-eligible" iff its conversation has ai_enabled=True
+        # AND its channel has enabled=True (or has no Channel row — fail open).
+        # Disabled channels are admin-suppressed and excluded from failure count.
+        disabled_channels = (
+            db.session.query(Channel.channel)
+            .filter(Channel.enabled == False)
+            .subquery()
+        )
+        ai_eligible_conv_ids = (
+            db.session.query(Conversation.id)
+            .filter(Conversation.ai_enabled == True)
+            .subquery()
+        )
+        eligible_msg_q = _scope_filter(
+            Message.query
+              .filter(Message.created_at >= start_dt)
+              .filter(Message.created_at < end_dt)
+              .filter(Message.direction == 'inbound')
+              .filter(Message.conversation_id.in_(ai_eligible_conv_ids))
+              .filter(~Message.channel.in_(disabled_channels)),
+            Message, user,
+        )
+        eligible_inbound = eligible_msg_q.count()
+
+        eligible_ai_replies_q = _scope_filter(
+            Message.query
+              .filter(Message.created_at >= start_dt)
+              .filter(Message.created_at < end_dt)
+              .filter(Message.direction == 'outbound')
+              .filter(Message.sender == 'ai')
+              .filter(Message.conversation_id.in_(ai_eligible_conv_ids))
+              .filter(~Message.channel.in_(disabled_channels)),
+            Message, user,
+        )
+        eligible_ai_replies = eligible_ai_replies_q.count()
+
+        failed      = max(0, eligible_inbound - eligible_ai_replies)
+        ai_success  = (eligible_ai_replies / eligible_inbound) if eligible_inbound else 0.0
 
         return {
             'messages_total':      total_msgs,
