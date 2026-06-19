@@ -224,7 +224,8 @@ def sync_check():
         in_sync: bool                                         # true iff all three are empty
       }
     """
-    if AuthUser.query.get(current_user_id()) is None:
+    current_user = AuthUser.query.get(current_user_id())
+    if current_user is None:
         return jsonify({'error': 'User not found'}), 404
 
     try:
@@ -236,6 +237,17 @@ def sync_check():
             'message': 'Shopify integration is not yet configured. Set SHOPIFY_STORE_URL and SHOPIFY_ACCESS_TOKEN.',
         }), 200
     except Exception as e:
+        from app.notifications import notify_admins
+        notify_admins(
+            type_='shopify_check_failed',
+            title="Shopify check failed",
+            body=f"Diff check by {current_user.full_name} couldn't reach Shopify: {str(e)[:200]}",
+            severity='urgent',
+            resource_type='shopify',
+            actor_id=current_user.id,
+            coalesce=True,
+        )
+        db.session.commit()
         return jsonify({'ok': False, 'reason': 'shopify_error', 'message': str(e)}), 502
 
     snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
@@ -288,6 +300,17 @@ def sync_products():
             'message': 'Shopify integration is not yet configured. Set SHOPIFY_STORE_URL and SHOPIFY_ACCESS_TOKEN.',
         }), 200
     except Exception as e:
+        from app.notifications import notify_admins
+        notify_admins(
+            type_='shopify_sync_failed',
+            title="Shopify product sync failed",
+            body=f"{current_user.full_name} tried to sync products but Shopify is unreachable: {str(e)[:200]}",
+            severity='urgent',
+            resource_type='shopify',
+            actor_id=current_user.id,
+            coalesce=True,
+        )
+        db.session.commit()
         return jsonify({'ok': False, 'reason': 'shopify_error', 'message': str(e)}), 502
 
     snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
@@ -340,6 +363,31 @@ def sync_products():
             removed_count += 1
             removed.append({'shopify_product_id': spid, 'name': row.name})
 
+    # Notify other admins if the sync actually changed anything.
+    if added_count or updated_count or removed_count:
+        from app.notifications import notify_admins
+        change_summary_parts = []
+        if added_count:
+            change_summary_parts.append(f"{added_count} added")
+        if updated_count:
+            change_summary_parts.append(f"{updated_count} updated")
+        if removed_count:
+            change_summary_parts.append(f"{removed_count} removed")
+        change_summary = ', '.join(change_summary_parts)
+
+        # Removals are warning-level; pure additions/updates are info.
+        sev = 'warning' if removed_count else 'info'
+
+        notify_admins(
+            type_='shopify_sync_completed',
+            title=f"Products synced: {change_summary}",
+            body=f"{current_user.full_name} ran a Shopify sync",
+            severity=sev,
+            resource_type='products',
+            actor_id=current_user.id,
+            coalesce=True,
+        )
+
     db.session.commit()
 
     log_audit(
@@ -361,4 +409,3 @@ def sync_products():
         'synced_at': now.isoformat(),
         'total_products': ProductCache.query.count(),
     }), 201
-

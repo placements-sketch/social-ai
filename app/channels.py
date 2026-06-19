@@ -198,6 +198,24 @@ def update_channel(channel_id):
         return jsonify({'error': 'No updatable fields provided'}), 400
 
     channel.updated_at = datetime.utcnow()
+
+    # Notify other admins of enable/disable. Coalesce in case of rapid toggling.
+    if 'enabled' in changes:
+        from app.notifications import notify_admins
+        state = 'enabled' if channel.enabled else 'disabled'
+        # Disabling a channel is more impactful than enabling — bump severity.
+        sev = 'warning' if not channel.enabled else 'info'
+        notify_admins(
+            type_='channel_toggled',
+            title=f"{channel.display_name} {state}",
+            body=f"{current_user.full_name} turned this channel {state}",
+            severity=sev,
+            resource_type='channel',
+            resource_id=channel.id,
+            actor_id=current_user.id,
+            coalesce=True,
+        )
+
     db.session.commit()
 
     log_audit(
@@ -285,6 +303,18 @@ def test_channel(channel_id):
             )
             body = r.json() if r.text else {}
         except _requests.RequestException as e:
+            from app.notifications import notify_admins
+            notify_admins(
+                type_='channel_test_failed',
+                title=f"{channel.display_name} unreachable",
+                body=f"Network error when testing: {str(e)[:200]}",
+                severity='urgent',
+                resource_type='channel',
+                resource_id=channel.id,
+                actor_id=current_user.id,
+                coalesce=True,
+            )
+            db.session.commit()
             return jsonify({
                 'ok': False,
                 'reason': 'network_error',
@@ -294,6 +324,18 @@ def test_channel(channel_id):
 
         if r.status_code >= 400 or 'error' in body:
             err = body.get('error', {})
+            from app.notifications import notify_admins
+            notify_admins(
+                type_='channel_test_failed',
+                title=f"{channel.display_name} test failed",
+                body=f"Meta returned an error: {err.get('message', 'Unknown error')[:200]}",
+                severity='urgent',
+                resource_type='channel',
+                resource_id=channel.id,
+                actor_id=current_user.id,
+                coalesce=True,
+            )
+            db.session.commit()
             return jsonify({
                 'ok': False,
                 'reason': 'api_error',
@@ -350,6 +392,28 @@ def test_channel(channel_id):
         channel.last_verified_at = now
         channel.token_expires_at = token_expires_at
         channel.token_scopes = token_scopes
+
+        # If the token expires within 14 days, warn admins.
+        # Coalesced so retesting the same channel doesn't spam.
+        if token_expires_at:
+            days_left = (token_expires_at - now).days
+            if days_left <= 14:
+                from app.notifications import notify_admins
+                sev = 'urgent' if days_left <= 3 else 'warning'
+                notify_admins(
+                    type_='channel_token_expiring',
+                    title=f"{channel.display_name} token expires in {days_left} days",
+                    body=(
+                        f"The access token for {channel.display_name} will expire on "
+                        f"{token_expires_at.strftime('%b %d')}. Refresh it via Meta soon."
+                    ),
+                    severity=sev,
+                    resource_type='channel',
+                    resource_id=channel.id,
+                    actor_id=current_user.id,
+                    coalesce=True,
+                )
+
         db.session.commit()
 
         log_audit(
