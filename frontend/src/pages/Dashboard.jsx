@@ -780,12 +780,11 @@ export default function Dashboard() {
                     const aiPct = total > 0 ? ((ai / total) * 100).toFixed(1) : 0
                     const humanPct = total > 0 ? ((human / total) * 100).toFixed(1) : 0
                     
-                    // Compute platform's share of all messages across all platforms
-                    const grandTotal = chartData.reduce((sum, d) =>
-                      sum + d.instagram + d.whatsapp + d.facebook + d.tiktok +
-                      d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai +
-                      d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
-                    const platformShare = grandTotal > 0 ? ((total / grandTotal) * 100).toFixed(0) : 0
+                    // Platform's share of TOTAL CUSTOMER TRAFFIC (inbound only,
+                    // so AI/human replies don't double-count the same convo).
+                    const grandInbound = chartData.reduce((sum, d) =>
+                      sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0)
+                    const platformShare = grandInbound > 0 ? ((inbound / grandInbound) * 100).toFixed(0) : 0
 
                     return (
                       <div
