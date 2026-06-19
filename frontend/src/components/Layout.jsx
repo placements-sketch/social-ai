@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import ScrollToTop from './ScrollToTop'
+import clsx from 'clsx'
 
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false) // Mobile: closed by default
@@ -42,16 +43,10 @@ export default function Layout() {
       )}
 
       {/* ── Desktop sidebar container (collapsible) ── */}
-      <div style={{ 
-        display: window.innerWidth >= 768 ? 'flex' : 'none', 
-        flexDirection: 'column', 
-        gap: '12px',
-        padding: '12px',
-        backgroundColor: 'transparent',
-        flexShrink: 0,
-        minWidth: 0,
-        height: '100vh'
-      }}>
+      <div 
+        className="hidden md:flex flex-col gap-2 p-2 lg:gap-3 lg:p-3 bg-transparent shrink-0"
+        style={{ minWidth: 0, height: '100vh' }}
+      >
         <Sidebar
           collapsed={desktopCollapsed}
           onToggle={() => setDesktopCollapsed(c => !c)}
@@ -105,7 +100,12 @@ export default function Layout() {
             }
           }}
         />
-        <main style={{ flex: 1, overflow: 'overlay', padding: window.innerWidth >= 768 ? '32px' : '16px', width: '100%', backgroundColor: 'transparent', position: 'relative' }}>
+        <main className={clsx(
+          "flex-1 w-full bg-transparent relative",
+          location.pathname === '/messages'
+            ? "overflow-hidden p-0"
+            : "overflow-auto px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-5"
+        )}>
           <Outlet />
         </main>
       </div>

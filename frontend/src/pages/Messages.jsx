@@ -1045,14 +1045,14 @@ const handleSend = async () => {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header - Full width with padding */}
-      <div className="px-0 lg:px-8 py-1 bg-white shrink-0">
-        <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
+      {/* Header */}
+      <div className="px-4 md:px-6 lg:px-8 pt-3 lg:pt-4 pb-2 bg-white shrink-0">
+        <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Messages</h1>
+        <p className="text-xs lg:text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
       </div>
 
       {/* Main content area with border - fills remaining space */}
-      <div className="flex-1 flex flex-col gap-0 overflow-hidden px-0 lg:px-8 pb-2 md:pb-3 min-h-0">
+      <div className="flex-1 flex flex-col gap-0 overflow-hidden px-4 md:px-6 lg:px-8 pb-3 lg:pb-4 min-h-0">
         <div className="flex-1 flex flex-col gap-0 overflow-hidden rounded-3xl border border-gray-200 bg-white min-h-0">
           {/* Main content area - responsive toggle for small screens */}
           <div className="flex-1 flex gap-0 overflow-hidden min-h-0">
