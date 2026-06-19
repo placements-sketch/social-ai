@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from app import db
 from app.models import AuthUser, AuditLog
 import re
+from app.notifications import notify_admins
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -149,6 +150,18 @@ def signup():
     new_user.set_password(password)
 
     db.session.add(new_user)
+    db.session.flush()  # get new_user.id for the notification
+
+    notify_admins(
+        type_='user_created',
+        title=f"New user: {full_name}",
+        body=f"{current_user.full_name} added {full_name} ({email}) as {role}",
+        severity='info',
+        resource_type='user',
+        resource_id=new_user.id,
+        actor_id=current_user.id,
+    )
+
     db.session.commit()
 
     log_audit(
@@ -268,6 +281,36 @@ def update_user(user_id):
         changes['status'] = user.status
 
     user.updated_at = datetime.utcnow()
+
+    # Notify other admins. Role changes are warning-level; name/status info-level.
+    sev = 'warning' if 'role' in changes else 'info'
+    field_summary = ', '.join(sorted(changes.keys()))
+    notify_admins(
+        type_='user_updated',
+        title=f"User updated: {user.full_name}",
+        body=f"{current_user.full_name} changed {field_summary}",
+        severity=sev,
+        resource_type='user',
+        resource_id=user_id,
+        actor_id=current_user.id,
+        coalesce=True,
+    )
+
+    # If the updated user is themselves an admin or supervisor (not the actor), 
+    # they should also know their account was modified.
+    if user.id != current_user.id and user.role in ('admin', 'supervisor'):
+        from app.notifications import create_notification
+        create_notification(
+            user_id=user.id,
+            type_='your_account_changed',
+            title="Your account was modified",
+            body=f"{current_user.full_name} changed: {field_summary}",
+            severity='warning',
+            resource_type='user',
+            resource_id=user_id,
+            actor_id=current_user.id,
+        )
+
     db.session.commit()
 
     log_audit(
@@ -299,7 +342,23 @@ def delete_user(user_id):
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
+    # Capture details before delete cascades
+    deleted_name = user.full_name
+    deleted_email = user.email
+    deleted_role = user.role
+
     db.session.delete(user)
+
+    notify_admins(
+        type_='user_deleted',
+        title=f"User deleted: {deleted_name}",
+        body=f"{current_user.full_name} removed {deleted_name} ({deleted_email}, {deleted_role})",
+        severity='warning',
+        resource_type='user',
+        resource_id=user_id,
+        actor_id=current_user.id,
+    )
+
     db.session.commit()
 
     log_audit(
