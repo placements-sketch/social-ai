@@ -180,7 +180,7 @@ def summary():
             'ai_replies_total':    ai_repl,
             'human_replies_total': human_repl,
             'failed_responses':    failed,
-            'avg_response_time_ms': int(avg_ms) if avg_ms else None,
+            'avg_response_time_ms': int(avg_ms) if avg_ms is not None else None,
             'ai_success_rate':     round(ai_success, 4),
             'human_override_total': human_override,
             'escalated_total':     escalated,
