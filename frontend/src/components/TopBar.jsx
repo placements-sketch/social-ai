@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useToast } from './Toast'
-import { Bell, RefreshCw, Menu, LogOut, User, MessageSquare, AlertTriangle, CheckCircle, X, CheckCheck } from 'lucide-react'
+import {
+  Bell, RefreshCw, Menu, LogOut, User, MessageSquare,
+  AlertTriangle, CheckCircle, X, CheckCheck,
+  Radio, RefreshCw as Sync, Users as UsersIcon, Shield,
+  Zap, Bot, Trash2, UserPlus, UserCheck, Package,
+  AlertOctagon, Settings as SettingsIcon, ShieldAlert,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ModalPortal } from '../context/ModalPortal'
@@ -8,17 +14,96 @@ import { fetchNotifications, markNotificationRead, markAllNotificationsRead } fr
 import { useTimeAgo } from '../hooks/useTimeAgo'
 import clsx from 'clsx'
 
-// Icon + color mapping per notification type
-function notifVisuals(type) {
-  switch (type) {
-    case 'assigned':
-    case 'reassigned':
-      return { Icon: MessageSquare, color: 'text-brand-600', bg: 'bg-orange-50' }
-    case 'unassigned':
-      return { Icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50' }
-    default:
-      return { Icon: CheckCircle, color: 'text-gray-500', bg: 'bg-gray-50' }
+// Group notifications by day for the modal display.
+// Returns: [{ label: 'Today', notifs: [...] }, { label: 'Yesterday', notifs: [...] }, ...]
+function groupNotifsByDay(notifs) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const weekAgo = new Date(today)
+  weekAgo.setDate(weekAgo.getDate() - 7)
+
+  const groups = {
+    today: { label: 'Today', notifs: [] },
+    yesterday: { label: 'Yesterday', notifs: [] },
+    week: { label: 'Earlier this week', notifs: [] },
+    older: { label: 'Older', notifs: [] },
   }
+
+  for (const n of notifs) {
+    if (!n.created_at) {
+      groups.older.notifs.push(n)
+      continue
+    }
+    const created = new Date(n.created_at)
+    if (created >= today) groups.today.notifs.push(n)
+    else if (created >= yesterday) groups.yesterday.notifs.push(n)
+    else if (created >= weekAgo) groups.week.notifs.push(n)
+    else groups.older.notifs.push(n)
+  }
+
+  return Object.values(groups).filter(g => g.notifs.length > 0)
+}
+
+// Icon + color mapping per notification type.
+// Covers every type emitted by the backend (Phase 2 event coverage).
+function notifVisuals(type, severity) {
+  // Severity overrides color for urgent/warning regardless of type
+  const sevColor = severity === 'urgent'
+    ? { color: 'text-red-600', bg: 'bg-red-50' }
+    : severity === 'warning'
+      ? { color: 'text-amber-600', bg: 'bg-amber-50' }
+      : null  // info uses type-specific color
+
+  const typeMap = {
+    // Conversation / messaging
+    assigned:                       { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-orange-50' },
+    reassigned:                     { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-orange-50' },
+    unassigned:                     { Icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50'  },
+    conversation_escalated:         { Icon: AlertOctagon,  color: 'text-red-600',   bg: 'bg-red-50'    },
+    conversation_resolved:          { Icon: CheckCircle,   color: 'text-green-600', bg: 'bg-green-50'  },
+    new_inbound_on_my_conversation: { Icon: MessageSquare, color: 'text-blue-600',  bg: 'bg-blue-50'   },
+
+    // Channels
+    channel_toggled:           { Icon: Radio,    color: 'text-purple-600', bg: 'bg-purple-50' },
+    channel_test_failed:       { Icon: Radio,    color: 'text-red-600',    bg: 'bg-red-50'    },
+    channel_token_expiring:    { Icon: Radio,    color: 'text-amber-600',  bg: 'bg-amber-50'  },
+
+    // Shopify
+    shopify_sync_completed: { Icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    shopify_sync_failed:    { Icon: Package, color: 'text-red-600',     bg: 'bg-red-50'     },
+    shopify_check_failed:   { Icon: Package, color: 'text-red-600',     bg: 'bg-red-50'     },
+
+    // Users
+    user_created:          { Icon: UserPlus,   color: 'text-blue-600',  bg: 'bg-blue-50'  },
+    user_updated:          { Icon: UsersIcon,  color: 'text-gray-700',  bg: 'bg-gray-100' },
+    user_deleted:          { Icon: Trash2,     color: 'text-red-600',   bg: 'bg-red-50'   },
+    your_account_changed:  { Icon: ShieldAlert,color: 'text-amber-600', bg: 'bg-amber-50' },
+
+    // Automation
+    automation_rule_created: { Icon: Zap, color: 'text-brand-600', bg: 'bg-orange-50' },
+    automation_rule_updated: { Icon: Zap, color: 'text-brand-600', bg: 'bg-orange-50' },
+    automation_rule_deleted: { Icon: Zap, color: 'text-red-600',   bg: 'bg-red-50'    },
+    automation_rule_toggled: { Icon: Zap, color: 'text-gray-600',  bg: 'bg-gray-100'  },
+
+    // AI Settings
+    ai_settings_changed: { Icon: Bot, color: 'text-brand-600',  bg: 'bg-orange-50' },
+    ai_settings_reset:   { Icon: Bot, color: 'text-amber-600',  bg: 'bg-amber-50'  },
+
+    // Security
+    webhook_signature_failed: { Icon: Shield, color: 'text-red-600', bg: 'bg-red-50' },
+  }
+
+  const fallback = { Icon: Bell, color: 'text-gray-500', bg: 'bg-gray-50' }
+  const base = typeMap[type] || fallback
+
+  // Apply severity tint to bg only — keep the type's icon and natural color for info notifications,
+  // but for urgent/warning we override entirely so the user notices.
+  if (sevColor) {
+    return { Icon: base.Icon, ...sevColor }
+  }
+  return base
 }
 
 // Separate component for notification item to use the useTimeAgo hook
@@ -40,7 +125,14 @@ function NotificationItem({ notif, Icon, color, bg, onClickNotif }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-bold text-gray-900">{notif.title}</p>
-            {!notif.read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />}
+            {!notif.read && (
+              <span className={clsx(
+                'w-2 h-2 rounded-full shrink-0 mt-1',
+                notif.severity === 'urgent' ? 'bg-red-500'
+                  : notif.severity === 'warning' ? 'bg-amber-500'
+                  : 'bg-blue-500'
+              )} />
+            )}
           </div>
           {notif.body && (
             <p className="text-xs text-gray-600 mt-0.5 leading-snug">{notif.body}</p>
@@ -266,10 +358,28 @@ export default function TopBar({ onMenuClick }) {
                     <p className="text-xs text-gray-500">No notifications yet</p>
                   </div>
                 ) : (
-                  notifications.map((notif) => {
-                    const { Icon, color, bg } = notifVisuals(notif.type)
-                    return <NotificationItem key={notif.id} notif={notif} Icon={Icon} color={color} bg={bg} onClickNotif={handleClickNotif} />
-                  })
+                  groupNotifsByDay(notifications).map(group => (
+                    <div key={group.label}>
+                      <div className="px-4 py-2 bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                          {group.label}
+                        </p>
+                      </div>
+                      {group.notifs.map(notif => {
+                        const { Icon, color, bg } = notifVisuals(notif.type, notif.severity)
+                        return (
+                          <NotificationItem
+                            key={notif.id}
+                            notif={notif}
+                            Icon={Icon}
+                            color={color}
+                            bg={bg}
+                            onClickNotif={handleClickNotif}
+                          />
+                        )
+                      })}
+                    </div>
+                  ))
                 )}
               </div>
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
