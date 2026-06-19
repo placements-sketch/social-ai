@@ -71,7 +71,7 @@ def login():
             return jsonify({'error': 'Email and password are required'}), 400
 
         email = data.get('email').lower().strip()
-        password = data.get('password')
+        password = data.get('password', '').strip()
 
         user = AuthUser.query.filter_by(email=email).first()
 

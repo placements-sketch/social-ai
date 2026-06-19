@@ -129,6 +129,19 @@ def create_rule():
         sort_order=sort_order,
     )
     db.session.add(rule)
+    db.session.flush()  # get rule.id
+
+    from app.notifications import notify_admins
+    notify_admins(
+        type_='automation_rule_created',
+        title=f"New automation rule: {name}",
+        body=f"{current_user.full_name} added a rule",
+        severity='info',
+        resource_type='automation_rule',
+        resource_id=rule.id,
+        actor_id=current_user.id,
+    )
+
     db.session.commit()
 
     log_audit(
@@ -202,6 +215,20 @@ def update_rule(rule_id):
         return jsonify({'error': 'No updatable fields provided'}), 400
 
     rule.updated_at = datetime.utcnow()
+
+    from app.notifications import notify_admins
+    field_summary = ', '.join(sorted(changes.keys()))
+    notify_admins(
+        type_='automation_rule_updated',
+        title=f"Rule updated: {rule.name}",
+        body=f"{current_user.full_name} changed {field_summary}",
+        severity='info',
+        resource_type='automation_rule',
+        resource_id=rule.id,
+        actor_id=current_user.id,
+        coalesce=True,
+    )
+
     db.session.commit()
 
     log_audit(
@@ -226,6 +253,18 @@ def delete_rule(rule_id):
 
     name = rule.name
     db.session.delete(rule)
+
+    from app.notifications import notify_admins
+    notify_admins(
+        type_='automation_rule_deleted',
+        title=f"Rule deleted: {name}",
+        body=f"{current_user.full_name} removed an automation rule",
+        severity='warning',
+        resource_type='automation_rule',
+        resource_id=rule_id,
+        actor_id=current_user.id,
+    )
+
     db.session.commit()
 
     log_audit(
@@ -251,6 +290,20 @@ def toggle_rule(rule_id):
 
     rule.enabled = not rule.enabled
     rule.updated_at = datetime.utcnow()
+
+    from app.notifications import notify_admins
+    state = 'enabled' if rule.enabled else 'disabled'
+    notify_admins(
+        type_='automation_rule_toggled',
+        title=f"Rule {state}: {rule.name}",
+        body=f"{current_user.full_name} turned this rule {state}",
+        severity='info',
+        resource_type='automation_rule',
+        resource_id=rule.id,
+        actor_id=current_user.id,
+        coalesce=True,
+    )
+
     db.session.commit()
 
     log_audit(
