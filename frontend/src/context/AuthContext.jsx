@@ -22,6 +22,31 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  // Heartbeat: while authenticated, ping the backend every 30s so other
+  // staff see this user as "online". Only runs when a tab is visible —
+  // background tabs go idle naturally.
+  useEffect(() => {
+    if (!user) return
+
+    const ping = async () => {
+      if (document.visibilityState !== 'visible') return
+      const token = localStorage.getItem('authToken')
+      if (!token) return
+      try {
+        await fetch(`${API_URL}/api/auth/heartbeat`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      } catch {
+        // Silent — heartbeat failure is non-fatal
+      }
+    }
+
+    ping() // immediate ping on login
+    const timer = setInterval(ping, 30_000)
+    return () => clearInterval(timer)
+  }, [user])
+
   const verifyToken = async (token) => {
     try {
       console.log('[AUTH] Verifying token:', token.substring(0, 20) + '...')

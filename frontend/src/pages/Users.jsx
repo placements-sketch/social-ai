@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Loader2, X, Check, Users as UsersIcon } from 'luc
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
+import PresenceDot, { lastSeenLabel } from '../components/PresenceDot'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -47,6 +48,16 @@ export default function Users() {
 
   useEffect(() => {
     fetchUsers()
+    // Refresh presence indicators every 30s without a full skeleton reload
+    const timer = setInterval(() => {
+      fetch(`${API_BASE}/auth/users`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.users) setUsers(data.users) })
+        .catch(() => { /* silent */ })
+    }, 30_000)
+    return () => clearInterval(timer)
   }, [fetchUsers])
 
   const validateForm = () => {
@@ -259,12 +270,28 @@ export default function Users() {
                             </span>
                           </div>
                           <p className="text-xs text-gray-500 font-mono truncate">{user.email}</p>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400 flex-wrap">
                             <span>Joined {joinDate}</span>
                             <span className={clsx('px-1.5 py-0.5 rounded font-medium text-xs', 
                               user.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'
                             )}>
                               {user.status}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <PresenceDot status={user.presence || 'offline'} />
+                              <span className={clsx(
+                                'capitalize font-medium',
+                                user.presence === 'online' ? 'text-green-700'
+                                  : user.presence === 'idle' ? 'text-amber-700'
+                                  : 'text-gray-500'
+                              )}>
+                                {user.presence || 'offline'}
+                              </span>
+                              {lastSeenLabel(user.last_seen_at, user.presence) && (
+                                <span className="text-gray-400">
+                                  · {lastSeenLabel(user.last_seen_at, user.presence)}
+                                </span>
+                              )}
                             </span>
                           </div>
                         </div>

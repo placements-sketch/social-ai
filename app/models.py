@@ -38,6 +38,7 @@ class AuthUser(db.Model):
     created_at      = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at      = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login      = db.Column(db.DateTime, nullable=True)
+    last_seen_at    = db.Column(db.DateTime, nullable=True)
 
     audit_logs      = db.relationship("AuditLog", backref="user", lazy=True)
 
@@ -46,6 +47,22 @@ class AuthUser(db.Model):
 
     def check_password(self, password):
         return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+    
+    def presence_status(self):
+        """
+        Derive presence from last_seen_at.
+          - online: seen within last 90 seconds (3x heartbeat headroom)
+          - idle:   seen within last 5 minutes
+          - offline: anything older, or never seen
+        """
+        if not self.last_seen_at:
+            return 'offline'
+        delta = (datetime.utcnow() - self.last_seen_at).total_seconds()
+        if delta < 90:
+            return 'online'
+        if delta < 300:
+            return 'idle'
+        return 'offline'
 
     def to_dict(self):
         return {
@@ -56,6 +73,8 @@ class AuthUser(db.Model):
             'status': self.status,
             'created_at': self.created_at.isoformat(),
             'last_login': self.last_login.isoformat() if self.last_login else None,
+            'last_seen_at': self.last_seen_at.isoformat() if self.last_seen_at else None,
+            'presence': self.presence_status(),
         }
 
     def to_brief(self):

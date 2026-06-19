@@ -4,6 +4,7 @@ import {
   Zap, Radio, BarChart2, ScrollText, Settings, Sparkles,
   ChevronLeft, ChevronRight, X, Users, UserCircle, Bell,
 } from 'lucide-react'
+import PresenceDot from './PresenceDot'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import szLogo from '../images/sz.png'
@@ -159,8 +160,13 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       >
         {!isMobile && (
           <div className={clsx('flex-col items-center gap-2', collapsed ? 'md:flex hidden' : 'hidden')}>
-            <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
-              {user?.full_name?.charAt(0).toUpperCase() || 'U'}
+            <div className="relative">
+              <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
+                {user?.full_name?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-[#0d0d0d]">
+                <PresenceDot status={user?.presence || 'online'} size="md" />
+              </span>
             </div>
             <button
               onClick={onToggle}
@@ -180,11 +186,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
             <p className="text-xs font-semibold text-white truncate">{user?.full_name || 'User'}</p>
             <p className="text-[11px] text-gray-500 truncate capitalize">{user?.role || 'user'}</p>
           </div>
-          <div
-            className="w-2 h-2 rounded-full bg-green-500 shrink-0"
-            style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}
-            title="Online"
-          />
+          <PresenceDot status={user?.presence || 'online'} />
         </div>
       </div>
     </aside>

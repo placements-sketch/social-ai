@@ -216,6 +216,28 @@ def get_current_user():
 
     return jsonify(user.to_dict()), 200
 
+@auth_bp.route('/heartbeat', methods=['POST'])
+@jwt_required()
+def heartbeat():
+    """
+    Record that the current user is active right now. Called by the
+    frontend every ~30 seconds while a tab is open. Updates last_seen_at
+    so the Users page can show online/idle/offline presence indicators.
+
+    Deliberately lightweight: no validation, no audit log, single
+    timestamp write. Returns 204 No Content to save bandwidth.
+    """
+    uid = current_user_id()
+    if not uid:
+        return '', 204
+
+    user = AuthUser.query.get(uid)
+    if user:
+        user.last_seen_at = datetime.utcnow()
+        db.session.commit()
+
+    return '', 204
+
 
 @auth_bp.route('/users', methods=['GET'])
 @jwt_required()
