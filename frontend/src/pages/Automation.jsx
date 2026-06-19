@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useContext } from 'react'
-import { Zap, Plus, Pencil, Trash2, GripVertical, X, Loader2 } from 'lucide-react'
+import { Zap, Plus, Pencil, Trash2, GripVertical, X, Loader2, Check } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -20,6 +20,13 @@ export default function Automation() {
   const [modalData, setModalData] = useState({ name: '', trigger: '', action: '', enabled: true })
   const [submitting, setSubmitting] = useState(false)
   const [modalError, setModalError] = useState(null)
+
+  // Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editData, setEditData] = useState({ id: null, name: '', trigger: '', action: '' })
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editError, setEditError] = useState(null)
+  const [editSuccess, setEditSuccess] = useState(false)
 
   // Fetch rules
   const fetchRules = useCallback(async () => {
@@ -88,6 +95,66 @@ export default function Automation() {
       setRules(prev => prev.filter(r => r.id !== id))
     } catch (err) {
       console.error('Delete failed:', err)
+    }
+  }
+
+  const openEditModal = (rule) => {
+    setEditData({
+      id: rule.id,
+      name: rule.name,
+      trigger: rule.trigger,
+      action: rule.action,
+    })
+    setEditError(null)
+    setEditSuccess(false)
+    setShowEditModal(true)
+  }
+
+  const closeEditModal = () => {
+    setShowEditModal(false)
+    setEditError(null)
+    setEditSuccess(false)
+    setEditData({ id: null, name: '', trigger: '', action: '' })
+  }
+
+  const updateRule = async (e) => {
+    e.preventDefault()
+    setEditError(null)
+    setEditSuccess(false)
+
+    if (!editData.name.trim() || !editData.trigger.trim() || !editData.action.trim()) {
+      setEditError('All fields are required')
+      return
+    }
+
+    setEditSubmitting(true)
+    try {
+      const res = await fetch(`${API_BASE}/automation-rules/${editData.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify({
+          name: editData.name.trim(),
+          trigger: editData.trigger.trim(),
+          action: editData.action.trim(),
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update rule')
+
+      setEditSuccess(true)
+      setRules(prev => prev.map(r => r.id === editData.id ? data.rule : r))
+
+      setTimeout(() => {
+        closeEditModal()
+      }, 1200)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setEditSubmitting(false)
     }
   }
 
@@ -255,7 +322,13 @@ export default function Automation() {
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 w-full sm:w-auto justify-end">
-                  <button className="btn-ghost p-1.5 text-xs sm:text-sm" title="Edit"><Pencil size={13} /></button>
+                  <button
+                    onClick={() => openEditModal(rule)}
+                    className="btn-ghost p-1.5 text-xs sm:text-sm hover:text-gray-700"
+                    title="Edit rule"
+                  >
+                    <Pencil size={13} />
+                  </button>
                   <button
                     onClick={() => deleteRule(rule.id)}
                     className="btn-ghost p-1.5 hover:text-red-500 text-xs sm:text-sm" title="Delete"
@@ -373,6 +446,102 @@ export default function Automation() {
             </form>
           </div>
         </div>
+        </ModalPortal>
+      )}
+
+      {/* Edit Rule Modal */}
+      {showEditModal && (
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <h2 className="text-lg font-bold text-gray-900">Edit Rule</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Update trigger or action</p>
+                </div>
+                <button onClick={closeEditModal} className="btn-ghost p-1 shrink-0">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {editError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-600 font-medium">
+                  {editError}
+                </div>
+              )}
+
+              {editSuccess && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700 font-medium flex items-center gap-2">
+                  <Check size={14} className="shrink-0" /> Rule updated successfully!
+                </div>
+              )}
+
+              <form onSubmit={updateRule} className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Rule Name</label>
+                  <input
+                    type="text"
+                    value={editData.name}
+                    onChange={(e) => setEditData(prev => ({ ...prev, name: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">IF Trigger</label>
+                  <input
+                    type="text"
+                    value={editData.trigger}
+                    onChange={(e) => setEditData(prev => ({ ...prev, trigger: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">THEN Action</label>
+                  <input
+                    type="text"
+                    value={editData.action}
+                    onChange={(e) => setEditData(prev => ({ ...prev, action: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeEditModal}
+                    className="btn-ghost flex-1 text-sm"
+                    disabled={editSubmitting || editSuccess}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editSubmitting || editSuccess}
+                    className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-all text-white bg-black hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {editSubmitting ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" /> Saving...
+                      </>
+                    ) : editSuccess ? (
+                      <>
+                        <Check size={13} /> Saved!
+                      </>
+                    ) : (
+                      <>
+                        <Check size={13} /> Save
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         </ModalPortal>
       )}
     </div>

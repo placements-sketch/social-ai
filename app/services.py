@@ -180,7 +180,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         context_data["order_status_asked"] = True
 
     # ── Step 5: Generate AI reply with full multi-intent context ───────────
-    reply = generate_reply(
+    reply, ai_elapsed_ms = generate_reply(
         message=message,
         intents=intents,
         context_data=context_data,
@@ -209,6 +209,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     _save_message(
         user_id=user_id, channel=channel, content=reply,
         intent=None, direction="outbound",
+        ai_response_time_ms=ai_elapsed_ms,
     )
 
     return reply
@@ -374,7 +375,8 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> None:
 def _save_message(user_id: str, channel: str, content: str,
                   intent: str | None, direction: str,
                   external_id: str | None = None,
-                  media_id: str | None = None):
+                  media_id: str | None = None,
+                  ai_response_time_ms: int | None = None):
     """
     Persist a message and return the Message row (or None on failure).
     Creates the User and Conversation if they don't exist yet.
@@ -428,6 +430,7 @@ def _save_message(user_id: str, channel: str, content: str,
             intent=intent,
             external_id=external_id,
             media_id=media_id,
+            ai_response_time_ms=ai_response_time_ms,
         )
         db.session.add(msg)
         db.session.commit()

@@ -10,12 +10,13 @@ To activate real Claude calls:
   3. Set USE_MOCK_AI = False below
 """
 
+import time
 from app.utils.logger import log_event
 
 USE_MOCK_AI = True  # Flip to False once your Anthropic key is configured
 
 
-def generate_reply(message: str, intents: list[str], context_data: dict, channel: str) -> str:
+def generate_reply(message: str, intents: list[str], context_data: dict, channel: str) -> tuple[str, int]:
     """
     Generates a customer support reply that addresses ALL detected intents.
 
@@ -26,11 +27,15 @@ def generate_reply(message: str, intents: list[str], context_data: dict, channel
         channel:      'instagram_dm' | 'instagram_comment' | 'whatsapp' | etc.
 
     Returns:
-        A single reply string addressing every question asked.
+        Tuple of (reply_string, elapsed_milliseconds).
     """
+    start = time.perf_counter()
     if USE_MOCK_AI:
-        return _mock_reply(intents, context_data)
-    return _claude_reply(message, intents, context_data, channel)
+        reply = _mock_reply(intents, context_data)
+    else:
+        reply = _claude_reply(message, intents, context_data, channel)
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    return reply, elapsed_ms
 
 
 # ─────────────────────────────────────────────
