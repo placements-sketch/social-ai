@@ -2,7 +2,10 @@ import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext()
 
-const API_URL = import.meta.env.VITE_API_URL || ''  // Use env var or fallback to relative paths
+// Standardise on VITE_API_BASE which already includes /api. Strip the
+// trailing /api so existing `${API_URL}/api/auth/login` fetches still work.
+const API_BASE = import.meta.env.VITE_API_BASE || ''
+const API_URL = API_BASE.endsWith('/api') ? API_BASE.slice(0, -4) : API_BASE
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
