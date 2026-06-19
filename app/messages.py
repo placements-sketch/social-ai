@@ -439,7 +439,7 @@ def delete_message(message_id):
     Delete a message: unsends from IG (if outbound and within 24h)
     and removes from our DB. Soft-fails the IG unsend — DB delete still goes through.
     """
-    from app.integrations.meta import unsend_instagram_message
+    from app.integrations.meta import unsend_instagram_message, delete_instagram_comment
 
     current_user = _current_user()
     if not current_user:
@@ -455,10 +455,13 @@ def delete_message(message_id):
 
     conv = Conversation.query.get(msg.conversation_id)
 
-    # Try to unsend from IG first if it's an IG message with an external_id
+    # Try to unsend/delete from IG first if it's an IG message with an external_id
     ig_unsent = False
-    if msg.channel == 'instagram_dm' and msg.external_id:
-        ig_unsent = unsend_instagram_message(msg.external_id)
+    if msg.external_id:
+        if msg.channel == 'instagram_dm':
+            ig_unsent = unsend_instagram_message(msg.external_id)
+        elif msg.channel == 'instagram_comment':
+            ig_unsent = delete_instagram_comment(msg.external_id)
 
     # Delete from our DB regardless of IG result
     db.session.delete(msg)
@@ -498,7 +501,7 @@ def edit_message(message_id):
       2. Save the new content as a separate outbound message
       3. Send the new content to IG
     """
-    from app.integrations.meta import unsend_instagram_message
+    from app.integrations.meta import unsend_instagram_message, delete_instagram_comment
     from app.services import _dispatch_reply
 
     current_user = _current_user()
@@ -522,8 +525,11 @@ def edit_message(message_id):
 
     # Step 1: Unsend the original from IG
     ig_unsent = False
-    if original.channel == 'instagram_dm' and original.external_id:
-        ig_unsent = unsend_instagram_message(original.external_id)
+    if original.external_id:
+        if original.channel == 'instagram_dm':
+            ig_unsent = unsend_instagram_message(original.external_id)
+        elif original.channel == 'instagram_comment':
+            ig_unsent = delete_instagram_comment(original.external_id)
 
     # Step 2: Delete the original from our DB
     db.session.delete(original)
@@ -550,8 +556,24 @@ def edit_message(message_id):
     # Step 4: Send the new content to IG
     if customer:
         try:
-            _dispatch_reply(channel=conv.channel, user_id=customer.external_id, reply=new_content)
+            # For comment replies, we need the comment_id of the latest INBOUND
+            # message in this conversation — that's the comment we're replying to.
+            comment_ext_id = None
+            if conv.channel.endswith("_comment"):
+                last_inbound = (Message.query
+                    .filter_by(conversation_id=conv.id, direction='inbound')
+                    .order_by(Message.created_at.desc())
+                    .first())
+                if last_inbound:
+                    comment_ext_id = last_inbound.external_id
+            _dispatch_reply(
+                channel=conv.channel,
+                user_id=customer.external_id,
+                reply=new_content,
+                comment_external_id=comment_ext_id,
+            )
         except Exception as e:
+            from app.utils.logger import log_event
             log_event("error", "messages.edit_message.dispatch",
                       f"Edit dispatch failed: {e}",
                       payload={"message_id": message_id, "error": str(e)})

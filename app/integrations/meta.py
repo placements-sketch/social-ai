@@ -263,3 +263,47 @@ def unsend_instagram_message(message_id: str) -> bool:
                   f"Unsend exception: {e}",
                   payload={"message_id": message_id, "error": str(e)})
         return False
+    
+
+def delete_instagram_comment(comment_id: str) -> bool:
+    """
+    Delete an Instagram comment that we previously posted as a reply.
+    Returns True on success, False on failure (logs the reason).
+
+    Meta uses the same DELETE pattern for comments as for messages, but
+    against the comment's ID rather than a message ID.
+    """
+    token = os.getenv("FB_ACCESS_TOKEN")
+    if not token:
+        log_event("error", "integrations.meta.delete_comment",
+                  "FB_ACCESS_TOKEN not set — cannot delete comment",
+                  payload={"comment_id": comment_id})
+        return False
+
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        r = requests.delete(url, headers=headers, timeout=10)
+        body_preview = (r.text or "")[:300]
+
+        if r.status_code >= 400:
+            log_event("error", "integrations.meta.delete_comment",
+                      f"Instagram comment delete failed ({r.status_code}): {body_preview[:200]}",
+                      payload={
+                          "comment_id": comment_id,
+                          "status": r.status_code,
+                          "response": body_preview,
+                      })
+            return False
+
+        log_event("info", "integrations.meta.delete_comment",
+                  f"Deleted IG comment {comment_id}",
+                  payload={"comment_id": comment_id})
+        return True
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.meta.delete_comment",
+                  f"Delete comment exception: {e}",
+                  payload={"comment_id": comment_id, "error": str(e)})
+        return False
