@@ -16,10 +16,84 @@ Endpoints:
 
 import hmac
 import hashlib
+import os
 from flask import Blueprint, request, jsonify, current_app
 from app.services import process_message
 
 bp = Blueprint("main", __name__)
+
+
+def _verify_meta_signature(request, channel_label: str) -> tuple[bool, str | None]:
+    """
+    Verify the X-Hub-Signature-256 header against the raw request body
+    using HMAC-SHA256 with META_APP_SECRET.
+
+    Returns (ok, error_message). On failure, the caller should return 403
+    and the helper has already created a notification + audit row.
+
+    If WEBHOOK_SIGNATURE_REQUIRED is set to '0' / 'false', verification is
+    skipped (kill switch for emergency). Default behaviour: enforce.
+    """
+    required = os.getenv('WEBHOOK_SIGNATURE_REQUIRED', 'true').lower() not in ('0', 'false', 'no')
+    if not required:
+        return True, None
+
+    app_secret = os.getenv('META_APP_SECRET') or current_app.config.get('META_APP_SECRET')
+    if not app_secret:
+        return False, 'META_APP_SECRET is not configured — cannot verify signature'
+
+    sig_header = request.headers.get('X-Hub-Signature-256', '')
+    if not sig_header.startswith('sha256='):
+        return False, 'Missing or malformed X-Hub-Signature-256 header'
+
+    received_sig = sig_header[len('sha256='):]
+    raw_body = request.get_data(cache=True)  # cache=True so subsequent get_json() still works
+
+    expected_sig = hmac.new(
+        app_secret.encode('utf-8'),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(received_sig, expected_sig):
+        return False, 'Signature mismatch'
+
+    return True, None
+
+
+def _reject_bad_signature(channel_label: str, reason: str):
+    """
+    Common handler when signature verification fails: log, notify admins,
+    return 403.
+    """
+    from app import db
+    from app.utils.logger import log_event
+    log_event(
+        "warning",
+        "routes.bad_signature",
+        f"Rejected webhook on {channel_label}: {reason}",
+        payload={
+            "channel": channel_label,
+            "reason": reason,
+            "remote_addr": request.remote_addr,
+            "user_agent": request.headers.get('User-Agent', '')[:200],
+        },
+    )
+    from app.notifications import notify_admins
+    notify_admins(
+        type_='webhook_signature_failed',
+        title=f"Rejected unsigned webhook ({channel_label})",
+        body=(
+            f"A webhook hit {channel_label} that did not match Meta's signature. "
+            f"Reason: {reason}. Source: {request.remote_addr}. "
+            f"If this is unexpected, rotate your Meta App Secret."
+        ),
+        severity='urgent',
+        resource_type='security',
+        coalesce=True,
+    )
+    db.session.commit()
+    return jsonify({'error': 'Invalid signature'}), 403
 
 
 # ─────────────────────────────────────────────
@@ -71,6 +145,10 @@ def instagram_webhook():
       Shape 1 (legacy): entry[].messaging[]
       Shape 2 (v25):    entry[].changes[].value where field=messages
     """
+    ok, err = _verify_meta_signature(request, 'instagram_dm')
+    if not ok:
+        return _reject_bad_signature('instagram_dm', err)
+
     import json
     data = request.get_json(silent=True) or {}
     current_app.logger.warning(
@@ -216,6 +294,10 @@ def instagram_comments_webhook():
     Receives Instagram comment events.
     Supports v25 `changes[].value` shape used by the modern IG Webhooks API.
     """
+    ok, err = _verify_meta_signature(request, 'instagram_comment')
+    if not ok:
+        return _reject_bad_signature('instagram_comment', err)
+
     data = request.get_json(silent=True) or {}
     current_app.logger.info(f"[IG comments webhook] payload: {data}")
 
@@ -268,6 +350,10 @@ def whatsapp_webhook():
 
     TODO: Wire up send_whatsapp_reply() once WhatsApp credentials are configured.
     """
+    ok, err = _verify_meta_signature(request, 'whatsapp')
+    if not ok:
+        return _reject_bad_signature('whatsapp', err)
+
     data = request.get_json(silent=True) or {}
 
     try:
@@ -306,6 +392,10 @@ def facebook_webhook():
       Shape 1 (legacy): entry[].messaging[]
       Shape 2 (v25):    entry[].changes[].value with field=messages
     """
+    ok, err = _verify_meta_signature(request, 'facebook_dm')
+    if not ok:
+        return _reject_bad_signature('facebook_dm', err)
+
     data = request.get_json(silent=True) or {}
     current_app.logger.info(f"[FB webhook] payload: {data}")
 
@@ -358,6 +448,10 @@ def facebook_comments_webhook():
     v25 shape: entry[].changes[].value with field=feed (and item=comment) OR field=comments.
     Older payloads used `message`; newer ones use `text`. Handle both.
     """
+    ok, err = _verify_meta_signature(request, 'facebook_comment')
+    if not ok:
+        return _reject_bad_signature('facebook_comment', err)
+
     data = request.get_json(silent=True) or {}
     current_app.logger.info(f"[FB comments webhook] payload: {data}")
 
