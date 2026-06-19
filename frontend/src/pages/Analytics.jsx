@@ -38,7 +38,13 @@ function KPICards({ kpis, formatTime, formatPercent }) {
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div className="stat-card text-center">
         <p className="text-4xl font-bold text-green-600">
-          {hasResponseTime ? `${animatedResponseTime.toFixed(1)}s` : '—'}
+          {!hasResponseTime
+            ? '—'
+            : kpis.avg_response_time_ms < 1
+              ? '<1ms'
+              : kpis.avg_response_time_ms < 1000
+                ? `${kpis.avg_response_time_ms}ms`
+                : `${animatedResponseTime.toFixed(1)}s`}
         </p>
         <p className="text-xs text-gray-500 font-semibold mt-1">Avg Response Time</p>
       </div>
@@ -129,7 +135,12 @@ export default function Analytics() {
   const { kpis, weekly, intent_breakdown, channel_split, top_products } = data
 
   // Format KPI values
-  const formatTime = (ms) => ms ? `${(ms / 1000).toFixed(1)}s` : '—'
+  const formatTime = (ms) => {
+    if (ms == null) return '—'
+    if (ms < 1) return '<1ms'
+    if (ms < 1000) return `${ms}ms`
+    return `${(ms / 1000).toFixed(1)}s`
+  }
   const formatPercent = (val) => `${(val * 100).toFixed(1)}%`
 
   // Role-specific subtitle

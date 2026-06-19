@@ -658,11 +658,13 @@ export default function Dashboard() {
                 const kpis = analyticsData?.kpis || {}
                 const successRate = ((kpis.ai_success_rate || 0) * 100).toFixed(1)
                 const avgResponseMs = kpis.avg_response_time_ms
-                const avgResponseStr = avgResponseMs
-                  ? avgResponseMs < 1000
-                    ? `${avgResponseMs}ms`
-                    : `${(avgResponseMs / 1000).toFixed(1)}s`
-                  : '—'
+                const avgResponseStr = avgResponseMs == null
+                  ? '—'
+                  : avgResponseMs < 1 
+                    ? '<1ms'
+                    : avgResponseMs < 1000
+                      ? `${avgResponseMs}ms`
+                      : `${(avgResponseMs / 1000).toFixed(1)}s`
                 const aiReplies = kpis.ai_replies_total || 0
                 const overrides = kpis.human_override_total || 0
                 const overrideRate = aiReplies > 0
