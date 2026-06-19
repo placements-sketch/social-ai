@@ -332,6 +332,32 @@ def update_conversation(conversation_id):
         return jsonify({'error': 'No updatable fields provided'}), 400
 
     conv.updated_at = datetime.utcnow()
+
+    # If we just resolved this conversation, notify supervisors so they
+    # can track team output. Re-opening or other status changes are noisy
+    # — only notify on the active resolution.
+    if changes.get('status') == 'resolved':
+        try:
+            from app.notifications import notify_supervisors
+            handle = conv.user.external_id if conv.user else 'a customer'
+            channel_label = conv.channel.replace('_', ' ')
+            notify_supervisors(
+                type_='conversation_resolved',
+                title=f"Resolved: {handle}",
+                body=f"{current_user.full_name} resolved this {channel_label} conversation",
+                severity='info',
+                resource_type='conversation',
+                resource_id=conv.id,
+                actor_id=current_user.id,
+                coalesce=False,  # each resolution is a discrete event worth seeing
+            )
+        except Exception as e:
+            from app.utils.logger import log_event
+            log_event("error", "messages.notify_resolution_fail",
+                      f"notify_supervisors failed: {e}",
+                      payload={"conversation_id": conv.id, "error": str(e)},
+                      conversation_id=conv.id)
+
     db.session.commit()
 
     log_audit(

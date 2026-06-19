@@ -86,6 +86,12 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         media_id=media_id,
     )
 
+    # ── Step 1.5: Notify the assigned agent of new inbound (if any) ────────
+    # If this conversation is assigned to someone AND the AI isn't going to
+    # auto-reply (or even if it is — the agent still needs to know), ping them.
+    # Coalesced so 5 rapid messages from the same customer = 1 notification.
+    _notify_assigned_agent_of_inbound(inbound_record, message)
+
     # ── Step 2: Gate — should the AI respond? ──────────────────────────────
     # Two switches both default to "AI responds" if missing:
     #   - Channel.enabled       (channel-wide kill switch, set on the
@@ -535,3 +541,51 @@ def _check_template_rule(message, intents, channel):
     except Exception as e:
         log_event("error", "services._check_template_rule", str(e))
         return None
+    
+
+def _notify_assigned_agent_of_inbound(inbound_record, message_text):
+    """
+    If this conversation is assigned to an agent, notify them of the new
+    inbound message. Coalesced so rapid-fire messages don't spam.
+
+    Failures are swallowed — the main pipeline must not break because of
+    a notification problem.
+    """
+    if inbound_record is None:
+        return
+    try:
+        from app import db
+        from app.models import Conversation
+        from app.notifications import create_notification
+
+        conv = Conversation.query.get(inbound_record.conversation_id)
+        if conv is None or conv.assigned_to is None:
+            return  # not assigned to anyone — nothing to do
+
+        handle = conv.user.external_id if conv.user else 'a customer'
+        channel_label = conv.channel.replace('_', ' ')
+        preview = (message_text or '')[:120]
+
+        # Higher severity if AI is off (because the agent really needs to reply
+        # themselves) vs on (because AI will at least keep things moving).
+        sev = 'urgent' if not conv.ai_enabled else 'info'
+
+        create_notification(
+            user_id=conv.assigned_to,
+            type_='new_inbound_on_my_conversation',
+            title=f"New message from {handle}",
+            body=f"{channel_label}: \"{preview}\"",
+            severity=sev,
+            resource_type='conversation',
+            resource_id=conv.id,
+            actor_id=None,  # customer-triggered, not staff
+            coalesce=True,
+        )
+        db.session.commit()
+    except Exception as e:
+        log_event("error", "services._notify_assigned_agent_of_inbound", str(e))
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
