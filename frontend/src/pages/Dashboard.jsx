@@ -643,7 +643,7 @@ export default function Dashboard() {
                   return (
                     <div key={alert.id} className={clsx('flex items-start gap-2.5 p-3 rounded-lg border text-xs font-medium', cls)}>
                       <Icon size={13} className="mt-0.5 shrink-0" />
-                      <p className="leading-snug">{alert.message}</p>
+                      <p className="leading-snug break-words min-w-0 flex-1">{alert.message}</p>
                     </div>
                   )
                 })
