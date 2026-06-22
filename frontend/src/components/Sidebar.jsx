@@ -48,7 +48,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       {/* ── Header: logo + close/collapse button ── */}
       <div
         className={clsx(
-          'flex items-center shrink-0 h-11 lg:h-16 px-3 pt-2 lg:pt-5',
+          'flex items-center shrink-0 h-14 lg:h-16 px-4 pt-4 lg:pt-5',
           isMobile ? 'justify-between' : (collapsed ? 'md:justify-center md:px-0 justify-between' : 'justify-between')
         )}
       >
@@ -85,8 +85,8 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       {/* ── Nav links ── */}
       <nav
         className={clsx(
-          'flex-1 min-h-0 py-1 lg:py-5 overflow-hidden',
-          isMobile ? 'px-2.5' : (collapsed ? 'md:px-2 px-3' : 'px-3')
+          'flex-1 min-h-0 py-4 lg:py-5 overflow-hidden',
+          isMobile ? 'px-3' : (collapsed ? 'md:px-2 px-3' : 'px-3')
         )}
       >
         {['Core', 'Business', 'Setup', 'System'].map((groupName, idx) => {
@@ -94,20 +94,20 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
           if (groupItems.length === 0) return null
 
           return (
-            <div key={groupName} className={idx === 0 ? '' : 'mt-1 lg:mt-3'}>
+            <div key={groupName} className={idx === 0 ? '' : 'mt-2 lg:mt-3'}>
               {idx > 0 && (
-                <div className="mb-1 lg:mb-3 px-3">
+                <div className="mb-2 lg:mb-3 px-3">
                   <div className="h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
                 </div>
               )}
 
-              {!collapsed && !isMobile && (
-                <p className="text-[10px] lg:text-xs font-semibold text-gray-300 uppercase tracking-widest px-3 mb-0.5 lg:mb-1.5">
+              {!collapsed && (
+                <p className="text-[10px] lg:text-xs font-semibold text-gray-300 uppercase tracking-widest px-3 mb-1 lg:mb-1.5">
                   {groupName}
                 </p>
               )}
 
-              <div className="space-y-0 lg:space-y-1">
+              <div className="space-y-0.5 lg:space-y-1">
                 {groupItems.map(({ to, icon: Icon, label, badge }) => (
                   <NavLink
                     key={to}
@@ -117,7 +117,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                       clsx(
                         'relative flex items-center rounded-xl text-sm font-medium transition-all duration-200 ease-in-out',
                         isMobile
-                          ? 'gap-2.5 px-2.5 py-1'
+                          ? 'gap-3 px-3 py-2'
                           : (collapsed
                               ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2'
                               : 'gap-3 px-3 py-1.5 lg:py-2'),
