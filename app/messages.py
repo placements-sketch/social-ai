@@ -261,12 +261,15 @@ def send_reply(conversation_id):
                 if last_inbound:
                     comment_ext_id = last_inbound.external_id
 
-            _dispatch_reply(
+            new_ext_id = _dispatch_reply(
                 channel=conv.channel,
                 user_id=customer.external_id,
                 reply=content,
                 comment_external_id=comment_ext_id,
             )
+            if new_ext_id:
+                reply.external_id = new_ext_id
+                db.session.commit()
     except Exception as e:
         from app.utils.logger import log_event
         log_event("error", "messages.send_reply.dispatch",
@@ -566,12 +569,15 @@ def edit_message(message_id):
                     .first())
                 if last_inbound:
                     comment_ext_id = last_inbound.external_id
-            _dispatch_reply(
+            new_ext_id = _dispatch_reply(
                 channel=conv.channel,
                 user_id=customer.external_id,
                 reply=new_content,
                 comment_external_id=comment_ext_id,
             )
+            if new_ext_id:
+                new_msg.external_id = new_ext_id
+                db.session.commit()
         except Exception as e:
             from app.utils.logger import log_event
             log_event("error", "messages.edit_message.dispatch",

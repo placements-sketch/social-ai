@@ -135,9 +135,11 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     handoff = _check_handoff_for_inbound(message, intents, inbound_record)
     if handoff:
         bridging = handoff["bridging_reply"]
-        _dispatch_reply(channel=channel, user_id=user_id, reply=bridging, comment_external_id=external_id)
+        new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=bridging,
+                                     comment_external_id=external_id)
         _save_message(user_id=user_id, channel=channel, content=bridging,
-                      intent=None, direction="outbound")
+                      intent=None, direction="outbound",
+                      external_id=new_ext_id)
         return bridging
 
     # ── Step 3.6: Template-reply rule check ────────────────────────────────
@@ -145,9 +147,11 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # (e.g. "Out of stock"). First matching rule wins.
     template = _check_template_rule(message, intents, channel)
     if template:
-        _dispatch_reply(channel=channel, user_id=user_id, reply=template, comment_external_id=external_id)
+        new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=template,
+                                     comment_external_id=external_id)
         _save_message(user_id=user_id, channel=channel, content=template,
-                      intent=None, direction="outbound")
+                      intent=None, direction="outbound",
+                      external_id=new_ext_id)
         log_event("info", "services.template_reply",
                   f"Template-rule reply used for [{channel}] {user_id}",
                   payload={
@@ -194,7 +198,8 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     )
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
-    _dispatch_reply(channel=channel, user_id=user_id, reply=reply, comment_external_id=external_id)
+    new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,
+                                 comment_external_id=external_id)
 
     log_event("info", "services.ai_reply",
               f"AI replied via {channel} to {user_id}",
@@ -216,6 +221,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         user_id=user_id, channel=channel, content=reply,
         intent=None, direction="outbound",
         ai_response_time_ms=ai_elapsed_ms,
+        external_id=new_ext_id,
     )
 
     return reply
@@ -306,7 +312,13 @@ def _extract_location(message: str) -> str | None:
     return None
 
 
-def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> None:
+def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> str | None:
+    """
+    Send the reply back to the customer through the right channel API.
+    Returns Meta's new message/comment ID on success, None on failure.
+    The caller persists this on the outbound Message row so edit/delete
+    can later reach Meta's API.
+    """
     """
     Send the reply back to the customer through the right channel API.
 
@@ -321,12 +333,12 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> None:
     to our DB so a human agent can manually resend if dispatch fails.
     """
     if not reply:
-        return
+        return None
 
     if channel == "instagram_dm":
         from app.integrations.meta import send_instagram_reply
-        send_instagram_reply(recipient_id=user_id, text=reply)
-        return
+        resp = send_instagram_reply(recipient_id=user_id, text=reply)
+        return (resp or {}).get("message_id")
 
     if channel == "facebook_dm":
         # TODO: facebook send API — same shape but different endpoint
@@ -350,18 +362,19 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> None:
 
     if channel == "instagram_comment":
         # For IG comments, user_id passed in is actually the commenter's
-        # external_id, but to reply we need the COMMENT_ID. The caller
-        # (services.process_message) doesn't have it directly — we pass
-        # it via the `external_id` kwarg below. See _dispatch_reply call sites.
+        # external_id, but to reply we need the COMMENT_ID we're replying to.
+        # The caller (services.process_message or messages.send_reply) passes
+        # it via the `comment_external_id` kwarg.
         from app.integrations.meta import send_instagram_comment_reply
         comment_external_id = kwargs.get("comment_external_id")
         if not comment_external_id:
             log_event("error", "services.dispatch",
                       "Missing comment_external_id for instagram_comment dispatch",
                       payload={"channel": channel, "user_external_id": user_id})
-            return
-        send_instagram_comment_reply(comment_id=comment_external_id, text=reply)
-        return
+            return None
+        resp = send_instagram_comment_reply(comment_id=comment_external_id, text=reply)
+        # Meta returns {"id": "<new_comment_id>"} for successful comment replies
+        return (resp or {}).get("id")
 
     if channel == "facebook_comment":
         log_event("warning", "services.dispatch",
