@@ -114,7 +114,7 @@ export default function Logs() {
   const endEntry = Math.min(page * perPage, total)
 
   return (
-    <div className="space-y-5 w-full max-w-4xl mx-auto">
+    <div className="space-y-5 w-full max-w-4xl mx-auto min-w-0">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Logs</h1>
         <p className="text-sm text-gray-500 mt-0.5">Full pipeline audit trail — webhooks, AI calls, API responses</p>
@@ -337,19 +337,19 @@ export default function Logs() {
               const time = createdAt ? createdAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—'
 
               return (
-                <div key={log.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                <div key={log.id} className="flex items-start gap-3 px-3 sm:px-4 py-3 hover:bg-gray-50 transition-colors">
                   <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border', cfg.bg, cfg.border)}>
                     <Icon size={13} className={cfg.color} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-xs font-mono text-gray-400 font-semibold">{time}</span>
-                      <span className={clsx('badge text-xs border', cfg.bg, cfg.color, cfg.border)}>{level}</span>
-                      {log.source && <span className="text-xs font-mono text-brand-600 font-semibold">{log.source}</span>}
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-xs font-mono text-gray-400 font-semibold whitespace-nowrap">{time}</span>
+                      <span className={clsx('badge text-xs border whitespace-nowrap', cfg.bg, cfg.color, cfg.border)}>{level}</span>
+                      {log.source && <span className="text-xs font-mono text-brand-600 font-semibold truncate max-w-[180px] sm:max-w-none">{log.source}</span>}
                     </div>
-                    <p className="text-xs text-gray-700 leading-relaxed font-medium">{log.message || log.action || '—'}</p>
+                    <p className="text-xs text-gray-700 leading-relaxed font-medium break-words">{log.message || log.action || '—'}</p>
                     {log.user && (
-                      <p className="text-xs text-gray-500 mt-1">by {log.user.full_name}</p>
+                      <p className="text-xs text-gray-500 mt-1 truncate">by {log.user.full_name}</p>
                     )}
                   </div>
                 </div>
@@ -367,7 +367,7 @@ export default function Logs() {
 
       {/* Pagination controls */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
           <p className="text-xs text-gray-400 font-medium">
             Showing {startEntry} to {endEntry} of {total} entries
           </p>

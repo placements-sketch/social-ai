@@ -64,7 +64,7 @@ function ActivityItem({ item }) {
         {channelIcon(item.channel)}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-800 leading-relaxed">{item.text}</p>
+        <p className="text-sm text-gray-800 leading-relaxed break-words">{item.text}</p>
       </div>
       <span className="text-xs text-gray-400 shrink-0 font-medium whitespace-nowrap ml-2">{timeAgoStr}</span>
     </div>
@@ -479,18 +479,18 @@ export default function Dashboard() {
             : Math.abs(change)
 
           return (
-            <div key={label} className="stat-card">
-              <div className="flex items-start justify-between">
-                <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center', bg)}>
+            <div key={label} className="stat-card min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', bg)}>
                   <Icon size={18} className={color} />
                 </div>
-                <span className={`text-[10px] font-semibold ${colorClass}`}>
+                <span className={`text-[10px] font-semibold whitespace-nowrap ${colorClass}`}>
                   {arrow} {changeDisplay}
                 </span>
               </div>
-              <p className="text-4xl font-bold text-gray-900 mt-2 tabular-nums">{displayValue}</p>
-              <p className="text-sm text-gray-500 font-semibold">{label}</p>
-              <p className="text-[10px] text-gray-400">vs {PREVIOUS_LABELS[period]}</p>
+              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mt-2 tabular-nums truncate">{displayValue}</p>
+              <p className="text-sm text-gray-500 font-semibold truncate">{label}</p>
+              <p className="text-[10px] text-gray-400 truncate">vs {PREVIOUS_LABELS[period]}</p>
             </div>
           )
         })}
@@ -513,7 +513,7 @@ export default function Dashboard() {
             </button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={chartData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+            <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
               <XAxis 
                 dataKey="time" 
@@ -723,9 +723,9 @@ export default function Dashboard() {
           <div className="fixed inset-0 bg-black/50 backdrop-blur-md" onClick={() => setShowChannelModal(false)} />
           <div className="relative bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto border border-gray-100">
             {/* Header - Clean & Minimal */}
-            <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-8 py-6 flex items-start justify-between">
-              <div className="flex-1">
-                <h2 className="text-2xl font-semibold text-gray-900">Channel Performance</h2>
+            <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 sm:px-6 lg:px-8 py-4 lg:py-6 flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg sm:text-xl lg:text-2xl font-semibold text-gray-900 truncate">Channel Performance</h2>
                 <p className="text-sm text-gray-500 mt-1">Message analytics across all platforms • {PERIOD_LABELS[period]}</p>
               </div>
               <button
@@ -737,9 +737,9 @@ export default function Dashboard() {
             </div>
 
             {/* Content */}
-            <div className="p-8 space-y-8">
+            <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8">
               {/* Key Metrics */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {(() => {
                   const totalInbound = chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0)
                   const totalAI = chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0)
@@ -752,12 +752,12 @@ export default function Dashboard() {
                     { label: 'Response Rate', value: `${responseRate}%`, Icon: Activity, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
                   ]
                 })().map(({ label, value, Icon, iconBg, iconColor }) => (
-                  <div key={label} className="bg-white border border-gray-100 rounded-2xl p-5 hover:border-gray-200 hover:shadow-sm transition-all">
+                  <div key={label} className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-5 hover:border-gray-200 hover:shadow-sm transition-all min-w-0">
                     <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center mb-3', iconBg)}>
                       <Icon size={18} className={iconColor} />
                     </div>
-                    <p className="text-3xl font-bold text-gray-900 tabular-nums leading-none">{value}</p>
-                    <p className="text-xs text-gray-500 font-semibold mt-2 uppercase tracking-wide">{label}</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-gray-900 tabular-nums leading-none truncate">{value}</p>
+                    <p className="text-xs text-gray-500 font-semibold mt-2 uppercase tracking-wide truncate">{label}</p>
                   </div>
                 ))}
               </div>

@@ -130,27 +130,27 @@ export default function CustomerDetail() {
       </div>
 
       {/* ── Contact Grid ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-8">
+        <div className="px-3 sm:px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50 min-w-0">
           <p className="text-xs text-gray-500 font-medium mb-1">Email</p>
           <p className="text-sm text-gray-900 font-medium truncate">{customer.email}</p>
         </div>
-        <div className="px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50">
+        <div className="px-3 sm:px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50 min-w-0">
           <p className="text-xs text-gray-500 font-medium mb-1">Phone</p>
-          <p className="text-sm text-gray-900 font-medium">{customer.phone}</p>
+          <p className="text-sm text-gray-900 font-medium truncate">{customer.phone}</p>
         </div>
-        <div className="px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50">
+        <div className="px-3 sm:px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50 min-w-0">
           <p className="text-xs text-gray-500 font-medium mb-1">Location</p>
-          <p className="text-sm text-gray-900 font-medium">{customer.location}</p>
+          <p className="text-sm text-gray-900 font-medium truncate">{customer.location}</p>
         </div>
-        <div className="px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50">
+        <div className="px-3 sm:px-4 py-3 rounded-xl border border-gray-100 bg-gray-50/50 min-w-0">
           <p className="text-xs text-gray-500 font-medium mb-1">Joined</p>
-          <p className="text-sm text-gray-900 font-medium">{formatDate(customer.created_at)}</p>
+          <p className="text-sm text-gray-900 font-medium truncate">{formatDate(customer.created_at)}</p>
         </div>
       </div>
 
       {/* ── KPI Metrics ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
         <MetricCard
           icon={ShoppingBag}
           label="Orders"
@@ -190,7 +190,7 @@ export default function CustomerDetail() {
             <p className="text-xs text-gray-500 mt-1">Last 12 months</p>
           </div>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={trend} margin={{ top: 12, right: 8, left: -16, bottom: 0 }}>
+            <LineChart data={trend} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} />
@@ -316,14 +316,14 @@ export default function CustomerDetail() {
 
 function MetricCard({ icon: Icon, label, value, color, bg }) {
   return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2.5 mb-3">
-        <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center', bg)}>
+    <div className="card p-3 sm:p-4 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-2.5 mb-3">
+        <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', bg)}>
           <Icon size={15} className={color} />
         </div>
-        <p className="text-xs font-medium text-gray-600">{label}</p>
+        <p className="text-xs font-medium text-gray-600 truncate">{label}</p>
       </div>
-      <p className="text-xl font-bold text-gray-900">{value}</p>
+      <p className="text-lg sm:text-xl font-bold text-gray-900 truncate">{value}</p>
     </div>
   )
 }

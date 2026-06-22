@@ -138,7 +138,7 @@ export default function Customers() {
   }
 
   return (
-    <div className="space-y-6 w-full px-0 lg:px-8">
+    <div className="space-y-6 w-full">
       {/* ── Header ──────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Customer Profiling</h1>
@@ -537,7 +537,7 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'text-blue-500', bg = 
   // String values like "KES 123,456" won't animate
   
   return (
-    <div className="stat-card relative overflow-hidden">
+    <div className="stat-card relative overflow-hidden min-w-0">
       {/* Subtle gradient overlay */}
       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" 
            style={{ background: 'linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.04) 100%)' }} />
@@ -549,9 +549,9 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'text-blue-500', bg = 
           </div>
           <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">↑ 12%</span>
         </div>
-        <p className="text-xs text-gray-500 font-medium mb-1.5">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 tabular-nums mb-2">{displayValue}</p>
-        {sub && <p className="text-xs text-gray-400 leading-relaxed">{sub}</p>}
+        <p className="text-xs text-gray-500 font-medium mb-1.5 truncate">{label}</p>
+        <p className="text-xl sm:text-2xl font-bold text-gray-900 tabular-nums mb-2 truncate">{displayValue}</p>
+        {sub && <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{sub}</p>}
       </div>
     </div>
   )
@@ -591,26 +591,26 @@ function CustomerRow({ customer, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors text-left text-xs"
+      className="w-full flex items-center gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-gray-50 transition-colors text-left text-xs"
     >
       <Avatar customer={customer} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{customer.name}</p>
         <p className="text-xs text-gray-500 truncate">{customer.email} · {customer.location}</p>
       </div>
-      <div className="hidden md:flex items-center gap-2">
+      <div className="hidden md:flex items-center gap-2 shrink-0">
         <SegmentBadge color={meta.color}>
           <Icon size={12} strokeWidth={2.5} />
         </SegmentBadge>
-        <span className="text-xs text-gray-600 w-16">{meta.label}</span>
+        <span className="text-xs text-gray-600 w-16 truncate">{meta.label}</span>
       </div>
-      <div className="hidden sm:block text-right">
+      <div className="hidden sm:block text-right shrink-0">
         <p className="text-sm font-semibold text-gray-900 tabular-nums">
           KES {formatKES(customer.total_spent)}
         </p>
-        <p className="text-xs text-gray-500">{customer.total_orders} orders · {timeAgo(customer.last_order_date)}</p>
+        <p className="text-xs text-gray-500 truncate">{customer.total_orders} orders · {timeAgo(customer.last_order_date)}</p>
       </div>
-      <ChevronRight size={16} className="text-gray-400" />
+      <ChevronRight size={16} className="text-gray-400 shrink-0" />
     </button>
   )
 }
