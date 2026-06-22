@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mobile safety: prevent body-level horizontal scroll while keeping
+   vertical scroll working. Individual scroll containers (tables, modals)
+   can opt back into x-scroll locally. */
+html, body, #root {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* When a child legitimately needs horizontal scroll (e.g. a wide table),
+   wrap it in .scroll-x and it'll scroll horizontally within its own
+   bounds without affecting the page. */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 @layer base {
   html, body, #root {
     background-color: #FFFFFF !important;

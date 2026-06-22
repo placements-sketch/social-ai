@@ -13,8 +13,8 @@ To activate real Claude calls:
 import time
 from app.utils.logger import log_event
 
-USE_MOCK_AI = True  # Flip to False once your Anthropic key is configured
-
+import os
+USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 
 def generate_reply(message: str, intents: list[str], context_data: dict, channel: str) -> tuple[str, int]:
     """

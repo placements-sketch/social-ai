@@ -30,7 +30,9 @@ export default function Layout() {
       display: 'flex', 
       height: '100vh', 
       overflow: 'hidden', 
-      backgroundColor: '#ffffff'
+      backgroundColor: '#ffffff',
+      width: '100%',
+      maxWidth: '100vw',
     }}>
 
       {/* ── Mobile backdrop ── */}
@@ -101,10 +103,10 @@ export default function Layout() {
           }}
         />
         <main className={clsx(
-          "flex-1 w-full bg-transparent relative",
+          "flex-1 w-full min-w-0 bg-transparent relative",
           location.pathname === '/messages'
             ? "overflow-hidden p-0"
-            : "overflow-auto px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-5"
+            : "overflow-y-auto overflow-x-hidden px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-5"
         )}>
           <Outlet />
         </main>
