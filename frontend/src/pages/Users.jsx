@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Loader2, X, Check, Users as UsersIcon } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, X, Check, Users as UsersIcon, Search, Shield, ShieldCheck, UserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
@@ -11,6 +11,12 @@ export default function Users() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Filters
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')        // 'all' | 'admin' | 'supervisor' | 'agent'
+  const [statusFilter, setStatusFilter] = useState('all')    // 'all' | 'active' | 'inactive'
+  const [presenceFilter, setPresenceFilter] = useState('all')// 'all' | 'online' | 'idle' | 'offline'
+  const [sortBy, setSortBy] = useState('name')               // 'name' | 'recent' | 'joined'
   const [showModal, setShowModal] = useState(false)
   const [modalData, setModalData] = useState({
     email: '',
@@ -208,12 +214,47 @@ export default function Users() {
       .slice(0, 2)
   }
 
+  // Computed: KPI counts
+  const totalUsers = users.length
+  const activeUsers = users.filter(u => u.status === 'active').length
+  const onlineUsers = users.filter(u => u.presence === 'online').length
+
+  // Computed: filtered + sorted list
+  const visibleUsers = (() => {
+    let result = users
+    const q = search.trim().toLowerCase()
+    if (q) {
+      result = result.filter(u =>
+        (u.full_name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q)
+      )
+    }
+    if (roleFilter !== 'all') result = result.filter(u => u.role === roleFilter)
+    if (statusFilter !== 'all') result = result.filter(u => u.status === statusFilter)
+    if (presenceFilter !== 'all') result = result.filter(u => (u.presence || 'offline') === presenceFilter)
+
+    return [...result].sort((a, b) => {
+      if (sortBy === 'name') return (a.full_name || '').localeCompare(b.full_name || '')
+      if (sortBy === 'joined') {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0
+        return db - da  // newest first
+      }
+      if (sortBy === 'recent') {
+        const da = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0
+        const db = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0
+        return db - da  // most recent first
+      }
+      return 0
+    })
+  })()
+
   return (
-    <div className="space-y-6 w-full max-w-5xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage team members and permissions</p>
+    <div className="space-y-5 w-full max-w-5xl mx-auto">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Users</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Manage team members and permissions</p>
         </div>
         <button
           onClick={() => {
@@ -221,11 +262,111 @@ export default function Users() {
             setModalError(null)
             setModalSuccess(false)
           }}
-          className="btn-primary flex items-center gap-2 text-xs py-2 px-3"
+          className="btn-primary flex items-center gap-2 text-xs py-2 px-3 shrink-0"
         >
           <Plus size={14} /> Add User
         </button>
       </div>
+
+      {/* KPI strip */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'Total',  value: totalUsers,  Icon: UserRound,    color: 'text-gray-700',   bg: 'bg-gray-100' },
+          { label: 'Active', value: activeUsers, Icon: ShieldCheck,  color: 'text-green-600',  bg: 'bg-green-50' },
+          { label: 'Online', value: onlineUsers, Icon: UsersIcon,    color: 'text-brand-600',  bg: 'bg-brand-50' },
+        ].map(({ label, value, Icon, color, bg }) => (
+          <div key={label} className="card p-3 sm:p-4 min-w-0">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', bg)}>
+                <Icon size={14} className={color} />
+              </div>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 tabular-nums leading-none">{value}</p>
+            <p className="text-[10px] sm:text-xs text-gray-500 font-semibold mt-1.5 uppercase tracking-wide truncate">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter row */}
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-center">
+        {/* Search */}
+        <div className="relative flex-1 min-w-0">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search by name or email…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="input w-full pl-9 text-xs"
+          />
+        </div>
+
+        {/* Role */}
+        <select
+          value={roleFilter}
+          onChange={e => setRoleFilter(e.target.value)}
+          className="input text-xs shrink-0 cursor-pointer"
+        >
+          <option value="all">All roles</option>
+          <option value="admin">Admin</option>
+          <option value="supervisor">Supervisor</option>
+          <option value="agent">Agent</option>
+        </select>
+
+        {/* Status */}
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          className="input text-xs shrink-0 cursor-pointer"
+        >
+          <option value="all">All status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+
+        {/* Presence */}
+        <select
+          value={presenceFilter}
+          onChange={e => setPresenceFilter(e.target.value)}
+          className="input text-xs shrink-0 cursor-pointer"
+        >
+          <option value="all">All presence</option>
+          <option value="online">Online</option>
+          <option value="idle">Idle</option>
+          <option value="offline">Offline</option>
+        </select>
+
+        {/* Sort */}
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+          className="input text-xs shrink-0 cursor-pointer"
+        >
+          <option value="name">Sort: Name (A-Z)</option>
+          <option value="recent">Sort: Recently active</option>
+          <option value="joined">Sort: Newest first</option>
+        </select>
+      </div>
+
+      {/* Active filter chip — only shows when filters reduce the list */}
+      {(search || roleFilter !== 'all' || statusFilter !== 'all' || presenceFilter !== 'all') && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500">
+            Showing <span className="font-semibold text-gray-900">{visibleUsers.length}</span> of {totalUsers} users
+          </span>
+          <button
+            onClick={() => {
+              setSearch('')
+              setRoleFilter('all')
+              setStatusFilter('all')
+              setPresenceFilter('all')
+            }}
+            className="text-brand-600 hover:text-brand-700 font-semibold"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3.5 text-xs text-red-600 font-medium">
@@ -247,9 +388,27 @@ export default function Users() {
               <p className="text-sm text-gray-500 font-medium">No users yet</p>
               <p className="text-xs text-gray-400 mt-1">Create your first team member to get started</p>
             </div>
+          ) : visibleUsers.length === 0 ? (
+            <div className="text-center py-12 px-4">
+              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                <Search size={18} className="text-gray-400" />
+              </div>
+              <p className="text-sm text-gray-500 font-medium">No users match these filters</p>
+              <button
+                onClick={() => {
+                  setSearch('')
+                  setRoleFilter('all')
+                  setStatusFilter('all')
+                  setPresenceFilter('all')
+                }}
+                className="text-xs text-brand-600 hover:text-brand-700 font-semibold mt-2"
+              >
+                Clear filters
+              </button>
+            </div>
           ) : (
             <div className="grid gap-3">
-              {users.map(user => {
+              {visibleUsers.map(user => {
                 const joinDate = user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
                 const roleInfo = roleConfig[user.role]
                 return (
