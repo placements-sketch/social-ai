@@ -206,20 +206,36 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         # ── Build Shopify context block (unchanged from before) ──────────
         context_lines = []
 
-        if "product" in context_data:
-            p        = context_data["product"]
-            variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
-            context_lines.append(
-                f"Product: {p.get('name')} | "
-                f"Price: {p.get('price')} | "
-                f"Variants: {variants} | "
-                f"Description: {p.get('description', 'N/A')}"
-            )
+       # Prefer the multi-product list when available; fall back to single
+        # product for compatibility with older callers.
+        products = context_data.get("products") or (
+            [context_data["product"]] if "product" in context_data else []
+        )
 
-        if "stock" in context_data:
-            s = context_data["stock"]
-            context_lines.append(f"Stock (Shopify): {s.get('quantity', 0)} units available")
-
+        if products:
+            if len(products) == 1:
+                p = products[0]
+                variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
+                context_lines.append(
+                    f"Product available: {p.get('name')} | "
+                    f"Price: {p.get('price')} | "
+                    f"Variants: {variants} | "
+                    f"Stock: {p.get('stock_quantity', 0)} units | "
+                    f"Description: {p.get('description', 'N/A')}"
+                )
+            else:
+                context_lines.append(f"We have {len(products)} matching products available:")
+                for i, p in enumerate(products, 1):
+                    variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
+                    context_lines.append(
+                        f"  {i}. {p.get('name')} — {p.get('price')} | "
+                        f"Variants: {variants} | "
+                        f"Stock: {p.get('stock_quantity', 0)} units"
+                    )
+                context_lines.append(
+                    "Recommend the most relevant 1-2 to the customer with specific names and prices. "
+                    "Don't list all options unless they explicitly ask."
+                )
         if context_data.get("delivery_asked"):
             loc = context_data.get("delivery_location", "their location")
             context_lines.append(

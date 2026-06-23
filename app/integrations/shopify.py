@@ -118,6 +118,22 @@ def list_all_products() -> list[dict]:
         return _mock_list_all_products()
     return _real_list_all_products()
 
+def search_products(keyword: str, limit: int = 3) -> list[dict]:
+    """
+    Search the LOCAL ProductCache (mirrored from Shopify via the sync job)
+    for products matching the keyword across name, description, variants, and tags.
+
+    This is fast (DB query, no HTTP), supports partial matches, and works
+    across multiple fields — unlike Shopify REST's ?title= which is exact-match.
+
+    Returns up to `limit` matches, best first.
+    """
+    if not keyword:
+        return []
+    if USE_MOCK:
+        return _mock_search_products(keyword, limit=limit)
+    return _cache_search_products(keyword, limit=limit)
+
 # ─────────────────────────────────────────────
 # Mock implementation
 # ─────────────────────────────────────────────
@@ -188,10 +204,98 @@ def _mock_get_product_info(keyword: str) -> dict:
         "stock_quantity": 0,
     }
 
+def _mock_search_products(keyword: str, limit: int = 3) -> list[dict]:
+    """Multi-product search over the in-memory mock catalog."""
+    if not keyword:
+        return []
+
+    kw = keyword.lower().strip()
+    kw_singular = kw.rstrip('s') if len(kw) > 3 and kw.endswith('s') else kw
+    search_terms = list({kw, kw_singular})
+
+    matches = []
+    for product in _MOCK_PRODUCTS:
+        name_lc = product["name"].lower()
+        desc_lc = (product.get("description") or "").lower()
+        variants_lc = " ".join(str(v).lower() for v in product.get("variants", []))
+
+        score = 0
+        for term in search_terms:
+            if term in name_lc:        score += 10
+            elif term in variants_lc:  score += 5
+            elif term in desc_lc:      score += 2
+
+        if score > 0:
+            matches.append((score, product))
+
+    matches.sort(key=lambda x: -x[0])
+    return [p for _, p in matches[:limit]]
+
 
 # ─────────────────────────────────────────────
 # Real Shopify implementation (TODO)
 # ─────────────────────────────────────────────
+
+def _cache_search_products(keyword: str, limit: int = 3) -> list[dict]:
+    """
+    Search the local ProductCache table (mirrored from Shopify by the sync job).
+    Partial matching, multi-field, fast (no HTTP). Imports happen inside the
+    function to avoid circular imports during app init.
+    """
+    try:
+        from app.models import ProductCache
+        from app import db
+        from sqlalchemy import or_, case, cast, String
+
+        kw = keyword.lower().strip()
+        kw_singular = kw.rstrip('s') if len(kw) > 3 and kw.endswith('s') else kw
+        like_kw = f"%{kw}%"
+        like_singular = f"%{kw_singular}%"
+
+        # Score-rank: name match > variants > tags > description
+        score = (
+            case((ProductCache.name.ilike(like_kw), 10), else_=0) +
+            case((ProductCache.name.ilike(like_singular), 8), else_=0) +
+            case((cast(ProductCache.variants, String).ilike(like_kw), 5), else_=0) +
+            case((cast(ProductCache.tags, String).ilike(like_kw), 4), else_=0) +
+            case((ProductCache.description.ilike(like_kw), 2), else_=0)
+        ).label('score')
+
+        rows = (
+            db.session.query(ProductCache, score)
+            .filter(or_(
+                ProductCache.name.ilike(like_kw),
+                ProductCache.name.ilike(like_singular),
+                cast(ProductCache.variants, String).ilike(like_kw),
+                cast(ProductCache.tags, String).ilike(like_kw),
+                ProductCache.description.ilike(like_kw),
+            ))
+            .order_by(score.desc(), ProductCache.name.asc())
+            .limit(limit)
+            .all()
+        )
+
+        result = []
+        for product, _score in rows:
+            result.append({
+                "shopify_id": product.shopify_product_id,
+                "name": product.name,
+                "description": (product.description or '')[:200],
+                "price": str(product.price) if product.price is not None else 'N/A',
+                "variants": product.variants or [],
+                "stock_quantity": product.stock_quantity or 0,
+            })
+
+        log_event("info", "integrations.shopify.cache_search",
+                  f"Cache search for '{keyword}': {len(result)} matches",
+                  payload={"keyword": keyword,
+                           "matches": [p["name"] for p in result]})
+        return result
+
+    except Exception as e:
+        log_event("error", "integrations.shopify.cache_search",
+                  f"Cache search failed for '{keyword}': {str(e)}")
+        return []
 
 def _real_get_product_info(keyword: str) -> dict:
     """
@@ -371,12 +475,6 @@ def _real_list_all_customers() -> list[dict]:
 
         while url:
             response = requests.get(url, headers=headers, timeout=30)
-            log_event("info", "integrations.shopify",
-                      f"DEBUG customers response: status={response.status_code} url={url} headers_sent={list(headers.keys())} body={response.text[:300]}")
-            response.raise_for_status()
-
-        while url:
-            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
 
             for c in response.json().get('customers', []):
@@ -476,4 +574,59 @@ def _real_list_all_orders() -> list[dict]:
 
     except requests.RequestException as e:
         log_event("error", "integrations.shopify", f"Failed to fetch orders: {str(e)}")
+        raise
+
+
+def _real_get_customer_orders(shopify_customer_id: str) -> list[dict]:
+    """
+    GET /admin/api/2024-01/customers/{id}/orders.json?status=any
+    Returns all orders for one customer. Used by the customer detail page
+    on-demand (not part of bulk sync).
+    """
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        url = f"{store_url}/admin/api/2024-01/customers/{shopify_customer_id}/orders.json?status=any&limit=250"
+        all_orders = []
+
+        while url:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            for o in response.json().get('orders', []):
+                line_items = o.get('line_items') or []
+                all_orders.append({
+                    "shopify_id": str(o.get('id')),
+                    "shopify_customer_id": shopify_customer_id,
+                    "order_number": str(o.get('order_number') or o.get('name') or ''),
+                    "total": float(o.get('total_price', 0) or 0),
+                    "currency": o.get('currency', 'KES'),
+                    "items_count": sum(int(li.get('quantity', 0) or 0) for li in line_items),
+                    "products": [li.get('title', '') for li in line_items if li.get('title')],
+                    "financial_status": o.get('financial_status'),
+                    "fulfillment_status": o.get('fulfillment_status'),
+                    "order_date": o.get('created_at'),
+                })
+
+            # Pagination via Link header
+            link_header = response.headers.get('Link', '')
+            url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        url = part.split(';')[0].strip().strip('<>')
+                        break
+
+        log_event("info", "integrations.shopify",
+                  f"Fetched {len(all_orders)} orders for customer {shopify_customer_id}")
+        return all_orders
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify",
+                  f"Failed to fetch orders for customer {shopify_customer_id}: {str(e)}")
         raise

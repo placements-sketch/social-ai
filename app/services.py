@@ -18,7 +18,7 @@ Pipeline steps:
 from datetime import datetime, timezone
 
 from app.ai.generator import generate_reply
-from app.integrations.shopify import get_product_info, get_stock_level
+from app.integrations.shopify import get_product_info, get_stock_level, search_products
 from app.integrations.meta import send_instagram_reply, send_whatsapp_reply, send_facebook_reply
 from app.integrations.tiktok import send_tiktok_reply
 from app.utils.intent import detect_intents, intents_to_label
@@ -218,14 +218,42 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
             keyword_source = "history"
 
     if product_keyword:
-        product_data = get_product_info(product_keyword)
-        context_data["product"] = product_data
-        context_data["stock"]   = get_stock_level(product_keyword)
+        # Search local ProductCache (synced from Shopify). Returns up to 3 matches
+        # so Claude can recommend across the catalog instead of awkwardly defaulting
+        # to "we don't have that" when the keyword matches a variant or description.
+        matches = search_products(product_keyword, limit=3)
 
-        # Persist the keyword on the inbound row so future follow-ups can
-        # also find it. This is what makes "yes" after "show me dresses"
-        # work two turns later: each turn writes the keyword forward.
-        _patch_inbound_product_keyword(inbound_record, product_keyword)
+        if matches:
+            context_data["products"] = matches              # full list for Claude
+            context_data["product"]  = matches[0]           # single best (backwards compat)
+            context_data["stock"]    = {
+                "product_name": matches[0].get("name"),
+                "quantity":     matches[0].get("stock_quantity", 0),
+                "unit":         "pcs",
+            }
+            _patch_inbound_product_keyword(inbound_record, product_keyword)
+
+            log_event("info", "services.shopify_lookup",
+                      f"Found {len(matches)} matches for '{product_keyword}' (source: {keyword_source})",
+                      payload={
+                          "user_external_id": user_id,
+                          "channel": channel,
+                          "product_keyword": product_keyword,
+                          "keyword_source": keyword_source,
+                          "match_count": len(matches),
+                          "match_names": [p.get("name") for p in matches],
+                      },
+                      conversation_id=(inbound_record.conversation_id if inbound_record else None))
+        else:
+            log_event("info", "services.shopify_lookup_empty",
+                      f"No cache matches for '{product_keyword}' (source: {keyword_source})",
+                      payload={
+                          "user_external_id": user_id,
+                          "channel": channel,
+                          "product_keyword": product_keyword,
+                          "keyword_source": keyword_source,
+                      },
+                      conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
         log_event("info", "services.shopify_lookup",
                   f"Shopify product+stock fetched for '{product_keyword}' (source: {keyword_source})",
@@ -353,15 +381,26 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
 # ─────────────────────────────────────────────
 
 def _extract_product_keyword(message: str) -> str:
-    """Pulls the most likely product keyword from the message."""
+    """
+    Pulls the most likely product keyword from the message.
+    
+    Strategy: drop stopwords, then prefer the LONGEST remaining word
+    (longer words are more likely to be product nouns like "bracelet"
+    rather than modifiers like "arm" or "blue"). Falls back to message
+    head if nothing remains.
+    """
     stopwords = {
         "is", "the", "a", "an", "do", "you", "have", "what", "how", "much",
         "in", "stock", "available", "this", "that", "it", "yes", "no",
         "and", "or", "if", "for", "to", "of", "with", "hi", "hello", "hey",
+        "any", "show", "me", "got", "we", "us", "some", "more", "please",
     }
     words = [w.strip("?.,!") for w in message.lower().split()]
-    candidates = [w for w in words if w not in stopwords and len(w) > 3]
-    return candidates[0] if candidates else message[:30]
+    candidates = [w for w in words if w and w not in stopwords and len(w) >= 3]
+    if not candidates:
+        return message[:30]
+    # Prefer the longest word — "bracelet" beats "arm" or "blue"
+    return max(candidates, key=len)
 
 
 def _extract_location(message: str) -> str | None:
