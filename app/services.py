@@ -255,18 +255,6 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                       },
                       conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
-        log_event("info", "services.shopify_lookup",
-                  f"Shopify product+stock fetched for '{product_keyword}' (source: {keyword_source})",
-                  payload={
-                      "user_external_id": user_id,
-                      "channel": channel,
-                      "product_keyword": product_keyword,
-                      "keyword_source": keyword_source,
-                      "product_name": product_data.get("name"),
-                      "stock_quantity": context_data["stock"].get("quantity"),
-                  },
-                  conversation_id=(inbound_record.conversation_id if inbound_record else None))
-
     if "delivery_inquiry" in intents:
         context_data["delivery_asked"] = True
         context_data["delivery_location"] = _extract_location(message)
