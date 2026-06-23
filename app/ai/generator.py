@@ -283,6 +283,20 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         tone_line   = _TONE_DIRECTIVES.get(tone, _TONE_DIRECTIVES['friendly'])
         rules_lines = _rules_directives(rules)
 
+        # Pull live store info (physical shop locations) from the cache.
+        # When customers ask "where are your shops?" the AI can list real branches.
+        locations_block = ""
+        try:
+            from app.store_info import format_locations_for_prompt
+            locations_block = format_locations_for_prompt()
+        except Exception as e:
+            log_event("warn", "ai.generator.store_info_inject_failed", str(e))
+
+        store_info_section = (
+            f"\n\n--- Store info ---\n{locations_block}"
+            if locations_block else ""
+        )
+
         system_prompt = f"""{base_prompt}
 
 You are responding via {channel.replace('_', ' ')}.
@@ -294,7 +308,7 @@ You are responding via {channel.replace('_', ' ')}.
 {_sales_directive(slider_sales)}
 
 --- Rules ---
-{chr(10).join(f"- {r}" for r in rules_lines)}
+{chr(10).join(f"- {r}" for r in rules_lines)}{store_info_section}
 
 --- Context for this message ---
 Customer's detected intents: {intents_str}

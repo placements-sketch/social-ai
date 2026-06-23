@@ -456,7 +456,24 @@ class StockCache(db.Model):
     def __repr__(self):
         return f"<StockCache {self.product_key}: {self.quantity} {self.unit}>"
 
-
+class StoreInfoCache(db.Model):
+    """
+    Singleton-per-kind cache for Shopify store-wide data that doesn't fit
+    cleanly into ProductCache / CustomerCache / OrderCache.
+    
+    Each `kind` is a singleton — exactly one row per kind, replaced on sync.
+    Kinds: 'locations', 'shipping_zones', 'active_discounts'
+    """
+    __tablename__ = "store_info_cache"
+    
+    id         = db.Column(db.Integer, primary_key=True)
+    kind       = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    data       = db.Column(db.JSON, nullable=False, default=list)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+    
+    def __repr__(self):
+        return f"<StoreInfoCache kind={self.kind}>"
 # ─────────────────────────────────────────────────────────────────────────────
 # AI SETTINGS — single active row (id=1)
 # ─────────────────────────────────────────────────────────────────────────────

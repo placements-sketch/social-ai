@@ -447,6 +447,56 @@ def _real_list_all_products() -> list[dict]:
         log_event("error", "integrations.shopify", f"Failed to fetch catalog: {str(e)}")
         raise
 
+def list_all_locations() -> list[dict]:
+    """
+    Fetch all physical store locations from Shopify. Used by store-info sync
+    to populate the AI's brand-context. Locations are small (a handful per store)
+    so we don't paginate.
+    """
+    if USE_MOCK:
+        return []
+    return _real_list_all_locations()
+
+
+def _real_list_all_locations() -> list[dict]:
+    """GET /admin/api/2024-01/locations.json — requires read_locations scope."""
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+        url = f"{store_url}/admin/api/2024-01/locations.json"
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+
+        locations = response.json().get('locations', [])
+        result = []
+        for loc in locations:
+            if not loc.get('active'):
+                continue  # skip deactivated locations
+            result.append({
+                "shopify_id": str(loc.get('id')),
+                "name": loc.get('name'),
+                "address1": loc.get('address1') or '',
+                "address2": loc.get('address2') or '',
+                "city": loc.get('city') or '',
+                "province": loc.get('province') or '',
+                "country": loc.get('country_name') or loc.get('country') or '',
+                "zip": loc.get('zip') or '',
+                "phone": loc.get('phone') or '',
+            })
+
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify locations fetched — {len(result)} active locations",
+                  payload={"count": len(result), "kind": "locations"})
+        return result
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify", f"Failed to fetch locations: {str(e)}")
+        raise
+    
 # ─────────────────────────────────────────────
 # Customers
 # ─────────────────────────────────────────────
