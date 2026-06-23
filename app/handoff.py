@@ -54,9 +54,12 @@ def check_handoff(message: str, intents: list[str], conversation: Conversation) 
     """
     text = (message or "").lower()
 
-    # 1. Keyword trigger
+    # 1. Keyword trigger (word-boundary match so "broken link" doesn't match
+    # "broken", and "return policy" doesn't match "turn" etc.)
+    import re
     for kw in HANDOFF_KEYWORDS:
-        if kw in text:
+        # \b is word boundary; escape kw in case it contains regex chars
+        if re.search(rf'\b{re.escape(kw)}\b', text):
             return _trigger(conversation, reason="keyword", detail=kw)
 
     # 2. Intent trigger

@@ -224,7 +224,9 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
             loc = context_data.get("delivery_location", "their location")
             context_lines.append(
                 f"Customer asked about delivery to: {loc}. "
-                f"Standard delivery: KES 350, 1–3 business days nationwide."
+                f"NOTE: No specific delivery details have been configured. "
+                f"Tell the customer you'll check exact pricing and timing with the team "
+                f"and confirm shortly — do not invent specifics."
             )
 
         if context_data.get("order_status_asked"):

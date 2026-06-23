@@ -67,9 +67,11 @@ _INTENT_RULES: list[tuple[str, list[str]]] = [
         "order number", "reference", "dispatch", "where is my",
     ]),
     ("complaint", [
-        "complaint", "unhappy", "disappointed", "wrong", "broken", "damaged",
-        "refund", "return", "bad", "terrible", "awful", "not working",
-        "didn't receive", "never arrived", "fake", "poor quality",
+        "complaint", "complain", "unhappy", "disappointed",
+        "damaged", "terrible", "awful", "not working",
+        "didn't receive", "didnt receive", "never arrived", "never received",
+        "fake", "poor quality", "want a refund", "want my money back",
+        "broken item", "broken product", "wrong item", "wrong product",
     ]),
 ]
 
@@ -85,11 +87,16 @@ def detect_intents(message: str) -> list[str]:
 
     Returns ["unknown"] only if nothing matched at all.
     """
+    import re
     text = message.lower()
     matched = []
 
     for intent, keywords in _INTENT_RULES:
-        if any(kw in text for kw in keywords):
+        # Word-boundary match for single-word keywords; substring for multi-word phrases
+        if any(
+            re.search(rf'\b{re.escape(kw)}\b', text) if ' ' not in kw else kw in text
+            for kw in keywords
+        ):
             matched.append(intent)
 
     return matched if matched else ["unknown"]
