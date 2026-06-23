@@ -216,9 +216,12 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
             if len(products) == 1:
                 p = products[0]
                 variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
+                price_str = p.get('price')
+                if price_str and 'KES' not in str(price_str).upper():
+                    price_str = f"KES {price_str}"
                 context_lines.append(
                     f"Product available: {p.get('name')} | "
-                    f"Price: {p.get('price')} | "
+                    f"Price: {price_str} | "
                     f"Variants: {variants} | "
                     f"Stock: {p.get('stock_quantity', 0)} units | "
                     f"Description: {p.get('description', 'N/A')}"
@@ -227,8 +230,11 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 context_lines.append(f"We have {len(products)} matching products available:")
                 for i, p in enumerate(products, 1):
                     variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
+                    price_str = p.get('price')
+                    if price_str and 'KES' not in str(price_str).upper():
+                        price_str = f"KES {price_str}"
                     context_lines.append(
-                        f"  {i}. {p.get('name')} — {p.get('price')} | "
+                        f"  {i}. {p.get('name')} — {price_str} | "
                         f"Variants: {variants} | "
                         f"Stock: {p.get('stock_quantity', 0)} units"
                     )
@@ -236,7 +242,7 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                     "Recommend the most relevant 1-2 to the customer with specific names and prices. "
                     "Don't list all options unless they explicitly ask."
                 )
-                
+
         if context_data.get("delivery_asked"):
             loc = context_data.get("delivery_location", "their location")
             context_lines.append(
