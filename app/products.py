@@ -195,17 +195,16 @@ def get_product(product_id):
 def sync_status():
     """
     Returns:
-      - last_synced_at, product_count, stale, stale_threshold_hours (existing)
-      - current_job: the latest products-related job (pending/running/success/failed),
-        or None if none has ever run
-
-    The frontend polls this. When current_job.status is 'success' or 'failed',
-    polling can stop.
+      - last_synced_at, product_count, stale, stale_threshold_hours
+      - in_stock_count, out_of_stock_count (catalog-wide, not per-page)
+      - current_job: the latest products-related job (pending/running/success/failed)
     """
     from app.sync_jobs import get_latest_job
 
     last = _last_synced_at()
     count = ProductCache.query.count()
+    in_stock = ProductCache.query.filter(ProductCache.stock_quantity > 0).count()
+    out_of_stock = ProductCache.query.filter(ProductCache.stock_quantity == 0).count()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
 
     latest_job = get_latest_job('products')
@@ -213,6 +212,8 @@ def sync_status():
     return jsonify({
         'last_synced_at': last.isoformat() if last else None,
         'product_count': count,
+        'in_stock_count': in_stock,
+        'out_of_stock_count': out_of_stock,
         'stale': stale,
         'stale_threshold_hours': int(STALE_AFTER.total_seconds() // 3600),
         'current_job': latest_job.to_dict() if latest_job else None,

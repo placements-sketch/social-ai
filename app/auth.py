@@ -36,7 +36,10 @@ def current_user_id():
 
 
 def get_client_ip():
-    """Get the client's IP address from the request."""
+    """Get the client's IP address from the request. Returns None if no request context."""
+    from flask import has_request_context
+    if not has_request_context():
+        return None
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr

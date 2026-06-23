@@ -9,10 +9,8 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 // ProductKPIs Component - animated KPI cards
 function ProductKPIs({ status, products, lastSynced, formatTime }) {
   const animatedTotal = useCountAnimation(status?.product_count || 0, 2000)
-  const inStock = products.filter(p => p.stock_quantity > 0).length
-  const outOfStock = products.filter(p => p.stock_quantity === 0).length
-  const animatedInStock = useCountAnimation(inStock, 2000)
-  const animatedOutOfStock = useCountAnimation(outOfStock, 2000)
+  const animatedInStock = useCountAnimation(status?.in_stock_count || 0, 2000)
+  const animatedOutOfStock = useCountAnimation(status?.out_of_stock_count || 0, 2000)
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
