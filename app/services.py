@@ -218,10 +218,15 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
             keyword_source = "history"
 
     if product_keyword:
-        # Search local ProductCache (synced from Shopify). Returns up to 3 matches
-        # so Claude can recommend across the catalog instead of awkwardly defaulting
-        # to "we don't have that" when the keyword matches a variant or description.
-        matches = search_products(product_keyword, limit=3)
+        # Multi-term search: extract additional terms from the current message
+        # so "black dress" matches the Black Wrap Dress better than just any dress.
+        # On history-source follows, we only have the carried keyword.
+        if keyword_source == "current_message":
+            search_terms = _extract_product_keywords(message)
+        else:
+            search_terms = [product_keyword]
+
+        matches = search_products(search_terms, limit=3)
 
         if matches:
             context_data["products"] = matches              # full list for Claude
@@ -368,28 +373,38 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
 # Internal helpers (extraction)
 # ─────────────────────────────────────────────
 
-def _extract_product_keyword(message: str) -> str:
+def _extract_product_keywords(message: str, max_terms: int = 4) -> list[str]:
     """
-    Pulls the most likely product keyword from the message.
-    
-    Strategy: drop stopwords, then prefer the LONGEST remaining word
-    (longer words are more likely to be product nouns like "bracelet"
-    rather than modifiers like "arm" or "blue"). Falls back to message
-    head if nothing remains.
+    Extract multiple product-relevant terms (3+ chars, non-stopword) ordered
+    longest-first. Returns up to `max_terms` — passed to search_products
+    so each query can match e.g. "black" AND "dress" together rather than
+    picking one and missing the other.
     """
     stopwords = {
         "is", "the", "a", "an", "do", "you", "have", "what", "how", "much",
         "in", "stock", "available", "this", "that", "it", "yes", "no",
         "and", "or", "if", "for", "to", "of", "with", "hi", "hello", "hey",
         "any", "show", "me", "got", "we", "us", "some", "more", "please",
+        "can", "could", "would", "will", "want", "need", "looking", "find",
     }
     words = [w.strip("?.,!") for w in message.lower().split()]
     candidates = [w for w in words if w and w not in stopwords and len(w) >= 3]
-    if not candidates:
-        return message[:30]
-    # Prefer the longest word — "bracelet" beats "arm" or "blue"
-    return max(candidates, key=len)
+    # Dedupe while preserving order, then sort by length desc
+    seen = set()
+    unique = []
+    for w in candidates:
+        if w not in seen:
+            seen.add(w)
+            unique.append(w)
+    unique.sort(key=len, reverse=True)
+    return unique[:max_terms]
 
+
+# Keep the old single-keyword extractor as a thin wrapper for any callers
+# (and for the legacy product_keyword DB column, which is still a single string).
+def _extract_product_keyword(message: str) -> str:
+    terms = _extract_product_keywords(message)
+    return terms[0] if terms else message[:30]
 
 def _extract_location(message: str) -> str | None:
     """Extracts a Kenyan location mention from the message."""

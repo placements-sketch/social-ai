@@ -342,16 +342,10 @@ export default function Analytics() {
             {top_products.map((product, i) => (
               <div key={product.name} className="flex items-center gap-3">
                 <span className="text-xs font-bold text-gray-400 w-4">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline text-xs mb-1.5 gap-2">
-                    <span className="text-gray-800 font-semibold truncate">{product.name}</span>
-                    <span className="text-gray-500 font-medium shrink-0">{product.mentions} mention{product.mentions !== 1 ? 's' : ''}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[11px] mb-1.5 gap-2">
-                    <span className="text-gray-500">{product.price || '—'}</span>
-                    <span className={product.stock_quantity > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
-                      {product.stock_quantity > 0 ? `${product.stock_quantity} in stock` : 'Out of stock'}
-                    </span>
+                <div className="flex-1">
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-gray-800 font-semibold">{product.name}</span>
+                    <span className="text-gray-500 font-medium">{product.mentions} mentions</span>
                   </div>
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div

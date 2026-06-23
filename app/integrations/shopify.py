@@ -118,21 +118,24 @@ def list_all_products() -> list[dict]:
         return _mock_list_all_products()
     return _real_list_all_products()
 
-def search_products(keyword: str, limit: int = 3) -> list[dict]:
+def search_products(keyword, limit: int = 3) -> list[dict]:
     """
-    Search the LOCAL ProductCache (mirrored from Shopify via the sync job)
-    for products matching the keyword across name, description, variants, and tags.
-
-    This is fast (DB query, no HTTP), supports partial matches, and works
-    across multiple fields — unlike Shopify REST's ?title= which is exact-match.
-
+    Search the local ProductCache. Accepts either:
+      - a single keyword string (matches across name/desc/variants/tags), OR
+      - a list of keywords (products matching MORE terms rank higher).
     Returns up to `limit` matches, best first.
     """
     if not keyword:
         return []
+    # Normalize to a list
+    terms = [keyword] if isinstance(keyword, str) else list(keyword)
+    terms = [t for t in terms if t and t.strip()]
+    if not terms:
+        return []
+
     if USE_MOCK:
-        return _mock_search_products(keyword, limit=limit)
-    return _cache_search_products(keyword, limit=limit)
+        return _mock_search_products(terms, limit=limit)
+    return _cache_search_products(terms, limit=limit)
 
 # ─────────────────────────────────────────────
 # Mock implementation
@@ -204,14 +207,19 @@ def _mock_get_product_info(keyword: str) -> dict:
         "stock_quantity": 0,
     }
 
-def _mock_search_products(keyword: str, limit: int = 3) -> list[dict]:
-    """Multi-product search over the in-memory mock catalog."""
-    if not keyword:
+def _mock_search_products(terms: list[str], limit: int = 3) -> list[dict]:
+    """Multi-term search over the in-memory mock catalog."""
+    if not terms:
         return []
 
-    kw = keyword.lower().strip()
-    kw_singular = kw.rstrip('s') if len(kw) > 3 and kw.endswith('s') else kw
-    search_terms = list({kw, kw_singular})
+    expanded = []
+    for t in terms:
+        t = t.lower().strip()
+        if not t:
+            continue
+        expanded.append(t)
+        if len(t) > 3 and t.endswith('s'):
+            expanded.append(t.rstrip('s'))
 
     matches = []
     for product in _MOCK_PRODUCTS:
@@ -220,7 +228,7 @@ def _mock_search_products(keyword: str, limit: int = 3) -> list[dict]:
         variants_lc = " ".join(str(v).lower() for v in product.get("variants", []))
 
         score = 0
-        for term in search_terms:
+        for term in expanded:
             if term in name_lc:        score += 10
             elif term in variants_lc:  score += 5
             elif term in desc_lc:      score += 2
@@ -231,45 +239,53 @@ def _mock_search_products(keyword: str, limit: int = 3) -> list[dict]:
     matches.sort(key=lambda x: -x[0])
     return [p for _, p in matches[:limit]]
 
-
 # ─────────────────────────────────────────────
 # Real Shopify implementation (TODO)
 # ─────────────────────────────────────────────
 
-def _cache_search_products(keyword: str, limit: int = 3) -> list[dict]:
+def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
     """
-    Search the local ProductCache table (mirrored from Shopify by the sync job).
-    Partial matching, multi-field, fast (no HTTP). Imports happen inside the
-    function to avoid circular imports during app init.
+    Multi-term ProductCache search. Each term contributes to the score based on
+    where it hits (name > variants > tags > description). Products that match
+    multiple terms naturally outrank single-term matches.
     """
     try:
         from app.models import ProductCache
         from app import db
         from sqlalchemy import or_, case, cast, String
 
-        kw = keyword.lower().strip()
-        kw_singular = kw.rstrip('s') if len(kw) > 3 and kw.endswith('s') else kw
-        like_kw = f"%{kw}%"
-        like_singular = f"%{kw_singular}%"
+        # Build a combined OR filter across all terms + a summed score expression
+        like_clauses = []
+        score_components = []
 
-        # Score-rank: name match > variants > tags > description
-        score = (
-            case((ProductCache.name.ilike(like_kw), 10), else_=0) +
-            case((ProductCache.name.ilike(like_singular), 8), else_=0) +
-            case((cast(ProductCache.variants, String).ilike(like_kw), 5), else_=0) +
-            case((cast(ProductCache.tags, String).ilike(like_kw), 4), else_=0) +
-            case((ProductCache.description.ilike(like_kw), 2), else_=0)
-        ).label('score')
+        for raw in terms:
+            t = raw.lower().strip()
+            t_singular = t.rstrip('s') if len(t) > 3 and t.endswith('s') else t
+            for kw in {t, t_singular}:
+                like_kw = f"%{kw}%"
+                like_clauses.extend([
+                    ProductCache.name.ilike(like_kw),
+                    cast(ProductCache.variants, String).ilike(like_kw),
+                    cast(ProductCache.tags, String).ilike(like_kw),
+                    ProductCache.description.ilike(like_kw),
+                ])
+                score_components.append(case((ProductCache.name.ilike(like_kw), 10), else_=0))
+                score_components.append(case((cast(ProductCache.variants, String).ilike(like_kw), 5), else_=0))
+                score_components.append(case((cast(ProductCache.tags, String).ilike(like_kw), 4), else_=0))
+                score_components.append(case((ProductCache.description.ilike(like_kw), 2), else_=0))
+
+        if not like_clauses:
+            return []
+
+        # Sum all score components into one expression
+        score = score_components[0]
+        for c in score_components[1:]:
+            score = score + c
+        score = score.label('score')
 
         rows = (
             db.session.query(ProductCache, score)
-            .filter(or_(
-                ProductCache.name.ilike(like_kw),
-                ProductCache.name.ilike(like_singular),
-                cast(ProductCache.variants, String).ilike(like_kw),
-                cast(ProductCache.tags, String).ilike(like_kw),
-                ProductCache.description.ilike(like_kw),
-            ))
+            .filter(or_(*like_clauses))
             .order_by(score.desc(), ProductCache.name.asc())
             .limit(limit)
             .all()
@@ -287,16 +303,16 @@ def _cache_search_products(keyword: str, limit: int = 3) -> list[dict]:
             })
 
         log_event("info", "integrations.shopify.cache_search",
-                  f"Cache search for '{keyword}': {len(result)} matches",
-                  payload={"keyword": keyword,
+                  f"Cache search for {terms}: {len(result)} matches",
+                  payload={"terms": terms,
                            "matches": [p["name"] for p in result]})
         return result
 
     except Exception as e:
         log_event("error", "integrations.shopify.cache_search",
-                  f"Cache search failed for '{keyword}': {str(e)}")
+                  f"Cache search failed for {terms}: {str(e)}")
         return []
-
+    
 def _real_get_product_info(keyword: str) -> dict:
     """
     Fetches product metadata from Shopify by keyword search.
