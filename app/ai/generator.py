@@ -236,6 +236,7 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                     "Recommend the most relevant 1-2 to the customer with specific names and prices. "
                     "Don't list all options unless they explicitly ask."
                 )
+                
         if context_data.get("delivery_asked"):
             loc = context_data.get("delivery_location", "their location")
             context_lines.append(
