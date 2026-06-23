@@ -32,8 +32,8 @@ class Config:
 
     # Anthropic Claude (replaces OpenAI)
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
-    CLAUDE_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS", "400"))
+    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
+    CLAUDE_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS", "300"))
 
     # Meta (Instagram + WhatsApp + Facebook)
     META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "")
