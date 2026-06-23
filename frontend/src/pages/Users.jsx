@@ -128,6 +128,8 @@ export default function Users() {
     setEditData({
       id: user.id,
       full_name: user.full_name,
+      email: user.email,
+      password: '',
       role: user.role,
       status: user.status,
     })
@@ -140,7 +142,7 @@ export default function Users() {
     setShowEditModal(false)
     setEditError(null)
     setEditSuccess(false)
-    setEditData({ id: null, full_name: '', role: 'agent', status: 'active' })
+    setEditData({ id: null, full_name: '', email: '', password: '', role: 'agent', status: 'active' })
   }
 
   const updateUser = async (e) => {
@@ -153,6 +155,29 @@ export default function Users() {
       return
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(editData.email)) {
+      setEditError('Invalid email format')
+      return
+    }
+
+    // Password is optional on edit — only validate if the field has a value
+    if (editData.password && editData.password.length < 8) {
+      setEditError('Password must be at least 8 characters')
+      return
+    }
+
+    // Build payload — only send password if it was actually entered
+    const payload = {
+      full_name: editData.full_name.trim(),
+      email: editData.email.trim(),
+      role: editData.role,
+      status: editData.status,
+    }
+    if (editData.password) {
+      payload.password = editData.password
+    }
+
     setEditSubmitting(true)
     try {
       const res = await fetch(`${API_BASE}/auth/users/${editData.id}`, {
@@ -161,11 +186,7 @@ export default function Users() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('authToken')}`,
         },
-        body: JSON.stringify({
-          full_name: editData.full_name.trim(),
-          role: editData.role,
-          status: editData.status,
-        }),
+        body: JSON.stringify(payload),
       })
 
       const data = await res.json()
@@ -617,7 +638,7 @@ export default function Users() {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
                   <h2 className="text-lg font-bold text-gray-900">Edit User</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Update role, status, or name</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Update name, email, password, role, or status</p>
                 </div>
                 <button onClick={closeEditModal} className="btn-ghost p-1 shrink-0">
                   <X size={18} />
@@ -645,6 +666,33 @@ export default function Users() {
                     onChange={(e) => setEditData(prev => ({ ...prev, full_name: e.target.value }))}
                     className="input w-full text-xs"
                     disabled={editSuccess}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={editData.email}
+                    onChange={(e) => setEditData(prev => ({ ...prev, email: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1.5">
+                    Password
+                    <span className="font-normal text-gray-400 ml-1.5">(leave blank to keep current)</span>
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Min 8 characters"
+                    value={editData.password}
+                    onChange={(e) => setEditData(prev => ({ ...prev, password: e.target.value }))}
+                    className="input w-full text-xs"
+                    disabled={editSuccess}
+                    autoComplete="new-password"
                   />
                 </div>
 

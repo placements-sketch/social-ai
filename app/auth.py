@@ -305,11 +305,31 @@ def update_user(user_id):
         user.status = new_status
         changes['status'] = user.status
 
+    # Email change: validate format + uniqueness (allow keeping the same one)
+    if 'email' in data:
+        new_email = (data.get('email') or '').lower().strip()
+        if not new_email or not is_valid_email(new_email):
+            return jsonify({'error': 'Invalid email address format'}), 400
+        if new_email != user.email:
+            existing = AuthUser.query.filter_by(email=new_email).first()
+            if existing and existing.id != user.id:
+                return jsonify({'error': 'Email already in use by another account'}), 409
+            user.email = new_email
+            changes['email'] = new_email
+
+    # Password change: optional — only update if a non-empty value was sent
+    if 'password' in data and data.get('password'):
+        new_password = data.get('password', '').strip()
+        if len(new_password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters long'}), 400
+        user.set_password(new_password)
+        changes['password'] = '***'  # never log the actual password
+
     user.updated_at = datetime.utcnow()
 
     # Notify other admins. Role changes are warning-level; name/status info-level.
     from app.notifications import notify_admins
-    sev = 'warning' if 'role' in changes else 'info'
+    sev = 'warning' if any(k in changes for k in ('role', 'email', 'password')) else 'info'
     field_summary = ', '.join(sorted(changes.keys()))
     notify_admins(
         type_='user_updated',
