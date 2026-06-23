@@ -592,3 +592,65 @@ class Notification(db.Model):
 
     def __repr__(self):
         return f"<Notification user={self.user_id} {self.type}: {self.title[:40]}>"
+    
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SYNC JOBS — background job tracking for long-running Shopify operations
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SyncJob(db.Model):
+    """
+    Tracks the state of a long-running sync operation (products check,
+    products sync, orders sync, etc.). Each call to a sync endpoint creates
+    a row, runs the work in a background thread, and updates this row when done.
+    The frontend polls /api/products/sync/status to see if the job is finished.
+    """
+    __tablename__ = "sync_jobs"
+
+    id          = db.Column(db.Integer, primary_key=True)
+
+    # What kind of sync this is. Reuse the same values across endpoints so a
+    # single status query can find "the most recent products-related job".
+    # Values: 'products_check' | 'products_apply' | 'orders_apply' | 'customers_apply'
+    kind        = db.Column(db.String(64), nullable=False, index=True)
+
+    # 'pending' | 'running' | 'success' | 'failed'
+    status      = db.Column(db.String(16), nullable=False, default='pending', index=True)
+
+    # Who triggered it
+    created_by  = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
+
+    # Optional progress hint: "Fetching products from Shopify..." etc.
+    progress    = db.Column(db.String(256), nullable=True)
+
+    # When the job actually started running (worker picked it up)
+    started_at  = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # When it finished (success OR failed)
+    finished_at = db.Column(db.DateTime, nullable=True)
+
+    # Result data on success: e.g. {"added": [...], "updated": [...], "removed": [...]}
+    # For products_check this is the diff. For products_apply this is the counts applied.
+    result      = db.Column(db.JSON, nullable=True)
+
+    # Error message on failure
+    error       = db.Column(db.Text, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'kind': self.kind,
+            'status': self.status,
+            'progress': self.progress,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'finished_at': self.finished_at.isoformat() if self.finished_at else None,
+            'result': self.result,
+            'error': self.error,
+            'elapsed_ms': (
+                int((self.finished_at - self.started_at).total_seconds() * 1000)
+                if self.finished_at and self.started_at else None
+            ),
+        }
+
+    def __repr__(self):
+        return f"<SyncJob #{self.id} {self.kind} {self.status}>"

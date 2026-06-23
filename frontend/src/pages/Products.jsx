@@ -94,21 +94,50 @@ export default function Products() {
     }
   }
 
+  // Poll the sync/status endpoint until the current job finishes.
+  // Returns the final job object so callers can read its result.
+  const pollJobUntilDone = async (expectedKind, intervalMs = 2000, timeoutMs = 600000) => {
+    const startedAt = Date.now()
+    while (true) {
+      if (Date.now() - startedAt > timeoutMs) {
+        throw new Error(`Job timed out after ${Math.round(timeoutMs / 1000)}s`)
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+
+      const res = await fetch(`${API_BASE}/products/sync/status`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
+      })
+      if (!res.ok) continue
+      const data = await res.json()
+      setStatus(data)
+      const job = data.current_job
+      if (!job) continue
+      if (job.kind !== expectedKind) continue  // some other job finished, keep waiting
+      if (job.status === 'success') return job
+      if (job.status === 'failed') {
+        throw new Error(job.error || 'Job failed')
+      }
+      // still pending/running — loop
+    }
+  }
+
   const handleCheckSync = async () => {
     setChecking(true)
+    setError(null)
     try {
       const res = await fetch(`${API_BASE}/products/sync/check`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.message || 'Failed to check sync')
+      // 202 = job started, 409 = job already running (either way we poll)
+      if (res.status !== 202 && res.status !== 409) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.message || `Failed to start check (HTTP ${res.status})`)
       }
-      const data = await res.json()
-      setSyncDiff(data)
+
+      const job = await pollJobUntilDone('products_check')
+      setSyncDiff(job.result)
       setShowSyncDiff(true)
-      setError(null)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -118,21 +147,22 @@ export default function Products() {
 
   const handleSync = async () => {
     setSyncing(true)
+    setError(null)
     try {
       const res = await fetch(`${API_BASE}/products/sync`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.message || 'Failed to sync products')
+      if (res.status !== 202 && res.status !== 409) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.message || `Failed to start sync (HTTP ${res.status})`)
       }
-      const data = await res.json()
+
+      await pollJobUntilDone('products_apply')
       setShowSyncDiff(false)
       setSyncDiff(null)
       await fetchProducts()
       await fetchStatus()
-      setError(null)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -159,7 +189,9 @@ export default function Products() {
             className="btn-ghost flex items-center gap-2 text-sm"
           >
             {checking && <Loader2 size={14} className="animate-spin" />}
-            Check for Changes
+            {checking && status?.current_job?.progress
+              ? status.current_job.progress
+              : 'Check for Changes'}
           </button>
           <button
             onClick={handleSync}
@@ -167,7 +199,9 @@ export default function Products() {
             className="btn-primary flex items-center gap-2 text-xs"
           >
             {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            Sync Now
+            {syncing && status?.current_job?.progress
+              ? status.current_job.progress
+              : 'Sync Now'}
           </button>
         </div>
       </div>
@@ -219,7 +253,9 @@ export default function Products() {
               <button onClick={() => setShowSyncDiff(false)} className="btn-ghost flex-1">Cancel</button>
               <button onClick={handleSync} disabled={syncing} className="btn-primary flex-1 flex items-center justify-center gap-2">
                 {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                Apply Sync
+                {syncing && status?.current_job?.progress
+                  ? status.current_job.progress
+                  : 'Apply Sync'}
               </button>
             </div>
           )}

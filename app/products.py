@@ -194,17 +194,28 @@ def get_product(product_id):
 @jwt_required()
 def sync_status():
     """
-    Cheap status — last_synced_at, product_count, stale flag.
-    Used by the page banner. Does NOT hit Shopify.
+    Returns:
+      - last_synced_at, product_count, stale, stale_threshold_hours (existing)
+      - current_job: the latest products-related job (pending/running/success/failed),
+        or None if none has ever run
+
+    The frontend polls this. When current_job.status is 'success' or 'failed',
+    polling can stop.
     """
+    from app.sync_jobs import get_latest_job
+
     last = _last_synced_at()
     count = ProductCache.query.count()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
+
+    latest_job = get_latest_job('products')
+
     return jsonify({
         'last_synced_at': last.isoformat() if last else None,
         'product_count': count,
         'stale': stale,
         'stale_threshold_hours': int(STALE_AFTER.total_seconds() // 3600),
+        'current_job': latest_job.to_dict() if latest_job else None,
     }), 200
 
 
@@ -212,200 +223,152 @@ def sync_status():
 @jwt_required()
 def sync_check():
     """
-    Hits Shopify, compares to local cache, returns the diff WITHOUT writing.
-    Used by the "Check for changes" button.
-
-    Response:
-      {
-        ok: true,
-        added:   [{shopify_product_id, name, price}, ...],   # in Shopify, not cached
-        updated: [{shopify_product_id, name, price}, ...],   # in both but different
-        removed: [{shopify_product_id, name}, ...],          # in cache, not in Shopify
-        in_sync: bool                                         # true iff all three are empty
-      }
+    Starts a background diff between Shopify and the local cache. Returns
+    a job ID. The frontend polls /products/sync/status to watch progress.
+    The diff itself appears in current_job.result when status is 'success'.
+    
+    Response: 202 Accepted with {job_id, status}
     """
+    from app.sync_jobs import start_background_job
+
     current_user = AuthUser.query.get(current_user_id())
     if current_user is None:
         return jsonify({'error': 'User not found'}), 404
 
-    try:
-        shopify = list_all_products()
-    except NotImplementedError:
-        return jsonify({
-            'ok': False,
-            'reason': 'shopify_not_configured',
-            'message': 'Shopify integration is not yet configured. Set SHOPIFY_STORE_URL and SHOPIFY_ACCESS_TOKEN.',
-        }), 200
-    except Exception as e:
-        from app.notifications import notify_admins
-        notify_admins(
-            type_='shopify_check_failed',
-            title="Shopify check failed",
-            body=f"Diff check by {current_user.full_name} couldn't reach Shopify: {str(e)[:200]}",
-            severity='urgent',
-            resource_type='shopify',
-            actor_id=current_user.id,
-            coalesce=True,
-        )
+    def do_check(job):
+        job.progress = "Fetching catalog from Shopify..."
         db.session.commit()
-        return jsonify({'ok': False, 'reason': 'shopify_error', 'message': str(e)}), 502
 
-    snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
-    cached = {r.shopify_product_id: r for r in ProductCache.query.all()}
+        shopify = list_all_products()
 
-    added, updated, removed = [], [], []
-    for spid, snap in snapshot.items():
-        if spid not in cached:
-            added.append({'shopify_product_id': spid, 'name': snap['name'],
-                          'price': _format_price(snap['price'])})
-        elif not _row_matches_shopify(cached[spid], snap):
-            updated.append({'shopify_product_id': spid, 'name': snap['name'],
-                            'price': _format_price(snap['price'])})
-    for spid, row in cached.items():
-        if spid not in snapshot:
-            removed.append({'shopify_product_id': spid, 'name': row.name})
+        job.progress = f"Comparing {len(shopify)} Shopify products to cache..."
+        db.session.commit()
 
-    in_sync = not (added or updated or removed)
-    return jsonify({
-        'ok': True,
-        'added': added,
-        'updated': updated,
-        'removed': removed,
-        'in_sync': in_sync,
-        'checked_at': datetime.utcnow().isoformat(),
-    }), 200
+        snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
+        cached = {r.shopify_product_id: r for r in ProductCache.query.all()}
+
+        added, updated, removed = [], [], []
+        for spid, snap in snapshot.items():
+            if spid not in cached:
+                added.append({'shopify_product_id': spid, 'name': snap['name'],
+                              'price': _format_price(snap['price'])})
+            elif not _row_matches_shopify(cached[spid], snap):
+                updated.append({'shopify_product_id': spid, 'name': snap['name'],
+                                'price': _format_price(snap['price'])})
+        for spid, row in cached.items():
+            if spid not in snapshot:
+                removed.append({'shopify_product_id': spid, 'name': row.name})
+
+        return {
+            'added': added,
+            'updated': updated,
+            'removed': removed,
+            'in_sync': not (added or updated or removed),
+            'shopify_count': len(shopify),
+            'cached_count': len(cached),
+        }
+
+    job, started = start_background_job(
+        kind='products_check',
+        work_fn=do_check,
+        user_id=current_user.id,
+    )
+
+    if not started:
+        return jsonify({
+            'job_id': job.id,
+            'status': job.status,
+            'message': 'A products check is already running. Watch its progress via /sync/status.',
+        }), 409
+
+    return jsonify({'job_id': job.id, 'status': job.status}), 202
 
 
 @products_bp.route('/products/sync', methods=['POST'])
 @jwt_required()
 def sync_products():
     """
-    Mirror Shopify into the cache.
-      - Insert products that are in Shopify but not cached
-      - Update cached rows whose fields differ
-      - Delete cached rows no longer in Shopify
+    Starts a background sync: fetch Shopify catalog, upsert cached rows,
+    delete cached rows no longer in Shopify. Returns a job ID immediately.
+    The frontend polls /products/sync/status for completion.
 
-    Returns counts and the diff that was applied.
+    Response: 202 Accepted with {job_id, status}
     """
+    from app.sync_jobs import start_background_job
+
     current_user = AuthUser.query.get(current_user_id())
     if current_user is None:
         return jsonify({'error': 'User not found'}), 404
 
-    try:
-        shopify = list_all_products()
-    except NotImplementedError:
-        return jsonify({
-            'ok': False,
-            'reason': 'shopify_not_configured',
-            'message': 'Shopify integration is not yet configured. Set SHOPIFY_STORE_URL and SHOPIFY_ACCESS_TOKEN.',
-        }), 200
-    except Exception as e:
-        from app.notifications import notify_admins
-        notify_admins(
-            type_='shopify_sync_failed',
-            title="Shopify product sync failed",
-            body=f"{current_user.full_name} tried to sync products but Shopify is unreachable: {str(e)[:200]}",
-            severity='urgent',
-            resource_type='shopify',
-            actor_id=current_user.id,
-            coalesce=True,
-        )
+    def do_apply(job):
+        job.progress = "Fetching catalog from Shopify..."
         db.session.commit()
-        return jsonify({'ok': False, 'reason': 'shopify_error', 'message': str(e)}), 502
 
-    snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
-    cached = {r.shopify_product_id: r for r in ProductCache.query.all()}
+        shopify = list_all_products()
 
-    now = datetime.utcnow()
-    added_count = updated_count = removed_count = 0
-    added, updated, removed = [], [], []
+        job.progress = f"Applying {len(shopify)} products to the cache..."
+        db.session.commit()
 
-    # Inserts + updates
-    for spid, snap in snapshot.items():
-        if spid in cached:
-            row = cached[spid]
-            if not _row_matches_shopify(row, snap):
-                row.name = snap['name']
-                row.description = snap['description']
-                row.price = snap['price']
-                row.variants = snap['variants']
-                row.images = snap['images']
-                row.tags = snap['tags']
-                row.stock_quantity = snap['stock_quantity']
-                row.inventory_tracked = snap['inventory_tracked']
-                row.cached_at = now
-                updated_count += 1
-                updated.append({'shopify_product_id': spid, 'name': snap['name']})
+        snapshot = {s['shopify_product_id']: s for s in (_shopify_to_cache_dict(p) for p in shopify)}
+        cached = {r.shopify_product_id: r for r in ProductCache.query.all()}
+
+        now = datetime.utcnow()
+        added_count = updated_count = removed_count = 0
+
+        # Inserts + updates
+        for spid, snap in snapshot.items():
+            if spid in cached:
+                row = cached[spid]
+                if not _row_matches_shopify(row, snap):
+                    row.name = snap['name']
+                    row.description = snap['description']
+                    row.price = snap['price']
+                    row.variants = snap['variants']
+                    row.images = snap['images']
+                    row.tags = snap['tags']
+                    row.stock_quantity = snap['stock_quantity']
+                    row.inventory_tracked = snap['inventory_tracked']
+                    row.cached_at = now
+                    updated_count += 1
+                else:
+                    # No change, just bump cached_at so we know we checked
+                    row.cached_at = now
             else:
-                # In sync but refresh the cached_at so staleness is honest.
-                row.cached_at = now
-        else:
-            new_row = ProductCache(
-                shopify_product_id=spid,
-                name=snap['name'],
-                description=snap['description'],
-                price=snap['price'],
-                variants=snap['variants'],
-                images=snap['images'],
-                tags=snap['tags'],
-                stock_quantity=snap['stock_quantity'],
-                inventory_tracked=snap['inventory_tracked'],
-                cached_at=now,
-            )
-            db.session.add(new_row)
-            added_count += 1
-            added.append({'shopify_product_id': spid, 'name': snap['name']})
+                db.session.add(ProductCache(**snap, cached_at=now))
+                added_count += 1
 
-    # Deletes
-    for spid, row in cached.items():
-        if spid not in snapshot:
-            db.session.delete(row)
-            removed_count += 1
-            removed.append({'shopify_product_id': spid, 'name': row.name})
+        # Deletes — products in cache but no longer in Shopify
+        for spid, row in cached.items():
+            if spid not in snapshot:
+                db.session.delete(row)
+                removed_count += 1
 
-    # Notify other admins if the sync actually changed anything.
-    if added_count or updated_count or removed_count:
-        from app.notifications import notify_admins
-        change_summary_parts = []
-        if added_count:
-            change_summary_parts.append(f"{added_count} added")
-        if updated_count:
-            change_summary_parts.append(f"{updated_count} updated")
-        if removed_count:
-            change_summary_parts.append(f"{removed_count} removed")
-        change_summary = ', '.join(change_summary_parts)
+        db.session.commit()
 
-        # Removals are warning-level; pure additions/updates are info.
-        sev = 'warning' if removed_count else 'info'
-
-        notify_admins(
-            type_='shopify_sync_completed',
-            title=f"Products synced: {change_summary}",
-            body=f"{current_user.full_name} ran a Shopify sync",
-            severity=sev,
+        log_audit(
+            job.created_by, 'sync_products',
             resource_type='products',
-            actor_id=current_user.id,
-            coalesce=True,
+            changes={'added': added_count, 'updated': updated_count, 'removed': removed_count},
         )
 
-    db.session.commit()
+        return {
+            'added': added_count,
+            'updated': updated_count,
+            'removed': removed_count,
+            'total_after_sync': len(snapshot),
+        }
 
-    log_audit(
-        current_user.id,
-        'sync_products',
-        resource_type='products',
-        resource_id=None,
-        changes={'added': added_count, 'updated': updated_count, 'removed': removed_count},
+    job, started = start_background_job(
+        kind='products_apply',
+        work_fn=do_apply,
+        user_id=current_user.id,
     )
 
-    return jsonify({
-        'ok': True,
-        'added': added,
-        'updated': updated,
-        'removed': removed,
-        'added_count': added_count,
-        'updated_count': updated_count,
-        'removed_count': removed_count,
-        'synced_at': now.isoformat(),
-        'total_products': ProductCache.query.count(),
-    }), 201
+    if not started:
+        return jsonify({
+            'job_id': job.id,
+            'status': job.status,
+            'message': 'A products sync is already running. Watch its progress via /sync/status.',
+        }), 409
+
+    return jsonify({'job_id': job.id, 'status': job.status}), 202

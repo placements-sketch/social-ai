@@ -1,0 +1,123 @@
+"""
+app/sync_jobs.py
+Generic background-job runner for long-running operations that would
+otherwise blow Render's worker timeout (Shopify sync, orders sync, etc.).
+
+Pattern:
+  job = start_background_job(kind='products_apply', work_fn=do_apply, user_id=...)
+  return jsonify({'job_id': job.id}), 202
+
+The work_fn signature is:
+  def work_fn(job: SyncJob) -> dict
+where the returned dict is stored as job.result on success.
+Exceptions are caught and stored in job.error.
+
+The work_fn can update job.progress and call db.session.commit() to surface
+intermediate state to the polling frontend.
+"""
+
+import threading
+from datetime import datetime
+from typing import Callable
+
+from flask import current_app
+
+from app import db
+from app.models import SyncJob
+from app.utils.logger import log_event
+
+
+def _has_active_job(kind: str) -> SyncJob | None:
+    """
+    Returns an existing pending/running job for this kind, if any. Used to
+    prevent two simultaneous syncs of the same thing stepping on each other.
+    """
+    return (SyncJob.query
+            .filter(SyncJob.kind == kind,
+                    SyncJob.status.in_(['pending', 'running']))
+            .order_by(SyncJob.id.desc())
+            .first())
+
+
+def get_latest_job(kind_prefix: str) -> SyncJob | None:
+    """
+    Find the most recent job whose kind starts with `kind_prefix`.
+    e.g. kind_prefix='products' matches both 'products_check' and 'products_apply'.
+    Used by the status endpoint to surface "the latest products-related thing".
+    """
+    return (SyncJob.query
+            .filter(SyncJob.kind.like(f"{kind_prefix}%"))
+            .order_by(SyncJob.id.desc())
+            .first())
+
+
+def start_background_job(kind: str,
+                         work_fn: Callable[[SyncJob], dict],
+                         user_id: int | None = None) -> tuple[SyncJob, bool]:
+    """
+    Create a SyncJob row and kick off work_fn in a background thread.
+    
+    Returns: (job, started)
+      job:     the SyncJob row (either the newly-created one, OR the existing
+               in-progress one if a conflict was detected)
+      started: True if we started a fresh job; False if there was already
+               one running for this kind
+    """
+    existing = _has_active_job(kind)
+    if existing is not None:
+        return existing, False
+
+    job = SyncJob(
+        kind=kind,
+        status='pending',
+        created_by=user_id,
+        started_at=datetime.utcnow(),
+    )
+    db.session.add(job)
+    db.session.commit()
+
+    # Capture the app object — the thread won't have Flask's request context
+    # by default, so we use app.app_context() inside the worker.
+    app = current_app._get_current_object()
+    job_id = job.id
+
+    def _runner():
+        with app.app_context():
+            # Re-fetch the job inside the app context so it's bound to this
+            # session, not the request session.
+            j = SyncJob.query.get(job_id)
+            if j is None:
+                return
+            try:
+                j.status = 'running'
+                db.session.commit()
+
+                result = work_fn(j)
+
+                j.status = 'success'
+                j.result = result
+                j.finished_at = datetime.utcnow()
+                db.session.commit()
+
+                log_event("info", "sync_jobs.complete",
+                          f"Background job #{j.id} ({j.kind}) succeeded",
+                          payload={"job_id": j.id, "kind": j.kind,
+                                   "elapsed_ms": j.to_dict()['elapsed_ms']})
+            except Exception as e:
+                db.session.rollback()
+                # Re-fetch — the rollback wiped our reference
+                j = SyncJob.query.get(job_id)
+                if j is not None:
+                    j.status = 'failed'
+                    j.error = str(e)[:2000]
+                    j.finished_at = datetime.utcnow()
+                    db.session.commit()
+                log_event("error", "sync_jobs.failed",
+                          f"Background job #{job_id} failed: {str(e)[:200]}",
+                          payload={"job_id": job_id, "kind": kind,
+                                   "error": str(e)[:500]})
+
+    thread = threading.Thread(target=_runner, daemon=True, name=f"sync-{kind}-{job_id}")
+    thread.start()
+
+    return job, True

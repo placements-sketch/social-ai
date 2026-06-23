@@ -1,1 +1,1 @@
-web: gunicorn wsgi:app --log-level debug
+web: gunicorn run:app --timeout 60 --workers 2 --threads 4 --log-level debug
