@@ -319,46 +319,89 @@ def summary():
         key=lambda x: x['count'], reverse=True,
     )
 
-    # ── Top products: real Shopify products matched against message mentions ──
-    # For each inbound message with a product_keyword, resolve it to a real
-    # ProductCache row via the same search the AI pipeline uses, then tally
-    # mentions by ACTUAL product name. Multiple keywords ("dress", "black",
-    # "wrap") that resolve to the same product get combined into one row.
-    from app.integrations.shopify import search_products
+    # ── Top products: single-query keyword → ProductCache resolution ──
+    # Avoid N python-level search_products() calls (which each fire a DB query).
+    # Instead: one SQL query pulls every ProductCache row that matches ANY of
+    # the keywords from messages in the window, then we map keywords → best
+    # product in python over already-fetched rows. Wrapped in try/except so a
+    # bug here can't take down the Dashboard.
+    top_products = []
+    try:
+        from app.models import ProductCache
+        from sqlalchemy import or_, cast, String
+        from app.utils.logger import log_event
 
-    keyword_q = _scope_filter(
-        db.session.query(Message.product_keyword, func.count(Message.id))
-        .filter(Message.created_at >= cutoff)
-        .filter(Message.product_keyword.isnot(None))
-        .group_by(Message.product_keyword),
-        Message, user,
-    )
+        keyword_q = _scope_filter(
+            db.session.query(Message.product_keyword, func.count(Message.id))
+            .filter(Message.created_at >= cutoff)
+            .filter(Message.product_keyword.isnot(None))
+            .group_by(Message.product_keyword),
+            Message, user,
+        )
+        keyword_counts = [(k, int(c)) for k, c in keyword_q.all() if k]
 
-    product_mentions = {}  # shopify_id -> aggregated dict
-    for keyword, count in keyword_q.all():
-        if not keyword:
-            continue
-        matches = search_products(keyword, limit=1)
-        if not matches:
-            continue
-        best = matches[0]
-        sid = best.get('shopify_id') or best.get('name')
-        if sid in product_mentions:
-            product_mentions[sid]['mentions'] += int(count)
-        else:
-            product_mentions[sid] = {
-                'name': best.get('name'),
-                'mentions': int(count),
-                'price': best.get('price'),
-                'stock_quantity': best.get('stock_quantity', 0),
-                'shopify_id': best.get('shopify_id'),
-            }
+        if keyword_counts:
+            # Build a single OR filter across all keywords (each in singular+plural form)
+            ors = []
+            for kw, _ in keyword_counts:
+                kw_s = kw.lower().strip()
+                kw_sing = kw_s.rstrip('s') if len(kw_s) > 3 and kw_s.endswith('s') else kw_s
+                for k in {kw_s, kw_sing}:
+                    like_kw = f"%{k}%"
+                    ors.extend([
+                        ProductCache.name.ilike(like_kw),
+                        cast(ProductCache.variants, String).ilike(like_kw),
+                        cast(ProductCache.tags, String).ilike(like_kw),
+                    ])
 
-    top_products = sorted(
-        product_mentions.values(),
-        key=lambda x: x['mentions'],
-        reverse=True,
-    )[:5]
+            candidate_products = ProductCache.query.filter(or_(*ors)).all() if ors else []
+
+            # For each keyword, pick the best matching product (name > variants > tags)
+            product_mentions = {}
+            for keyword, count in keyword_counts:
+                kw_s = keyword.lower().strip()
+                kw_sing = kw_s.rstrip('s') if len(kw_s) > 3 and kw_s.endswith('s') else kw_s
+                test_terms = {kw_s, kw_sing}
+
+                best = None
+                best_score = 0
+                for p in candidate_products:
+                    name_lc = (p.name or '').lower()
+                    variants_str = " ".join(str(v) for v in (p.variants or [])).lower()
+                    tags_str = " ".join(str(t) for t in (p.tags or [])).lower()
+                    score = 0
+                    for t in test_terms:
+                        if t in name_lc: score += 10
+                        elif t in variants_str: score += 5
+                        elif t in tags_str: score += 4
+                    if score > best_score:
+                        best_score = score
+                        best = p
+                if best is None:
+                    continue
+
+                sid = best.shopify_product_id or best.name
+                if sid in product_mentions:
+                    product_mentions[sid]['mentions'] += count
+                else:
+                    product_mentions[sid] = {
+                        'name': best.name,
+                        'mentions': count,
+                        'price': str(best.price) if best.price is not None else 'N/A',
+                        'stock_quantity': best.stock_quantity or 0,
+                        'shopify_id': best.shopify_product_id,
+                    }
+
+            top_products = sorted(
+                product_mentions.values(),
+                key=lambda x: x['mentions'],
+                reverse=True,
+            )[:5]
+    except Exception as e:
+        from app.utils.logger import log_event
+        log_event("error", "analytics.top_products",
+                  f"Top products computation failed: {str(e)}")
+        top_products = []
 
     return jsonify({
         'window_days': days,
