@@ -30,6 +30,38 @@ from app.handoff import check_handoff
 # anyone calling process_message synchronously.
 AI_SUPPRESSED = ""
 
+def _conversation_history_for_ai(conversation_id: int, limit: int = 8) -> list[dict]:
+    """
+    Pull the recent message history of a conversation, formatted for Claude's
+    messages array. Returns oldest → newest. The current inbound message is
+    NOT included — process_message appends it separately.
+    
+    limit=8 means up to 8 prior turns (4 exchanges). Keeps token usage bounded.
+    """
+    if not conversation_id:
+        return []
+    try:
+        from app.models import Message
+        rows = (Message.query
+                .filter_by(conversation_id=conversation_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit + 1)  # +1 because we'll drop the current inbound
+                .all())
+        # rows are newest-first; reverse to chronological
+        rows = list(reversed(rows))
+        # Drop the last one if it's the current inbound (matches by being very recent)
+        # Simpler: just transform all and let the caller skip if needed
+        history = []
+        for m in rows:
+            if m.direction == 'inbound':
+                history.append({'role': 'user',      'content': m.content})
+            elif m.direction == 'outbound':
+                history.append({'role': 'assistant', 'content': m.content})
+        return history
+    except Exception as e:
+        log_event("warn", "services._conversation_history_for_ai",
+                  f"History fetch failed, replying without context: {e}")
+        return []
 
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None) -> str:
     """
@@ -190,12 +222,20 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         context_data["order_status_asked"] = True
 
     # ── Step 5: Generate AI reply with full multi-intent context ───────────
-    reply, ai_elapsed_ms = generate_reply(
-        message=message,
-        intents=intents,
-        context_data=context_data,
-        channel=channel,
-    )
+    # Fetch recent conversation history for multi-turn context.
+    # inbound_record was created in Step 1; its conversation_id is what we need.
+    history = []
+    if inbound_record is not None:
+        history = _conversation_history_for_ai(inbound_record.conversation_id, limit=8)
+        # Drop the very last turn if it duplicates the current message
+        if history and history[-1].get('content') == message:
+            history = history[:-1]
+
+    ai_result = generate_reply(message, intents, context_data, channel, history=history)
+    reply           = ai_result['reply']
+    ai_elapsed_ms   = ai_result['elapsed_ms']
+    ai_tokens_used  = ai_result['tokens_used']
+    ai_model        = ai_result['model']
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,
@@ -221,6 +261,8 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         user_id=user_id, channel=channel, content=reply,
         intent=None, direction="outbound",
         ai_response_time_ms=ai_elapsed_ms,
+        ai_tokens_used=ai_tokens_used,
+        ai_model=ai_model,
         external_id=new_ext_id,
     )
 
@@ -391,11 +433,10 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> str | N
 # Internal helpers (persistence)
 # ─────────────────────────────────────────────
 
-def _save_message(user_id: str, channel: str, content: str,
-                  intent: str | None, direction: str,
-                  external_id: str | None = None,
-                  media_id: str | None = None,
-                  ai_response_time_ms: int | None = None):
+def _save_message(user_id, channel, content, intent, direction,
+                  external_id=None, media_id=None,
+                  ai_response_time_ms=None,
+                  ai_tokens_used=None, ai_model=None):
     """
     Persist a message and return the Message row (or None on failure).
     Creates the User and Conversation if they don't exist yet.
@@ -450,6 +491,8 @@ def _save_message(user_id: str, channel: str, content: str,
             external_id=external_id,
             media_id=media_id,
             ai_response_time_ms=ai_response_time_ms,
+            ai_tokens_used=ai_tokens_used,
+            ai_model=ai_model,
         )
         db.session.add(msg)
         db.session.commit()
