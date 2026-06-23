@@ -198,17 +198,42 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     context_data = {}
 
     product_intents = {"product_inquiry", "price_inquiry", "stock_inquiry"}
+    ambient_intents = {"greeting", "unknown"}
+
+    # Decide where to source the product keyword from:
+    #   1. Current message has a product intent → extract from current
+    #   2. Current message is purely ambient (greeting / unknown) AND
+    #      conversation has recent product context → reuse from history
+    #   3. Otherwise (e.g. customer pivoted to a delivery/order question) →
+    #      no product fetch — that question gets its own context handling
+    product_keyword = None
+    keyword_source = None
+
     if product_intents.intersection(intents):
         product_keyword = _extract_product_keyword(message)
+        keyword_source = "current_message"
+    elif inbound_record is not None and set(intents) <= ambient_intents:
+        product_keyword = _find_recent_product_keyword(inbound_record.conversation_id)
+        if product_keyword:
+            keyword_source = "history"
+
+    if product_keyword:
         product_data = get_product_info(product_keyword)
         context_data["product"] = product_data
         context_data["stock"]   = get_stock_level(product_keyword)
+
+        # Persist the keyword on the inbound row so future follow-ups can
+        # also find it. This is what makes "yes" after "show me dresses"
+        # work two turns later: each turn writes the keyword forward.
+        _patch_inbound_product_keyword(inbound_record, product_keyword)
+
         log_event("info", "services.shopify_lookup",
-                  f"Shopify product+stock fetched for '{product_keyword}'",
+                  f"Shopify product+stock fetched for '{product_keyword}' (source: {keyword_source})",
                   payload={
                       "user_external_id": user_id,
                       "channel": channel,
                       "product_keyword": product_keyword,
+                      "keyword_source": keyword_source,
                       "product_name": product_data.get("name"),
                       "stock_quantity": context_data["stock"].get("quantity"),
                   },
@@ -518,6 +543,45 @@ def _patch_inbound_intent(inbound_record, intents):
         db.session.commit()
     except Exception as e:
         log_event("error", "services._patch_inbound_intent", str(e))
+
+def _patch_inbound_product_keyword(inbound_record, product_keyword: str):
+    """
+    Write the extracted product keyword onto the inbound row. Used so future
+    messages in the same conversation can find what was being discussed.
+    """
+    if inbound_record is None or not product_keyword:
+        return
+    try:
+        from app import db
+        inbound_record.product_keyword = product_keyword
+        db.session.commit()
+    except Exception as e:
+        log_event("error", "services._patch_inbound_product_keyword", str(e))
+
+
+def _find_recent_product_keyword(conversation_id: int, max_lookback: int = 5) -> str | None:
+    """
+    Look back through the conversation's recent inbound messages for the most
+    recent product keyword. Returns None if nothing relevant in history.
+    
+    max_lookback caps how far we look — past 5 messages is probably stale context.
+    """
+    if not conversation_id:
+        return None
+    try:
+        from app.models import Message
+        rows = (Message.query
+                .filter_by(conversation_id=conversation_id, direction='inbound')
+                .order_by(Message.created_at.desc())
+                .limit(max_lookback)
+                .all())
+        for m in rows:
+            if m.product_keyword:
+                return m.product_keyword
+        return None
+    except Exception as e:
+        log_event("warn", "services._find_recent_product_keyword", str(e))
+        return None
 
 
 def _check_handoff_for_inbound(message, intents, inbound_record):
