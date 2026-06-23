@@ -319,17 +319,45 @@ def summary():
         key=lambda x: x['count'], reverse=True,
     )
 
-    # ── Top products (by product_keyword mention) ─────────────────────────
-    prod_q = _scope_filter(
+    # ── Top products: real Shopify products matched against message mentions ──
+    # For each inbound message with a product_keyword, resolve it to a real
+    # ProductCache row via the same search the AI pipeline uses, then tally
+    # mentions by ACTUAL product name. Multiple keywords ("dress", "black",
+    # "wrap") that resolve to the same product get combined into one row.
+    from app.integrations.shopify import search_products
+
+    keyword_q = _scope_filter(
         db.session.query(Message.product_keyword, func.count(Message.id))
         .filter(Message.created_at >= cutoff)
         .filter(Message.product_keyword.isnot(None))
         .group_by(Message.product_keyword),
         Message, user,
     )
+
+    product_mentions = {}  # shopify_id -> aggregated dict
+    for keyword, count in keyword_q.all():
+        if not keyword:
+            continue
+        matches = search_products(keyword, limit=1)
+        if not matches:
+            continue
+        best = matches[0]
+        sid = best.get('shopify_id') or best.get('name')
+        if sid in product_mentions:
+            product_mentions[sid]['mentions'] += int(count)
+        else:
+            product_mentions[sid] = {
+                'name': best.get('name'),
+                'mentions': int(count),
+                'price': best.get('price'),
+                'stock_quantity': best.get('stock_quantity', 0),
+                'shopify_id': best.get('shopify_id'),
+            }
+
     top_products = sorted(
-        [{'name': name, 'mentions': int(c)} for name, c in prod_q.all() if name],
-        key=lambda x: x['mentions'], reverse=True,
+        product_mentions.values(),
+        key=lambda x: x['mentions'],
+        reverse=True,
     )[:5]
 
     return jsonify({
