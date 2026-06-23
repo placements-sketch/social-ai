@@ -257,3 +257,10 @@ So my honest revised recommendation:
 Build Logs now with this role-aware shape, querying audit_logs (everyone) and logs (admin-only). Works perfectly today for agent personal-action logs and admin pipeline logs.
 Build Analytics next — same role model, but the agent view will be a bit thin until assignment endpoints exist.
 Then add assignment endpoints as a small milestone — finally giving the foundation columns we added weeks ago a way to be populated. After this, agent analytics gets richer (per-agent conversation counts, response times, etc.).
+
+
+Delivery details — "We deliver across Kenya. Standard delivery to Nairobi is X days at KES Y. Up-country delivery takes X-Y days at KES Z."
+Return policy — "Customers can return unworn items within X days of delivery."
+Signature collections — if Shop Zetu has named collections ("The Office Capsule," "Statement Saturdays," etc.) name them so the AI can recommend across the catalog
+Slogan or tagline — if Shop Zetu has one, include it so the assistant can echo it naturally
+Payment methods — M-Pesa, cards, etc.
