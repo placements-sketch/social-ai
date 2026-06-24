@@ -38,3 +38,13 @@ export function formatDateAgo(isoString) {
   if (days < 365) return `${Math.floor(days / 30)}mo ago`
   return `${Math.floor(days / 365)}y ago`
 }
+
+/**
+ * Just hours:minutes in the user's local timezone, e.g. "14:32".
+ * Use for chat bubbles, log entries, anything showing time-of-day.
+ */
+export function formatTimeOfDay(isoString) {
+  const date = parseBackendTime(isoString)
+  if (!date) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}

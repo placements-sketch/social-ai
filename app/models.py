@@ -291,7 +291,6 @@ class Message(db.Model):
             'sender_user': self.sender_user.to_brief() if self.sender_user else None,
             'text': self.content,
             'content': self.content,
-            'time': self.created_at.strftime('%H:%M') if self.created_at else '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'intent': self.intent,
             'product_keyword': self.product_keyword,

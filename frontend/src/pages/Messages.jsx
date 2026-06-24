@@ -12,7 +12,7 @@ import {
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { useAuth } from '../context/AuthContext'
-import { parseBackendTime } from '../utils/time'
+import { parseBackendTime, formatTimeOfDay, formatTimeAgo } from '../utils/time'
 
 const FbIcon = () => (
   <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[8px]"
@@ -547,7 +547,7 @@ const handleSend = async () => {
                 )}
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.time}</span>
+                <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.last_message_at ? formatTimeAgo(conv.last_message_at) : conv.time}</span>
                 {conv.unread_count > 0 && (
                   <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
                     {conv.unread_count > 99 ? '99+' : conv.unread_count}
@@ -803,7 +803,7 @@ const handleSend = async () => {
                     {msg.from === 'human' && <UserCheck size={11} className="text-amber-500" />}
                     <span className="text-gray-400 font-medium truncate">
                       {msg.from === 'user' ? 'Customer' : msg.from === 'ai' ? 'AI' : 'Agent'}
-                      {' · '}{msg.time}
+                      {' · '}{msg.created_at ? formatTimeOfDay(msg.created_at) : msg.time}
                     </span>
                   </div>
                   {editingMsgId === msg.id ? (
