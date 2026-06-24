@@ -492,10 +492,11 @@ def sync_customers():
 
         # Upsert in chunks so memory + transaction size stay manageable.
         CHUNK = 500
-        processed = 0
         items = list(snapshot.items())
+        total_items = len(items)
+        processed = 0
 
-        for chunk_start in range(0, len(items), CHUNK):
+        for chunk_start in range(0, total_items, CHUNK):
             for spid, snap in items[chunk_start:chunk_start + CHUNK]:
                 last_order = _parse_dt(snap.get('updated_at'))
                 if spid in existing_ids:

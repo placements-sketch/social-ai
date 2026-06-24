@@ -74,7 +74,13 @@ def sync_orders():
         shopify_orders = list_all_orders()
 
         snapshot = {str(o['shopify_id']): o for o in shopify_orders}
-        cached = {o.shopify_order_id: o for o in OrderCache.query.all()}
+
+        # Don't load all order rows just to check existence — fetch IDs only.
+        # Each ID is ~10 bytes vs ~2KB per full row, so ~200x less memory.
+        existing_ids = set(
+            spid for (spid,) in
+            db.session.query(OrderCache.shopify_order_id).all()
+        )
 
         now = datetime.utcnow()
         added = updated = removed = 0
@@ -90,52 +96,68 @@ def sync_orders():
         for chunk_start in range(0, total_items, CHUNK):
             for spid, snap in items[chunk_start:chunk_start + CHUNK]:
                 order_date = _parse_dt(snap.get('order_date'))
-                if spid in cached:
-                    row = cached[spid]
-                    row.shopify_customer_id = _truncate(snap.get('shopify_customer_id'), 64)
-                    row.order_number        = _truncate(snap.get('order_number'),         64)
-                    row.total               = Decimal(str(snap.get('total', 0)))
-                    row.currency            = _truncate(snap.get('currency'),              8)
-                    row.items_count         = snap.get('items_count', 0)
-                    row.products            = snap.get('products', [])
-                    row.financial_status    = _truncate(snap.get('financial_status'),     32)
-                    row.fulfillment_status  = _truncate(snap.get('fulfillment_status'),   32)
-                    row.order_date          = order_date
-                    row.cached_at           = now
-                    updated += 1
-                else:
-                    db.session.add(OrderCache(
-                        shopify_order_id=spid,
-                        shopify_customer_id=_truncate(snap.get('shopify_customer_id'), 64),
-                        order_number=_truncate(snap.get('order_number'),                64),
-                        total=Decimal(str(snap.get('total', 0))),
-                        currency=_truncate(snap.get('currency'),                         8),
-                        items_count=snap.get('items_count', 0),
-                        products=snap.get('products', []),
-                        financial_status=_truncate(snap.get('financial_status'),        32),
-                        fulfillment_status=_truncate(snap.get('fulfillment_status'),    32),
-                        order_date=order_date,
-                        cached_at=now,
-                    ))
-                    added += 1
+                if spid in existing_ids:
+                    # Targeted fetch — one row per UPDATE
+                    row = OrderCache.query.filter_by(shopify_order_id=spid).first()
+                    if row is None:
+                        # Race: was in existing_ids but disappeared. Fall through to insert.
+                        existing_ids.discard(spid)
+                    else:
+                        row.shopify_customer_id = _truncate(snap.get('shopify_customer_id'),  64)
+                        row.order_number        = _truncate(snap.get('order_number'),        128)
+                        row.total               = Decimal(str(snap.get('total', 0)))
+                        row.currency            = _truncate(snap.get('currency'),              8)
+                        row.items_count         = snap.get('items_count', 0)
+                        row.products            = snap.get('products', [])
+                        row.financial_status    = _truncate(snap.get('financial_status'),    64)
+                        row.fulfillment_status  = _truncate(snap.get('fulfillment_status'),  64)
+                        row.order_date          = order_date
+                        row.cached_at           = now
+                        updated += 1
+                        continue  # done, skip insert
+
+                # Insert path (not in existing_ids OR row was missing)
+                db.session.add(OrderCache(
+                    shopify_order_id=spid,
+                    shopify_customer_id=_truncate(snap.get('shopify_customer_id'),  64),
+                    order_number=_truncate(snap.get('order_number'),                128),
+                    total=Decimal(str(snap.get('total', 0))),
+                    currency=_truncate(snap.get('currency'),                         8),
+                    items_count=snap.get('items_count', 0),
+                    products=snap.get('products', []),
+                    financial_status=_truncate(snap.get('financial_status'),        64),
+                    fulfillment_status=_truncate(snap.get('fulfillment_status'),    64),
+                    order_date=order_date,
+                    cached_at=now,
+                ))
+                existing_ids.add(spid)
+                added += 1
             db.session.commit()
             processed = min(chunk_start + CHUNK, total_items)
             job.progress = f"Upserted {processed:,} / {total_items:,} orders..."
             db.session.commit()
+            # Release per-row references between chunks
+            db.session.expunge_all()
 
-        # ── Step 3: chunked deletes ─────────────────────────────────────
-        to_delete = [row for spid, row in cached.items() if spid not in snapshot]
-        for d_start in range(0, len(to_delete), CHUNK):
-            for row in to_delete[d_start:d_start + CHUNK]:
-                db.session.delete(row)
-                removed += 1
+        # ── Step 3: chunked deletes via IN-clause (no row materialization) ──
+        to_delete_ids = list(existing_ids - set(snapshot.keys()))
+        for d_start in range(0, len(to_delete_ids), CHUNK):
+            batch_ids = to_delete_ids[d_start:d_start + CHUNK]
+            OrderCache.query.filter(
+                OrderCache.shopify_order_id.in_(batch_ids)
+            ).delete(synchronize_session=False)
+            removed += len(batch_ids)
             db.session.commit()
 
         # ── Step 4: recompute customer aggregates from real order data ──
         job.progress = "Recomputing customer aggregates..."
         db.session.commit()
 
+        # Single SQL aggregate — returns a small dict (one row per customer).
+        # Even with 161k customers that's ~10MB max (a tuple of 5 small fields each).
         customer_aggs = dict(
+            (cid, (count, total_spent, last_date, first_date))
+            for cid, count, total_spent, last_date, first_date in
             db.session.query(
                 OrderCache.shopify_customer_id,
                 func.count(OrderCache.id),
@@ -149,7 +171,6 @@ def sync_orders():
         )
 
         customers_updated = 0
-        # Touch customers in chunks too — 161k rows in one transaction is rough.
         offset = 0
         while True:
             batch = (CustomerCache.query
@@ -179,6 +200,8 @@ def sync_orders():
             offset += CHUNK
             job.progress = f"Recomputed {customers_updated:,} customer aggregates..."
             db.session.commit()
+            # Release per-row references between batches
+            db.session.expunge_all()
 
         # ── Step 5: audit log (use captured user_id, not ORM object) ────
         log_audit(
@@ -196,7 +219,6 @@ def sync_orders():
             'total_orders': OrderCache.query.count(),
             'synced_at': now.isoformat(),
         }
-
     job, started = start_background_job(
         kind='orders_apply',
         work_fn=do_sync,
