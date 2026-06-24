@@ -68,9 +68,19 @@ def sync_orders():
     user_id = current_user.id
 
     def do_sync(job):
+        # Capture job ID — we refetch by ID after each expunge_all() since
+        # the ORM object gets detached from the session.
+        from app.models import SyncJob
+        job_id = job.id
+
+        def update_progress(text):
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.progress = text
+                db.session.commit()
+
         # ── Step 1: load existing IDs (small footprint) ─────────────────
-        job.progress = "Loading existing order IDs..."
-        db.session.commit()
+        update_progress("Loading existing order IDs...")
 
         existing_ids = set(
             spid for (spid,) in
@@ -80,14 +90,12 @@ def sync_orders():
         now = datetime.utcnow()
         added = updated = removed = 0
         CHUNK = 500
-        buffer = []  # accumulates (spid, snap) tuples up to CHUNK size
-        seen_ids = set()  # track which order IDs we received from Shopify
+        buffer = []
+        seen_ids = set()
 
-        job.progress = "Streaming orders from Shopify..."
-        db.session.commit()
+        update_progress("Streaming orders from Shopify...")
 
         def flush_buffer():
-            """Process & commit the accumulated chunk."""
             nonlocal added, updated
             for spid, snap in buffer:
                 order_date = _parse_dt(snap.get('order_date'))
@@ -139,14 +147,11 @@ def sync_orders():
 
             if len(buffer) >= CHUNK:
                 flush_buffer()
-                job.progress = f"Processed {total_received:,} orders..."
-                db.session.commit()
+                update_progress(f"Processed {total_received:,} orders...")
 
-        # Final partial chunk
         if buffer:
             flush_buffer()
-            job.progress = f"Processed {total_received:,} orders..."
-            db.session.commit()
+            update_progress(f"Processed {total_received:,} orders...")
 
         # ── Step 3: chunked deletes via IN-clause ───────────────────────
         to_delete_ids = list(existing_ids - seen_ids)
@@ -159,8 +164,7 @@ def sync_orders():
             db.session.commit()
 
         # ── Step 4: recompute customer aggregates from real order data ──
-        job.progress = "Recomputing customer aggregates..."
-        db.session.commit()
+        update_progress("Recomputing customer aggregates...")
 
         customer_aggs = dict(
             (cid, (count, total_spent, last_date, first_date))
@@ -205,8 +209,7 @@ def sync_orders():
 
             db.session.commit()
             offset += CHUNK
-            job.progress = f"Recomputed {customers_updated:,} customer aggregates..."
-            db.session.commit()
+            update_progress(f"Recomputed {customers_updated:,} customer aggregates...")
             db.session.expunge_all()
 
         # ── Step 5: audit log ───────────────────────────────────────────

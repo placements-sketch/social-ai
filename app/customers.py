@@ -471,9 +471,19 @@ def sync_customers():
     user_id = current_user.id
 
     def do_sync(job):
+        # Capture job ID — refetch by ID after each expunge_all() since
+        # the ORM object gets detached from the session.
+        from app.models import SyncJob
+        job_id = job.id
+
+        def update_progress(text):
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.progress = text
+                db.session.commit()
+
         # Fetch from Shopify
-        job.progress = "Fetching customers from Shopify..."
-        db.session.commit()
+        update_progress("Fetching customers from Shopify...")
         shopify_customers = list_all_customers()
 
         snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
