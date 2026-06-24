@@ -3,6 +3,7 @@ import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, Exter
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
+import { parseBackendTime } from '../utils/time'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -140,7 +141,7 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
               </p>
             )
           }
-          const expiresAt = new Date(ch.token_expires_at)
+          const expiresAt = parseBackendTime(ch.token_expires_at)
           const now = new Date()
           const daysLeft = Math.floor((expiresAt - now) / (1000 * 60 * 60 * 24))
           let cls = 'text-gray-500'

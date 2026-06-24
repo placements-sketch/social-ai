@@ -12,6 +12,8 @@ import {
 import clsx from 'clsx'
 import { MOCK_CUSTOMERS, SEGMENT_META, buildOverview } from '../data/mockCustomers'
 import { useCountAnimation } from '../hooks/useCountAnimation'
+import { formatDateAgo } from '../utils/time'
+import { parseBackendTime } from '../utils/time'
 
 const SEGMENT_ICONS = {
   vip:     Crown,
@@ -26,16 +28,6 @@ const CHART_COLORS = ['#ff5900', '#10b981', '#3b82f6', '#f59e0b', '#a855f7', '#e
 
 function formatKES(n) {
   return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n)
-}
-
-function timeAgo(iso) {
-  if (!iso) return 'Never'
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  if (days < 30) return `${days}d ago`
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`
-  return `${Math.floor(days / 365)}y ago`
 }
 
 export default function Customers() {
@@ -66,7 +58,11 @@ export default function Customers() {
       switch (sortBy) {
         case 'spent_desc':  return b.total_spent - a.total_spent
         case 'orders_desc': return b.total_orders - a.total_orders
-        case 'recent':      return new Date(b.last_order_date || 0) - new Date(a.last_order_date || 0)
+        case 'recent': {
+          const aD = parseBackendTime(a.last_order_date)?.getTime() || 0
+          const bD = parseBackendTime(b.last_order_date)?.getTime() || 0
+          return bD - aD
+        }
         case 'name':        return a.name.localeCompare(b.name)
         default: return 0
       }
@@ -117,7 +113,7 @@ export default function Customers() {
       SEGMENT_META[c.segment].label,
       `KES ${formatKES(c.total_spent)}`,
       c.total_orders,
-      timeAgo(c.last_order_date),
+      formatDateAgo(c.last_order_date),
     ])
     
     autoTable(doc, {
@@ -608,7 +604,7 @@ function CustomerRow({ customer, onClick }) {
         <p className="text-sm font-semibold text-gray-900 tabular-nums">
           KES {formatKES(customer.total_spent)}
         </p>
-        <p className="text-xs text-gray-500 truncate">{customer.total_orders} orders · {timeAgo(customer.last_order_date)}</p>
+        <p className="text-xs text-gray-500 truncate">{customer.total_orders} orders · {formatDateAgo(customer.last_order_date)}</p>
       </div>
       <ChevronRight size={16} className="text-gray-400 shrink-0" />
     </button>

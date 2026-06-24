@@ -12,6 +12,7 @@ import {
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { useAuth } from '../context/AuthContext'
+import { parseBackendTime } from '../utils/time'
 
 const FbIcon = () => (
   <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[8px]"
@@ -1094,8 +1095,8 @@ function ContextContent({ conv }) {
   // Both timestamps come from `created_at` on Message rows.
   let responseTime = null
   if (lastInbound?.created_at && lastAiReply?.created_at) {
-    const inboundTime = new Date(lastInbound.created_at).getTime()
-    const replyTime = new Date(lastAiReply.created_at).getTime()
+    const inboundTime = parseBackendTime(lastInbound.created_at)?.getTime() || 0
+    const replyTime = parseBackendTime(lastAiReply.created_at)?.getTime() || 0
     const diffMs = replyTime - inboundTime
     if (diffMs >= 0 && diffMs < 60_000) {
       responseTime = `${(diffMs / 1000).toFixed(1)}s`

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { parseBackendTime } from '../utils/time'
 
 /**
  * Small colored dot showing a user's presence status.
@@ -39,7 +40,9 @@ export default function PresenceDot({ status, size = 'sm', pulse = true, classNa
 export function lastSeenLabel(lastSeenAt, status) {
   if (status === 'online') return null
   if (!lastSeenAt) return 'Never signed in'
-  const seen = new Date(lastSeenAt)
+  const seen = parseBackendTime(lastSeenAt)
+  if (!seen) return  // guard against null
+  
   const delta = Math.floor((Date.now() - seen.getTime()) / 1000)
   if (delta < 60) return 'Last seen just now'
   if (delta < 3600) return `Last seen ${Math.floor(delta / 60)} min ago`

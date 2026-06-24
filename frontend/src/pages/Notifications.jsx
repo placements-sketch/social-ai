@@ -10,6 +10,7 @@ import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
 import { useTimeAgo } from '../hooks/useTimeAgo'
+import { parseBackendTime } from '../utils/time'
 
 // Same mapping as TopBar so the icons stay consistent.
 function notifVisuals(type, severity) {
@@ -65,7 +66,8 @@ function groupByDay(notifs) {
   }
   for (const n of notifs) {
     if (!n.created_at) { groups.older.notifs.push(n); continue }
-    const c = new Date(n.created_at)
+    const c = parseBackendTime(n.created_at)
+    if (!c) return  // skip if no valid date
     if (c >= today) groups.today.notifs.push(n)
     else if (c >= yesterday) groups.yesterday.notifs.push(n)
     else if (c >= weekAgo) groups.week.notifs.push(n)

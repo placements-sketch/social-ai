@@ -3,11 +3,12 @@ import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Se
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
+import { formatTimeAgo } from '../utils/time'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
 // ProductKPIs Component - animated KPI cards
-function ProductKPIs({ status, products, lastSynced, formatTime }) {
+function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
   const animatedTotal = useCountAnimation(status?.product_count || 0, 2000)
   const animatedInStock = useCountAnimation(status?.in_stock_count || 0, 2000)
   const animatedOutOfStock = useCountAnimation(status?.out_of_stock_count || 0, 2000)
@@ -18,7 +19,7 @@ function ProductKPIs({ status, products, lastSynced, formatTime }) {
         <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Products</p>
         <p className="text-3xl font-bold text-gray-900 mt-1">{animatedTotal}</p>
         <p className="text-xs text-gray-500 mt-2">
-          {lastSynced ? `Last synced ${formatTime(lastSynced)}` : 'Never synced'}
+          {lastSynced ? `Last synced ${formatTimeAgo(lastSynced)}` : 'Never synced'}
         </p>
       </div>
       <div className="card p-4">
@@ -168,7 +169,8 @@ export default function Products() {
     }
   }
 
-  const lastSynced = status?.last_synced_at ? new Date(status.last_synced_at) : null
+  // Keep as raw ISO string — formatTimeAgo handles UTC interpretation
+  const lastSynced = status?.last_synced_at || null
   const isStale = status?.stale || false
   const totalPages = Math.ceil(total / perPage)
 
@@ -221,7 +223,7 @@ export default function Products() {
             <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-amber-900">Catalog is stale</p>
-              <p className="text-xs text-amber-700 mt-0.5">Last synced {lastSynced ? formatTime(lastSynced) : 'never'}. Click "Sync Now" to refresh.</p>
+              <p className="text-xs text-amber-700 mt-0.5">Last synced {lastSynced ? formatTimeAgo(lastSynced) : 'never'}. Click "Sync Now" to refresh.</p>
             </div>
           </div>
         </div>
@@ -264,7 +266,7 @@ export default function Products() {
       )}
 
       {/* Status cards */}
-      <ProductKPIs status={status} products={products} lastSynced={lastSynced} formatTime={formatTime} />
+      <ProductKPIs status={status} products={products} lastSynced={lastSynced} formatTimeAgo={formatTimeAgo} />
 
       {/* Search */}
       <div className="relative">
@@ -421,17 +423,4 @@ export default function Products() {
       )}
     </div>
   )
-}
-
-function formatTime(date) {
-  const now = new Date()
-  const diff = now - date
-  const mins = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  if (hours < 24) return `${hours}h ago`
-  return `${days}d ago`
 }

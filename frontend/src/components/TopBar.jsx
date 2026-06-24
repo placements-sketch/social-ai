@@ -13,6 +13,7 @@ import { ModalPortal } from '../context/ModalPortal'
 import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
 import { useTimeAgo } from '../hooks/useTimeAgo'
 import clsx from 'clsx'
+import { parseBackendTime } from '../utils/time'
 
 // Group notifications by day for the modal display.
 // Returns: [{ label: 'Today', notifs: [...] }, { label: 'Yesterday', notifs: [...] }, ...]
@@ -36,7 +37,8 @@ function groupNotifsByDay(notifs) {
       groups.older.notifs.push(n)
       continue
     }
-    const created = new Date(n.created_at)
+    const created = parseBackendTime(n.created_at)
+    if (!created) return false
     if (created >= today) groups.today.notifs.push(n)
     else if (created >= yesterday) groups.yesterday.notifs.push(n)
     else if (created >= weekAgo) groups.week.notifs.push(n)
@@ -109,7 +111,7 @@ function notifVisuals(type, severity) {
 // Separate component for notification item to use the useTimeAgo hook
 function NotificationItem({ notif, Icon, color, bg, onClickNotif }) {
   const timeAgoStr = useTimeAgo(notif.created_at)
-  
+  const created = parseBackendTime(notif.created_at)
   return (
     <button
       onClick={() => onClickNotif(notif)}

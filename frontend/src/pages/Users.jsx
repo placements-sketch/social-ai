@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
 import PresenceDot, { lastSeenLabel } from '../components/PresenceDot'
+import { parseBackendTime } from '../utils/time'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -257,13 +258,13 @@ export default function Users() {
     return [...result].sort((a, b) => {
       if (sortBy === 'name') return (a.full_name || '').localeCompare(b.full_name || '')
       if (sortBy === 'joined') {
-        const da = a.created_at ? new Date(a.created_at).getTime() : 0
-        const db = b.created_at ? new Date(b.created_at).getTime() : 0
+        const da = parseBackendTime(a.created_at)?.getTime() || 0
+        const db = parseBackendTime(b.created_at)?.getTime() || 0
         return db - da  // newest first
       }
       if (sortBy === 'recent') {
-        const da = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0
-        const db = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0
+        const da = parseBackendTime(a.last_seen_at)?.getTime() || 0
+        const db = parseBackendTime(b.last_seen_at)?.getTime() || 0
         return db - da  // most recent first
       }
       return 0
@@ -430,7 +431,7 @@ export default function Users() {
           ) : (
             <div className="grid gap-3">
               {visibleUsers.map(user => {
-                const joinDate = user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+                const joinDate = parseBackendTime(user.created_at)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || '—'
                 const roleInfo = roleConfig[user.role]
                 return (
                   <div key={user.id} className="card p-4 hover:shadow-md transition-all duration-200">

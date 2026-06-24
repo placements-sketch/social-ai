@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { CheckCircle, Info, AlertTriangle, XCircle, Search, Loader2, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
+import { parseBackendTime } from '../utils/time'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -333,7 +334,7 @@ export default function Logs() {
               const level = log.level || 'info'
               const cfg = levelConfig[level]
               const Icon = cfg.icon
-              const createdAt = log.created_at ? new Date(log.created_at) : null
+              const createdAt = parseBackendTime(log.created_at)
               const time = createdAt ? createdAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—'
 
               return (

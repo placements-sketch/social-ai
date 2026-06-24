@@ -12,6 +12,8 @@ import clsx from 'clsx'
 import {
   MOCK_CUSTOMERS, SEGMENT_META, buildOrderHistory, buildSpendingTrend,
 } from '../data/mockCustomers'
+import { parseBackendTime } from '../utils/time'
+
 
 const SEGMENT_ICONS = {
   vip: Crown, loyal: Heart, regular: Users, new: Sparkles,
@@ -24,7 +26,8 @@ function formatKES(n) {
 
 function formatDate(iso) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })
+  const d = parseBackendTime(iso)
+  return d ? d.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 }
 
 export default function CustomerDetail() {

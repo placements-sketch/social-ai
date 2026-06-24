@@ -10,6 +10,7 @@ import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
 import { SkeletonCard } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { useTimeAgo } from '../hooks/useTimeAgo'
+import { parseBackendTime } from '../utils/time'
 
 // Custom tooltip to ensure text is visible
 const CustomTooltip = ({ active, payload }) => {
@@ -289,7 +290,7 @@ export default function Dashboard() {
 
   const chartData = trimmedWeekly.map(w => ({
     time: period === 'month'
-      ? new Date(w.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      ? (parseBackendTime(w.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || w.day)
       : w.day,
     // Instagram
     instagram: w.instagram || 0,
