@@ -31,6 +31,7 @@ from app.models import AuthUser, OrderCache, CustomerCache
 from app.auth import log_audit, current_user_id
 from app.integrations.shopify import list_all_customers
 from app.sync_jobs import start_background_job, get_latest_job
+from app.utils.logger import log_event
 
 customers_bp = Blueprint('customers', __name__, url_prefix='/api')
 
@@ -218,9 +219,16 @@ def list_customers():
 @customers_bp.route('/customers/overview', methods=['GET'])
 @jwt_required()
 def customers_overview():
-    """Aggregated data for the Customers overview page."""
-    customers = CustomerCache.query.all()
-    if not customers:
+    """
+    Aggregated data for the Customers overview page.
+    
+    All KPIs computed in SQL — no full-table loads. Top-N queries fetch
+    only the 5 rows we display. Segment counts are computed in Python from
+    a stream of small batches so peak memory stays bounded.
+    """
+    # ── Empty-state short-circuit ────────────────────────────────────────
+    total = CustomerCache.query.count()
+    if total == 0:
         return jsonify({
             'kpis': {'total_customers': 0, 'new_this_month': 0, 'repeat_customers': 0,
                      'retention_rate': 0, 'total_revenue': 0, 'avg_aov': 0},
@@ -231,54 +239,149 @@ def customers_overview():
 
     vip_threshold = _vip_threshold()
     now = datetime.utcnow()
+    month_ago = now - timedelta(days=30)
 
-    # KPIs
-    total = len(customers)
-    total_revenue = float(sum(c.total_spent or 0 for c in customers))
-    total_orders = sum(c.total_orders or 0 for c in customers)
-    avg_aov = (total_revenue / total_orders) if total_orders else 0
-    new_this_month = sum(
-        1 for c in customers
-        if c.shopify_created_at and (now - c.shopify_created_at).days <= 30
+    # ── KPIs: each one is a single SQL aggregate, milliseconds each ──────
+    total_revenue = float(
+        db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar() or 0
     )
-    repeat = sum(1 for c in customers if (c.total_orders or 0) >= 2)
+    total_orders = int(
+        db.session.query(func.coalesce(func.sum(CustomerCache.total_orders), 0)).scalar() or 0
+    )
+    avg_aov = (total_revenue / total_orders) if total_orders else 0
+
+    new_this_month = (
+        db.session.query(func.count(CustomerCache.id))
+        .filter(CustomerCache.shopify_created_at >= month_ago)
+        .scalar() or 0
+    )
+
+    repeat = (
+        db.session.query(func.count(CustomerCache.id))
+        .filter(CustomerCache.total_orders >= 2)
+        .scalar() or 0
+    )
     retention_rate = (repeat / total) if total else 0
 
-    # Segment counts
-    segments = [compute_segment(c, vip_threshold) for c in customers]
+    # ── Top spenders (only 5 rows loaded) ────────────────────────────────
+    top_spenders_rows = (
+        CustomerCache.query
+        .order_by(CustomerCache.total_spent.desc().nullslast())
+        .limit(5)
+        .all()
+    )
+    top_spenders_out = [_serialize_customer(c, vip_threshold) for c in top_spenders_rows]
+
+    # ── Top frequent (only 5 rows loaded) ────────────────────────────────
+    top_frequent_rows = (
+        CustomerCache.query
+        .order_by(CustomerCache.total_orders.desc().nullslast())
+        .limit(5)
+        .all()
+    )
+    top_frequent_out = [_serialize_customer(c, vip_threshold) for c in top_frequent_rows]
+
+    # ── Segment counts ──────────────────────────────────────────────────
+    # Segment is computed in Python, so we DO need to scan rows for it.
+    # But we only need (total_orders, total_spent, last_order_date, shopify_created_at)
+    # — not the full row. Stream in chunks so peak memory stays low.
     segment_counts = {}
-    for s in segments:
-        segment_counts[s] = segment_counts.get(s, 0) + 1
+    CHUNK = 5000
+    offset = 0
+    while True:
+        batch = (
+            db.session.query(
+                CustomerCache.total_orders,
+                CustomerCache.total_spent,
+                CustomerCache.last_order_date,
+                CustomerCache.shopify_created_at,
+            )
+            .order_by(CustomerCache.id.asc())
+            .offset(offset)
+            .limit(CHUNK)
+            .all()
+        )
+        if not batch:
+            break
+        for total_orders_v, total_spent_v, last_order_v, created_v in batch:
+            # Build a lightweight object that compute_segment can read like a row
+            stub = type('Stub', (), {
+                'total_orders': total_orders_v,
+                'total_spent': total_spent_v,
+                'last_order_date': last_order_v,
+                'shopify_created_at': created_v,
+            })()
+            seg = compute_segment(stub, vip_threshold)
+            segment_counts[seg] = segment_counts.get(seg, 0) + 1
+        offset += CHUNK
+        # Clear the session's identity map between batches so SQLAlchemy doesn't
+        # hold references to all the rows it has seen.
+        db.session.expunge_all()
 
-    # Top spenders (5)
-    top_spenders = sorted(customers, key=lambda c: float(c.total_spent or 0), reverse=True)[:5]
-    top_spenders_out = [_serialize_customer(c, vip_threshold) for c in top_spenders]
+    # ── AOV by month: from OrderCache when populated, else empty ─────────
+    # Real aggregation from order data — only sums + counts.
+    aov_by_month = []
+    try:
+        from app.models import OrderCache
+        from sqlalchemy import extract
 
-    # Top frequent (5)
-    top_frequent = sorted(customers, key=lambda c: c.total_orders or 0, reverse=True)[:5]
-    top_frequent_out = [_serialize_customer(c, vip_threshold) for c in top_frequent]
+        # Group orders by year-month for the last 6 calendar months
+        six_months_ago = now.replace(day=1) - timedelta(days=180)
+        monthly = (
+            db.session.query(
+                extract('year', OrderCache.order_date).label('y'),
+                extract('month', OrderCache.order_date).label('m'),
+                func.count(OrderCache.id).label('orders'),
+                func.coalesce(func.sum(OrderCache.total), 0).label('revenue'),
+            )
+            .filter(OrderCache.order_date >= six_months_ago)
+            .group_by('y', 'm')
+            .order_by('y', 'm')
+            .all()
+        )
+        month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        for row in monthly:
+            orders_n = int(row.orders or 0)
+            revenue = float(row.revenue or 0)
+            aov_by_month.append({
+                'month': month_names[int(row.m) - 1],
+                'orders': orders_n,
+                'aov': round(revenue / orders_n) if orders_n else 0,
+            })
+    except Exception as e:
+        log_event("warn", "customers.overview.aov_by_month_failed", str(e))
+        aov_by_month = []
 
-    # AOV by month — last 6 months (placeholder until orders_cache exists)
-    # For now: compute from customers' last_order_date as a proxy
-    months_out = []
-    for i in range(5, -1, -1):
-        month_start = (now.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
-        next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        in_month = [c for c in customers
-                    if c.last_order_date and month_start <= c.last_order_date < next_month]
-        revenue = float(sum(c.total_spent or 0 for c in in_month))
-        orders = sum(c.total_orders or 0 for c in in_month)
-        months_out.append({
-            'month': month_start.strftime('%b'),
-            'aov': round(revenue / orders) if orders else 0,
-            'orders': orders,
-        })
+    # ── Top products (from real orders when populated) ───────────────────
+    top_products = []
+    try:
+        from app.models import OrderCache
+        # OrderCache.products is a JSON list of titles. Postgres unnest gives
+        # us per-line-item rows without loading everything into Python.
+        from sqlalchemy import func as sf
+        rows = db.session.execute(
+            db.text("""
+                SELECT title, COUNT(*) AS purchases
+                FROM (
+                  SELECT jsonb_array_elements_text(products::jsonb) AS title
+                  FROM orders_cache
+                ) AS line_items
+                WHERE title IS NOT NULL AND title <> ''
+                GROUP BY title
+                ORDER BY purchases DESC
+                LIMIT 6
+            """)
+        ).fetchall()
+        top_products = [{'name': r[0], 'purchases': int(r[1])} for r in rows]
+    except Exception as e:
+        log_event("warn", "customers.overview.top_products_failed", str(e))
+        top_products = []
 
     return jsonify({
         'kpis': {
             'total_customers': total,
-            'new_this_month': new_this_month,
-            'repeat_customers': repeat,
+            'new_this_month': int(new_this_month),
+            'repeat_customers': int(repeat),
             'retention_rate': round(retention_rate, 4),
             'total_revenue': total_revenue,
             'avg_aov': round(avg_aov),
@@ -286,10 +389,9 @@ def customers_overview():
         'segment_counts': segment_counts,
         'top_spenders': top_spenders_out,
         'top_frequent': top_frequent_out,
-        'aov_by_month': months_out,
-        'top_products': [],  # Will populate from orders_cache when added
+        'aov_by_month': aov_by_month,
+        'top_products': top_products,
     }), 200
-
 
 # ─────────────────────────────────────────────
 # GET /api/customers/<id>
@@ -375,7 +477,12 @@ def sync_customers():
         shopify_customers = list_all_customers()
 
         snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
-        cached = {c.shopify_customer_id: c for c in CustomerCache.query.all()}
+        # Don't load all rows just to check existence — fetch IDs only.
+        # Far smaller (each ID ~10 bytes vs ~5KB for a full row).
+        existing_ids = set(
+            spid for (spid,) in
+            db.session.query(CustomerCache.shopify_customer_id).all()
+        )
 
         now = datetime.utcnow()
         added = updated = removed = 0
@@ -391,51 +498,62 @@ def sync_customers():
         for chunk_start in range(0, len(items), CHUNK):
             for spid, snap in items[chunk_start:chunk_start + CHUNK]:
                 last_order = _parse_dt(snap.get('updated_at'))
-                if spid in cached:
-                    row = cached[spid]
-                    row.email      = _truncate(snap.get('email'),      512)
-                    row.first_name = _truncate(snap.get('first_name'), 512)
-                    row.last_name  = _truncate(snap.get('last_name'),  512)
-                    row.phone      = _truncate(snap.get('phone'),      128)
-                    row.city       = _truncate(snap.get('city'),       256)
-                    row.country    = _truncate(snap.get('country'),    128)
-                    row.accepts_marketing = snap.get('accepts_marketing', False)
-                    row.tags = snap.get('tags', [])
-                    row.total_orders = snap.get('total_orders', 0)
-                    row.total_spent = Decimal(str(snap.get('total_spent', 0)))
-                    row.last_order_date = last_order if (row.total_orders or 0) > 0 else None
-                    row.shopify_created_at = _parse_dt(snap.get('shopify_created_at'))
-                    row.cached_at = now
-                    updated += 1
-                else:
-                    db.session.add(CustomerCache(
-                        shopify_customer_id=spid,
-                        email=_truncate(snap.get('email'),           512),
-                        first_name=_truncate(snap.get('first_name'), 512),
-                        last_name=_truncate(snap.get('last_name'),   512),
-                        phone=_truncate(snap.get('phone'),           128),
-                        city=_truncate(snap.get('city'),             256),
-                        country=_truncate(snap.get('country'),       128),
-                        accepts_marketing=snap.get('accepts_marketing', False),
-                        tags=snap.get('tags', []),
-                        total_orders=snap.get('total_orders', 0),
-                        total_spent=Decimal(str(snap.get('total_spent', 0))),
-                        last_order_date=last_order if (snap.get('total_orders') or 0) > 0 else None,
-                        shopify_created_at=_parse_dt(snap.get('shopify_created_at')),
-                        cached_at=now,
-                    ))
-                    added += 1
+                if spid in existing_ids:
+                    # Targeted fetch — one row per UPDATE
+                    row = CustomerCache.query.filter_by(shopify_customer_id=spid).first()
+                    if row is None:
+                        # Race condition: was in existing_ids but got deleted. Treat as insert.
+                        existing_ids.discard(spid)
+                    else:
+                        row.email      = _truncate(snap.get('email'),      512)
+                        row.first_name = _truncate(snap.get('first_name'), 512)
+                        row.last_name  = _truncate(snap.get('last_name'),  512)
+                        row.phone      = _truncate(snap.get('phone'),      128)
+                        row.city       = _truncate(snap.get('city'),       256)
+                        row.country    = _truncate(snap.get('country'),    128)
+                        row.accepts_marketing = snap.get('accepts_marketing', False)
+                        row.tags = snap.get('tags', [])
+                        row.total_orders = snap.get('total_orders', 0)
+                        row.total_spent = Decimal(str(snap.get('total_spent', 0)))
+                        row.last_order_date = last_order if (row.total_orders or 0) > 0 else None
+                        row.shopify_created_at = _parse_dt(snap.get('shopify_created_at'))
+                        row.cached_at = now
+                        updated += 1
+                        continue  # done, skip the insert branch
+
+                # Insert path (either spid not in existing_ids, or row was missing)
+                db.session.add(CustomerCache(
+                    shopify_customer_id=spid,
+                    email=_truncate(snap.get('email'),           512),
+                    first_name=_truncate(snap.get('first_name'), 512),
+                    last_name=_truncate(snap.get('last_name'),   512),
+                    phone=_truncate(snap.get('phone'),           128),
+                    city=_truncate(snap.get('city'),             256),
+                    country=_truncate(snap.get('country'),       128),
+                    accepts_marketing=snap.get('accepts_marketing', False),
+                    tags=snap.get('tags', []),
+                    total_orders=snap.get('total_orders', 0),
+                    total_spent=Decimal(str(snap.get('total_spent', 0))),
+                    last_order_date=last_order if (snap.get('total_orders') or 0) > 0 else None,
+                    shopify_created_at=_parse_dt(snap.get('shopify_created_at')),
+                    cached_at=now,
+                ))
+                existing_ids.add(spid)
+                added += 1
             db.session.commit()
-            processed += min(CHUNK, len(items) - chunk_start)
-            job.progress = f"Upserted {processed:,} / {len(items):,} customers..."
+            processed = min(chunk_start + CHUNK, total_items)
+            job.progress = f"Upserted {processed:,} / {total_items:,} customers..."
             db.session.commit()
+            db.session.expunge_all()  # release per-row references between chunks
 
         # Deletes (also chunked for symmetry)
-        to_delete = [row for spid, row in cached.items() if spid not in snapshot]
-        for d_start in range(0, len(to_delete), CHUNK):
-            for row in to_delete[d_start:d_start + CHUNK]:
-                db.session.delete(row)
-                removed += 1
+        to_delete_ids = existing_ids - set(snapshot.keys())
+        to_delete_list = list(to_delete_ids)
+        for d_start in range(0, len(to_delete_list), CHUNK):
+            CustomerCache.query.filter(
+                CustomerCache.shopify_customer_id.in_(to_delete_list[d_start:d_start + CHUNK])
+            ).delete(synchronize_session=False)
+            removed += len(to_delete_list[d_start:d_start + CHUNK])
             db.session.commit()
 
         # current_user was loaded in the request thread; pass the captured ID
