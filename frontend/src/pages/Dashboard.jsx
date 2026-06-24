@@ -125,7 +125,7 @@ export default function Dashboard() {
     const load = async () => {
       setLoadingActivity(true)
       try {
-        const data = await getMyLogs({ per_page: 10 })
+        const data = await getMyLogs({ per_page: 50 })
         setActivityLogs(data.logs || [])
       } catch (err) {
         console.error('Failed to load activity logs:', err)
@@ -603,24 +603,26 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Activity feed */}
-        <div className="lg:col-span-2 card p-5">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-2 card p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4 shrink-0">
             <h2 className="text-sm font-bold text-gray-900">Live Activity</h2>
             <span className="flex items-center gap-1.5 text-xs text-green-600 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
               Live
             </span>
           </div>
-          <div className="space-y-3">
-            {loadingActivity ? (
-              <div className="py-8 text-center text-xs text-gray-400">Loading activity…</div>
-            ) : activityFeedData.length === 0 ? (
-              <div className="py-8 text-center text-xs text-gray-400">No recent activity</div>
-            ) : (
-              activityFeedData.map((item) => (
-                <ActivityItem key={item.id} item={item} />
-              ))
-            )}
+          <div className="overflow-y-auto pr-2 -mr-2 custom-scrollbar" style={{ maxHeight: '600px' }}>
+            <div className="space-y-3">
+              {loadingActivity ? (
+                <div className="py-8 text-center text-xs text-gray-400">Loading activity…</div>
+              ) : activityFeedData.length === 0 ? (
+                <div className="py-8 text-center text-xs text-gray-400">No recent activity</div>
+              ) : (
+                activityFeedData.map((item) => (
+                  <ActivityItem key={item.id} item={item} />
+                ))
+              )}
+            </div>
           </div>
         </div>
 

@@ -1,90 +1,239 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
   Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft,
-  Download, FileText, Sheet, File,
+  Download, RefreshCw, Loader2, AlertCircle, Package,
 } from 'lucide-react'
 import {
-  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, LineChart, Line,
+  ResponsiveContainer, Tooltip, CartesianGrid,
+  LineChart, Line, XAxis, YAxis,
 } from 'recharts'
 import clsx from 'clsx'
-import { MOCK_CUSTOMERS, SEGMENT_META, buildOverview } from '../data/mockCustomers'
 import { useCountAnimation } from '../hooks/useCountAnimation'
-import { formatDateAgo } from '../utils/time'
-import { parseBackendTime } from '../utils/time'
+import { formatDateAgo, formatTimeAgo } from '../utils/time'
+import {
+  listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,
+} from '../api/customers'
 
-const SEGMENT_ICONS = {
-  vip:     Crown,
-  loyal:   Heart,
-  regular: Users,
-  new:     Sparkles,
-  at_risk: AlertTriangle,
-  churned: UserMinus,
+const SEGMENT_META = {
+  vip:     { label: 'VIP',     icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  dot: 'bg-amber-500' },
+  loyal:   { label: 'Loyal',   icon: Heart,         color: 'text-pink-600',   bg: 'bg-pink-50',   border: 'border-pink-200',   dot: 'bg-pink-500' },
+  regular: { label: 'Regular', icon: Users,         color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200',   dot: 'bg-blue-500' },
+  new:     { label: 'New',     icon: Sparkles,      color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-200',  dot: 'bg-green-500' },
+  at_risk: { label: 'At Risk', icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', dot: 'bg-orange-500' },
+  churned: { label: 'Churned', icon: UserMinus,     color: 'text-gray-600',   bg: 'bg-gray-100',  border: 'border-gray-300',   dot: 'bg-gray-500' },
 }
 
-const CHART_COLORS = ['#ff5900', '#10b981', '#3b82f6', '#f59e0b', '#a855f7', '#ec4899']
-
 function formatKES(n) {
-  return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n || 0)
+}
+
+// KPI card with animated value
+function KpiCard({ icon: Icon, label, value, sub, color, bg }) {
+  const numeric = typeof value === 'number'
+    ? value
+    : parseFloat(String(value).replace(/[^0-9.-]/g, '')) || 0
+  const animated = useCountAnimation(numeric, 1500, numeric % 1 !== 0)
+  const formatted = typeof value === 'number'
+    ? Math.round(animated).toLocaleString()
+    : String(value).replace(/[\d,.]+/, (numeric < 100 ? animated.toFixed(0) : Math.round(animated).toLocaleString()))
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide truncate">{label}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1 truncate">{formatted}</p>
+          {sub && <p className="text-xs text-gray-400 mt-1 truncate">{sub}</p>}
+        </div>
+        <div className={clsx('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', bg)}>
+          <Icon size={16} className={color} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Skeleton for KPI card while overview is loading
+function KpiSkeleton() {
+  return (
+    <div className="card p-4 animate-pulse">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 space-y-2">
+          <div className="h-3 bg-gray-200 rounded w-2/3" />
+          <div className="h-6 bg-gray-200 rounded w-1/2" />
+          <div className="h-3 bg-gray-200 rounded w-3/4" />
+        </div>
+        <div className="w-9 h-9 rounded-lg bg-gray-200" />
+      </div>
+    </div>
+  )
+}
+
+// Generic block-shape skeleton
+function BlockSkeleton({ className = 'h-72' }) {
+  return <div className={clsx('card bg-gray-50 animate-pulse rounded-xl', className)} />
+}
+
+// Top spender/frequent list — used twice
+function TopList({ title, customers, mode, navigate }) {
+  if (customers.length === 0) {
+    return (
+      <div className="card p-5">
+        <h2 className="text-sm font-bold text-gray-900 mb-4">{title}</h2>
+        <p className="text-xs text-gray-400 text-center py-8">No data yet</p>
+      </div>
+    )
+  }
+  return (
+    <div className="card p-5">
+      <h2 className="text-sm font-bold text-gray-900 mb-4">{title}</h2>
+      <div className="space-y-2">
+        {customers.map((c, i) => {
+          const meta = SEGMENT_META[c.segment] || SEGMENT_META.regular
+          return (
+            <button
+              key={c.id}
+              onClick={() => navigate(`/customers/${c.id}`)}
+              className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition text-left"
+            >
+              <span className="text-xs font-bold text-gray-400 w-5">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
+                <p className="text-xs text-gray-500 truncate">{c.email || c.phone}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-bold text-gray-900">
+                  {mode === 'spent' ? `KES ${formatKES(c.total_spent)}` : `${formatKES(c.total_orders)} orders`}
+                </p>
+                <span className={clsx('text-[10px] font-semibold uppercase', meta.color)}>{meta.label}</span>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export default function Customers() {
   const navigate = useNavigate()
+
+  // Filters / pagination state
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segmentFilter, setSegmentFilter] = useState('all')
   const [sortBy, setSortBy] = useState('spent_desc')
-  const [currentPage, setCurrentPage] = useState(1)
-  const ITEMS_PER_PAGE = 25
+  const [page, setPage] = useState(1)
+  const PER_PAGE = 25
 
-  const customers = MOCK_CUSTOMERS
-  const overview = useMemo(() => buildOverview(customers), [customers])
+  // Data
+  const [overview, setOverview] = useState(null)
+  const [customers, setCustomers] = useState([])
+  const [total, setTotal] = useState(0)
+  const [syncStatus, setSyncStatus] = useState(null)
 
-  const filtered = useMemo(() => {
-    let result = customers
-    if (segmentFilter !== 'all') {
-      result = result.filter(c => c.segment === segmentFilter)
+  const [loadingOverview, setLoadingOverview] = useState(true)
+  const [loadingList, setLoadingList] = useState(true)
+  const [error, setError] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+
+  // Debounce search input → 350ms before triggering API call
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1) }, [debouncedSearch, segmentFilter, sortBy])
+
+  // Load overview once
+  const loadOverview = useCallback(async () => {
+    setLoadingOverview(true)
+    try {
+      const data = await getCustomersOverview()
+      setOverview(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoadingOverview(false)
     }
-    if (search) {
-      const q = search.toLowerCase()
-      result = result.filter(c =>
-        c.name.toLowerCase().includes(q) ||
-        c.email.toLowerCase().includes(q) ||
-        c.phone.includes(q)
-      )
+  }, [])
+
+  // Load sync status once + after sync
+  const loadSyncStatus = useCallback(async () => {
+    try {
+      const data = await getCustomersSyncStatus()
+      setSyncStatus(data)
+    } catch {
+      // non-fatal
     }
-    result = [...result].sort((a, b) => {
-      switch (sortBy) {
-        case 'spent_desc':  return b.total_spent - a.total_spent
-        case 'orders_desc': return b.total_orders - a.total_orders
-        case 'recent': {
-          const aD = parseBackendTime(a.last_order_date)?.getTime() || 0
-          const bD = parseBackendTime(b.last_order_date)?.getTime() || 0
-          return bD - aD
+  }, [])
+
+  // Load customer list whenever filters/page change
+  const loadCustomers = useCallback(async () => {
+    setLoadingList(true)
+    try {
+      const data = await listCustomers({
+        page,
+        per_page: PER_PAGE,
+        search: debouncedSearch || null,
+        segment: segmentFilter,
+        sort_by: sortBy,
+      })
+      setCustomers(data.customers || [])
+      setTotal(data.total || 0)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoadingList(false)
+    }
+  }, [page, debouncedSearch, segmentFilter, sortBy])
+
+  useEffect(() => { loadOverview() }, [loadOverview])
+  useEffect(() => { loadSyncStatus() }, [loadSyncStatus])
+  useEffect(() => { loadCustomers() }, [loadCustomers])
+
+  // Sync trigger — poll status until done
+  const handleSync = async () => {
+    setSyncing(true)
+    setError(null)
+    try {
+      await startCustomersSync()
+      const startedAt = Date.now()
+      while (Date.now() - startedAt < 30 * 60 * 1000) {
+        await new Promise(r => setTimeout(r, 3000))
+        const status = await getCustomersSyncStatus()
+        setSyncStatus(status)
+        const job = status?.current_job
+        if (job?.status === 'success') break
+        if (job?.status === 'failed') {
+          throw new Error(job.error || 'Sync failed')
         }
-        case 'name':        return a.name.localeCompare(b.name)
-        default: return 0
       }
-    })
-    return result
-  }, [customers, search, segmentFilter, sortBy])
+      await Promise.all([loadOverview(), loadCustomers()])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
-  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
-  const paginatedCustomers = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE
-    return filtered.slice(start, start + ITEMS_PER_PAGE)
-  }, [filtered, currentPage])
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
+  const lastSyncedIso = syncStatus?.last_synced_at
+  const isStale = syncStatus?.stale === true
+  const currentJob = syncStatus?.current_job
+  const isJobRunning = currentJob?.status === 'running' || currentJob?.status === 'pending'
 
-  // Export functions
   const exportToCSV = () => {
     const headers = ['Name', 'Email', 'Phone', 'Location', 'Segment', 'Total Spent', 'Total Orders', 'Last Order']
-    const rows = filtered.map(c => [
+    const rows = customers.map(c => [
       c.name,
-      c.email,
-      c.phone,
-      c.location,
-      SEGMENT_META[c.segment].label,
+      c.email || '',
+      c.phone || '',
+      c.location || '',
+      SEGMENT_META[c.segment]?.label || c.segment,
       c.total_spent,
       c.total_orders,
       c.last_order_date || 'Never',
@@ -99,514 +248,352 @@ export default function Customers() {
     window.URL.revokeObjectURL(url)
   }
 
-  const exportToPDF = async () => {
-    // Dynamic import to avoid bundle size issues
-    const { jsPDF } = await import('jspdf')
-    const { autoTable } = await import('jspdf-autotable')
-    
-    const doc = new jsPDF()
-    const headers = ['Name', 'Email', 'Phone', 'Segment', 'Total Spent', 'Orders', 'Last Order']
-    const rows = filtered.map(c => [
-      c.name,
-      c.email,
-      c.phone,
-      SEGMENT_META[c.segment].label,
-      `KES ${formatKES(c.total_spent)}`,
-      c.total_orders,
-      formatDateAgo(c.last_order_date),
-    ])
-    
-    autoTable(doc, {
-      head: [headers],
-      body: rows,
-      startY: 20,
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
-    })
-    
-    doc.save(`customers-export-${new Date().toISOString().split('T')[0]}.pdf`)
-  }
-
-  const exportToGoogleSheets = () => {
-    // This would require Google Sheets API integration
-    // For now, show a message
-    alert('Google Sheets export requires additional setup. Download as CSV and import manually.')
+  // Empty / first-time state — only show after overview confirms 0 customers
+  if (!loadingOverview && overview?.kpis?.total_customers === 0) {
+    return (
+      <div className="space-y-6 w-full">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Customer Profiling</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Shopify customer data, order history, and spend analytics</p>
+        </div>
+        <div className="card p-12 flex flex-col items-center text-center">
+          <Users size={48} className="text-gray-300 mb-4" />
+          <h2 className="text-lg font-bold text-gray-900">No customers synced yet</h2>
+          <p className="text-sm text-gray-500 mt-2 max-w-md">
+            Pull your Shopify customer base into the cache to enable profiling, segments, and order history. This may take 5–10 minutes for a large catalog.
+          </p>
+          <button
+            onClick={handleSync}
+            disabled={syncing || isJobRunning}
+            className="btn-primary mt-4 flex items-center gap-2 text-sm"
+          >
+            {syncing || isJobRunning
+              ? <><Loader2 size={14} className="animate-spin" /> {currentJob?.progress || 'Syncing...'}</>
+              : <><RefreshCw size={14} /> Start First Sync</>
+            }
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6 w-full">
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Customer Profiling</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Shopify customer data, order history and spend analytics</p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Customer Profiling</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Shopify customer data, order history, and spend analytics
+            {lastSyncedIso && (
+              <> · <span className={isStale ? 'text-amber-600 font-medium' : ''}>Synced {formatTimeAgo(lastSyncedIso)}</span></>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={exportToCSV} className="btn-ghost flex items-center gap-2 text-xs">
+            <Download size={13} /> CSV
+          </button>
+          <button
+            onClick={handleSync}
+            disabled={syncing || isJobRunning}
+            className="btn-primary flex items-center gap-2 text-xs"
+          >
+            {syncing || isJobRunning
+              ? <><Loader2 size={13} className="animate-spin" />{currentJob?.progress || 'Syncing...'}</>
+              : <><RefreshCw size={13} /> Sync Now</>
+            }
+          </button>
+        </div>
       </div>
 
-      {/* ── KPI strip ───────────────────────────────────────────── */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3">
+          <AlertCircle size={18} className="text-red-600 shrink-0 mt-0.5" />
+          <p className="text-sm font-medium text-red-900">{error}</p>
+        </div>
+      )}
+
+      {isStale && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-3 items-center">
+          <AlertCircle size={16} className="text-amber-600 shrink-0" />
+          <p className="text-xs text-amber-900 font-medium">
+            Customer data is stale (last synced {formatTimeAgo(lastSyncedIso)}). Click "Sync Now" to refresh.
+          </p>
+        </div>
+      )}
+
+      {/* KPI strip — skeleton while overview loads */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard
-          icon={Users}
-          label="Total Customers"
-          value={overview.kpis.total_customers}
-          sub={`${overview.kpis.new_this_month} new this month`}
-          color="text-blue-500"
-          bg="bg-blue-50"
-        />
-        <KpiCard
-          icon={TrendingUp}
-          label="Total Revenue"
-          value={`KES ${formatKES(overview.kpis.total_revenue)}`}
-          sub={`KES ${formatKES(overview.kpis.avg_aov)} avg order`}
-          color="text-brand-500"
-          bg="bg-brand-50"
-        />
-        <KpiCard
-          icon={Repeat}
-          label="Retention Rate"
-          value={`${Math.round(overview.kpis.retention_rate * 100)}%`}
-          sub={`${overview.kpis.repeat_customers} repeat buyers`}
-          color="text-amber-500"
-          bg="bg-amber-50"
-        />
-        <KpiCard
-          icon={ShoppingBag}
-          label="Repeat Buyers"
-          value={overview.kpis.repeat_customers}
-          sub={`of ${overview.kpis.total_customers} total`}
-          color="text-orange-500"
-          bg="bg-orange-50"
-        />
-      </div>
-
-      {/* ── Segments + AOV trend ────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Segments */}
-        <div className="card p-5 lg:col-span-1">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2 className="text-sm font-bold text-gray-900">Segments</h2>
-            <span className="text-xs text-gray-400">RFM-based</span>
-          </div>
-          <div className="space-y-2">
-            {Object.entries(SEGMENT_META).map(([key, meta]) => {
-              const count = overview.segmentCounts[key] || 0
-              const Icon = SEGMENT_ICONS[key]
-              return (
-                <button
-                  key={key}
-                  onClick={() => setSegmentFilter(segmentFilter === key ? 'all' : key)}
-                  className={clsx(
-                    'w-full flex items-center justify-between p-2.5 rounded-lg border transition-all text-left text-xs',
-                    segmentFilter === key
-                      ? 'bg-gray-100 border-gray-300'
-                      : 'border-gray-200 hover:bg-gray-50'
-                  )}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <SegmentBadge color={meta.color}>
-                      <Icon size={12} strokeWidth={2.5} />
-                    </SegmentBadge>
-                    <div>
-                      <p className="text-xs font-medium text-gray-900">{meta.label}</p>
-                      <p className="text-[10px] text-gray-500">{meta.description}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-700 tabular-nums">{count}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* AOV by month */}
-        <div className="card p-5 lg:col-span-2">
-          <div className="flex items-baseline justify-between mb-4">
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Average Order Value</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Last 6 months</p>
-            </div>
-            <span className="inline-flex items-center bg-gray-100 text-gray-700 text-xs font-semibold px-2.5 py-1 rounded">KES {formatKES(overview.kpis.avg_aov)}</span>
-          </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={overview.aovByMonth} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
-              <XAxis dataKey="month" stroke="#71717a" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis stroke="#71717a" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{
-                  background: '#16161a',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                }}
-                labelStyle={{ color: '#a1a1aa' }}
-              />
-              <Line type="monotone" dataKey="aov" stroke="#ff5900" strokeWidth={2}
-                    dot={{ fill: '#ff5900', r: 3 }} activeDot={{ r: 5 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ── Top performers + channel split ──────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Top spenders */}
-        <div className="card p-5">
-          <h2 className="text-sm font-bold text-gray-900 mb-4">Top Spenders</h2>
-          <div className="space-y-3">
-            {overview.topSpenders.map((c, i) => (
-              <button
-                key={c.id}
-                onClick={() => navigate(`/customers/${c.id}`)}
-                className="w-full flex items-center gap-3 text-left hover:bg-gray-50 p-2 -mx-2 rounded-lg transition-colors text-xs"
-              >
-                <span className="text-gray-400 w-4 tabular-nums">{i + 1}</span>
-                <Avatar customer={c} size={32} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-900 truncate">{c.name}</p>
-                  <p className="text-[10px] text-gray-500">{c.total_orders} orders</p>
-                </div>
-                <p className="text-xs font-semibold text-gray-700 tabular-nums">
-                  KES {formatKES(c.total_spent)}
-                </p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Most frequent */}
-        <div className="card p-5">
-          <h2 className="text-sm font-bold text-gray-900 mb-4">Most Frequent Buyers</h2>
-          <div className="space-y-3">
-            {overview.topFrequent.map((c, i) => (
-              <button
-                key={c.id}
-                onClick={() => navigate(`/customers/${c.id}`)}
-                className="w-full flex items-center gap-3 text-left hover:bg-gray-50 p-2 -mx-2 rounded-lg transition-colors text-xs"
-              >
-                <span className="text-gray-400 w-4 tabular-nums">{i + 1}</span>
-                <Avatar customer={c} size={32} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-900 truncate">{c.name}</p>
-                  <p className="text-[10px] text-gray-500">KES {formatKES(c.total_spent)}</p>
-                </div>
-                <p className="text-xs font-semibold text-gray-700 tabular-nums">
-                  {c.total_orders} orders
-                </p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Channel breakdown */}
-        <div className="card p-5">
-          <h2 className="text-sm font-bold text-gray-900 mb-4">Acquisition Channel</h2>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie
-                data={overview.channelBreakdown}
-                dataKey="count"
-                nameKey="name"
-                innerRadius={45}
-                outerRadius={70}
-                strokeWidth={0}
-              >
-                {overview.channelBreakdown.map((_, i) => (
-                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: '#16161a',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-1.5 mt-3">
-            {overview.channelBreakdown.map((ch, i) => (
-              <div key={ch.name} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
-                  />
-                  <span className="text-gray-600 capitalize">{ch.name}</span>
-                </div>
-                <span className="text-gray-900 font-semibold tabular-nums">{ch.percent}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Top products purchased ─────────────────────────────── */}
-      <div className="card p-5">
-        <h2 className="text-sm font-bold text-gray-900 mb-4">Top Products Purchased</h2>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={overview.topProducts} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke="rgba(0,0,0,0.06)" horizontal={false} />
-            <XAxis type="number" stroke="#9ca3af" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="name" stroke="#9ca3af" tick={{ fontSize: 11 }}
-                   axisLine={false} tickLine={false} width={140} />
-            <Tooltip
-              contentStyle={{
-                background: '#ffffff',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '12px',
-              }}
+        {overview ? (
+          <>
+            <KpiCard
+              icon={Users}
+              label="Total Customers"
+              value={overview.kpis.total_customers}
+              sub={`${formatKES(overview.kpis.new_this_month)} new this month`}
+              color="text-blue-500" bg="bg-blue-50"
             />
-            <Bar dataKey="purchases" fill="#ff5900" radius={[0, 8, 8, 0]} barCategoryGap="15%" />
-          </BarChart>
-        </ResponsiveContainer>
+            <KpiCard
+              icon={TrendingUp}
+              label="Total Revenue"
+              value={`KES ${formatKES(overview.kpis.total_revenue)}`}
+              sub={`KES ${formatKES(overview.kpis.avg_aov)} avg order`}
+              color="text-brand-500" bg="bg-brand-50"
+            />
+            <KpiCard
+              icon={Repeat}
+              label="Retention Rate"
+              value={`${Math.round((overview.kpis.retention_rate || 0) * 100)}%`}
+              sub={`${formatKES(overview.kpis.repeat_customers)} repeat buyers`}
+              color="text-amber-500" bg="bg-amber-50"
+            />
+            <KpiCard
+              icon={ShoppingBag}
+              label="Repeat Buyers"
+              value={overview.kpis.repeat_customers}
+              sub={`of ${formatKES(overview.kpis.total_customers)} total`}
+              color="text-orange-500" bg="bg-orange-50"
+            />
+          </>
+        ) : (
+          [...Array(4)].map((_, i) => <KpiSkeleton key={i} />)
+        )}
       </div>
 
-      {/* ── All Customers section ─────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">All Customers</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{paginatedCustomers.length} of {filtered.length} shown</p>
+      {/* Segments + AOV trend */}
+      {overview ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Segments */}
+          <div className="card p-5 lg:col-span-1">
+            <div className="flex items-baseline justify-between mb-4">
+              <h2 className="text-sm font-bold text-gray-900">Segments</h2>
+              <span className="text-xs text-gray-400">RFM-based</span>
+            </div>
+            <div className="space-y-2">
+              {Object.entries(SEGMENT_META).map(([key, meta]) => {
+                const count = overview.segment_counts?.[key] || 0
+                const Icon = meta.icon
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setSegmentFilter(segmentFilter === key ? 'all' : key)}
+                    className={clsx(
+                      'w-full flex items-center justify-between p-2.5 rounded-lg border transition-all text-left text-xs',
+                      segmentFilter === key
+                        ? `${meta.bg} ${meta.border} ring-2 ring-offset-1 ring-${meta.dot.replace('bg-', '')}`
+                        : 'bg-white border-gray-100 hover:border-gray-300'
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={clsx('w-7 h-7 rounded-md flex items-center justify-center', meta.bg)}>
+                        <Icon size={13} className={meta.color} />
+                      </div>
+                      <span className="font-semibold text-gray-800">{meta.label}</span>
+                    </div>
+                    <span className="font-bold text-gray-900">{formatKES(count)}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* AOV by month */}
+          <div className="card p-5 lg:col-span-2">
+            <h2 className="text-sm font-bold text-gray-900 mb-4">AOV by Month</h2>
+            {overview.aov_by_month?.length > 0 ? (
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={overview.aov_by_month}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                         tickFormatter={v => `${(v / 1000).toFixed(1)}k`} />
+                  <Tooltip
+                    formatter={(value, name) => name === 'aov' ? [`KES ${formatKES(value)}`, 'AOV'] : [value, name]}
+                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                  />
+                  <Line type="monotone" dataKey="aov" stroke="#ff5900" strokeWidth={2} dot={{ r: 4, fill: '#ff5900' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-xs text-gray-400 text-center py-12">No order data yet — run an order sync</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <BlockSkeleton className="lg:col-span-1 h-80" />
+          <BlockSkeleton className="lg:col-span-2 h-80" />
+        </div>
+      )}
+
+      {/* Top spenders + Top frequent */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {overview ? (
+          <>
+            <TopList title="Top Spenders" customers={overview.top_spenders || []} mode="spent" navigate={navigate} />
+            <TopList title="Most Frequent Buyers" customers={overview.top_frequent || []} mode="orders" navigate={navigate} />
+          </>
+        ) : (
+          <>
+            <BlockSkeleton className="h-72" />
+            <BlockSkeleton className="h-72" />
+          </>
+        )}
+      </div>
+
+      {/* Customer table */}
+      <div className="card p-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <h2 className="text-sm font-bold text-gray-900">
+            All Customers <span className="text-gray-400 font-normal">({formatKES(total)} total)</span>
+          </h2>
+          <div className="flex flex-wrap gap-2 items-center">
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search customers..."
+                placeholder="Search name, email, phone..."
                 value={search}
-                onChange={e => { setSearch(e.target.value); setCurrentPage(1) }}
-                className="input pl-9 w-56"
+                onChange={e => setSearch(e.target.value)}
+                className="input text-xs pl-9 w-full md:w-64"
               />
             </div>
             <select
               value={sortBy}
-              onChange={e => { setSortBy(e.target.value); setCurrentPage(1) }}
-              className="input cursor-pointer"
+              onChange={e => setSortBy(e.target.value)}
+              className="input text-xs"
             >
-              <option value="spent_desc">Highest spent</option>
-              <option value="orders_desc">Most orders</option>
-              <option value="recent">Most recent</option>
+              <option value="spent_desc">Highest Spend</option>
+              <option value="orders_desc">Most Orders</option>
+              <option value="recent">Most Recent</option>
               <option value="name">Name (A–Z)</option>
             </select>
-            
-            {/* Export dropdown */}
-            <div className="relative group">
-              <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors">
-                <Download size={14} />
-                <span>Export</span>
+            {segmentFilter !== 'all' && (
+              <button
+                onClick={() => setSegmentFilter('all')}
+                className="text-xs font-medium px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                Clear: {SEGMENT_META[segmentFilter]?.label} ×
               </button>
-              <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
-                  <FileText size={13} />
-                  Export as CSV
-                </button>
-                <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                  <File size={13} />
-                  Export as PDF
-                </button>
-                <button onClick={exportToGoogleSheets} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
-                  <Sheet size={13} />
-                  Export to Sheets
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Active filter chip */}
-        {segmentFilter !== 'all' && (
-          <button
-            onClick={() => { setSegmentFilter('all'); setCurrentPage(1) }}
-            className="badge badge-primary mb-3 hover:opacity-80 transition-opacity"
-          >
-            Filtered: {SEGMENT_META[segmentFilter].label} × Clear
-          </button>
+        {customers.length === 0 && !loadingList ? (
+          <div className="text-center py-12">
+            <Package size={28} className="text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500 font-medium">No customers match these filters</p>
+          </div>
+        ) : (
+          <div className="relative">
+            {loadingList && (
+              <div className="absolute inset-0 bg-white/60 flex items-center justify-center z-10 rounded-lg">
+                <Loader2 size={18} className="animate-spin text-gray-400" />
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[700px]">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-700 uppercase tracking-wider">Customer</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-bold text-gray-700 uppercase tracking-wider">Segment</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-700 uppercase tracking-wider">Spent</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-700 uppercase tracking-wider">Orders</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-700 uppercase tracking-wider">AOV</th>
+                    <th className="text-right px-3 py-2.5 text-xs font-bold text-gray-700 uppercase tracking-wider">Last Order</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customers.map(c => {
+                    const meta = SEGMENT_META[c.segment] || SEGMENT_META.regular
+                    const SegIcon = meta.icon
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => navigate(`/customers/${c.id}`)}
+                        className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+                      >
+                        <td className="px-3 py-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
+                            <p className="text-xs text-gray-500 truncate">{c.email || c.phone || '—'}</p>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md', meta.bg, meta.color)}>
+                            <SegIcon size={11} />
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-right text-sm font-bold text-gray-900">KES {formatKES(c.total_spent)}</td>
+                        <td className="px-3 py-3 text-right text-sm text-gray-700">{formatKES(c.total_orders)}</td>
+                        <td className="px-3 py-3 text-right text-sm text-gray-700">KES {formatKES(c.aov)}</td>
+                        <td className="px-3 py-3 text-right text-xs text-gray-500">{formatDateAgo(c.last_order_date)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
-        {/* Customer rows */}
-        <div className="card divide-y divide-gray-200">
-          {paginatedCustomers.length === 0 ? (
-            <div className="p-8 text-center text-gray-400 text-sm">
-              No customers match the current filters.
-            </div>
-          ) : (
-            paginatedCustomers.map(c => (
-              <CustomerRow key={c.id} customer={c} onClick={() => navigate(`/customers/${c.id}`)} />
-            ))
-          )}
-        </div>
-
-        {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between gap-4 mt-6">
-            <p className="text-xs text-gray-400 font-medium">
-              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} entries
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100 flex-wrap gap-3">
+            <p className="text-xs text-gray-500">
+              Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, total)} of {formatKES(total)}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex gap-1 items-center">
               <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className={clsx(
-                  'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors',
-                  currentPage === 1
-                    ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
-                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                )}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="btn-ghost px-2 py-1 text-xs disabled:opacity-40"
               >
                 <ChevronLeft size={14} />
-                Previous
               </button>
-              
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum
-                  if (totalPages <= 5) {
-                    pageNum = i + 1
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i
-                  } else {
-                    pageNum = currentPage - 2 + i
-                  }
-                  
-                  return (
+
+              {(() => {
+                const delta = 1
+                const left = Math.max(2, page - delta)
+                const right = Math.min(totalPages - 1, page + delta)
+                const pages = [1]
+                if (left > 2) pages.push('...')
+                for (let i = left; i <= right; i++) pages.push(i)
+                if (right < totalPages - 1) pages.push('...')
+                if (totalPages > 1) pages.push(totalPages)
+
+                return pages.map((p, i) =>
+                  p === '...' ? (
+                    <span key={`ellipsis-${i}`} className="px-2 text-xs text-gray-400">…</span>
+                  ) : (
                     <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
+                      key={p}
+                      onClick={() => setPage(p)}
                       className={clsx(
-                        'w-8 h-8 rounded-lg border text-xs font-semibold transition-colors',
-                        currentPage === pageNum
-                          ? 'bg-black text-white border-black'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                        'w-8 h-8 rounded-lg text-xs font-medium transition-colors',
+                        page === p
+                          ? 'bg-black text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       )}
                     >
-                      {pageNum}
+                      {p}
                     </button>
                   )
-                })}
-              </div>
+                )
+              })()}
 
               <button
-                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                disabled={currentPage === totalPages}
-                className={clsx(
-                  'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors',
-                  currentPage === totalPages
-                    ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
-                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                )}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="btn-ghost px-2 py-1 text-xs disabled:opacity-40"
               >
-                Next
                 <ChevronRight size={14} />
               </button>
             </div>
           </div>
         )}
-
-        <p className="text-xs text-gray-400 text-center font-medium mt-4">
-          {filtered.length === 0 ? 'No customers' : `Total: ${filtered.length} entries`}
-        </p>
       </div>
     </div>
-  )
-}
-
-/* ── Subcomponents ────────────────────────────────────────────────── */
-
-function KpiCard({ icon: Icon, label, value, sub, color = 'text-blue-500', bg = 'bg-blue-50' }) {
-  // Animate numeric values
-  let displayValue = value
-  
-  if (typeof value === 'number') {
-    // Numeric value - animate it
-    const animated = useCountAnimation(value, 2000)
-    displayValue = animated
-  } else if (typeof value === 'string' && value.includes('%')) {
-    // Percentage value - extract number and animate
-    const percentValue = parseFloat(value)
-    const animatedPercent = useCountAnimation(percentValue, 2000)
-    displayValue = `${animatedPercent.toFixed(1)}%`
-  }
-  // String values like "KES 123,456" won't animate
-  
-  return (
-    <div className="stat-card relative overflow-hidden min-w-0">
-      {/* Subtle gradient overlay */}
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" 
-           style={{ background: 'linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.04) 100%)' }} />
-      
-      <div className="relative z-10">
-        <div className="flex items-center justify-between mb-4">
-          <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center border', bg)}>
-            <Icon size={16} className={color} />
-          </div>
-          <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">↑ 12%</span>
-        </div>
-        <p className="text-xs text-gray-500 font-medium mb-1.5 truncate">{label}</p>
-        <p className="text-xl sm:text-2xl font-bold text-gray-900 tabular-nums mb-2 truncate">{displayValue}</p>
-        {sub && <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{sub}</p>}
-      </div>
-    </div>
-  )
-}
-
-function Avatar({ customer, size = 36 }) {
-  const initials = customer.name.split(' ').map(p => p[0]).slice(0, 2).join('')
-  return (
-    <div
-      className="rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-      style={{ width: size, height: size, background: '#000000' }}
-    >
-      {initials}
-    </div>
-  )
-}
-
-function SegmentBadge({ color, children }) {
-  const classes = {
-    brand:   'bg-brand-500/15 text-brand-300 border-brand-500/30',
-    success: 'bg-status-success/15 text-emerald-300 border-status-success/30',
-    warning: 'bg-status-warning/15 text-amber-300 border-status-warning/30',
-    danger:  'bg-status-danger/15 text-rose-300 border-status-danger/30',
-    info:    'bg-status-info/15 text-blue-300 border-status-info/30',
-    neutral: 'bg-surface-overlay text-ink-secondary border-line',
-  }
-  return (
-    <div className={clsx('w-7 h-7 rounded-md flex items-center justify-center border', classes[color])}>
-      {children}
-    </div>
-  )
-}
-
-function CustomerRow({ customer, onClick }) {
-  const meta = SEGMENT_META[customer.segment]
-  const Icon = SEGMENT_ICONS[customer.segment]
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-gray-50 transition-colors text-left text-xs"
-    >
-      <Avatar customer={customer} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{customer.name}</p>
-        <p className="text-xs text-gray-500 truncate">{customer.email} · {customer.location}</p>
-      </div>
-      <div className="hidden md:flex items-center gap-2 shrink-0">
-        <SegmentBadge color={meta.color}>
-          <Icon size={12} strokeWidth={2.5} />
-        </SegmentBadge>
-        <span className="text-xs text-gray-600 w-16 truncate">{meta.label}</span>
-      </div>
-      <div className="hidden sm:block text-right shrink-0">
-        <p className="text-sm font-semibold text-gray-900 tabular-nums">
-          KES {formatKES(customer.total_spent)}
-        </p>
-        <p className="text-xs text-gray-500 truncate">{customer.total_orders} orders · {formatDateAgo(customer.last_order_date)}</p>
-      </div>
-      <ChevronRight size={16} className="text-gray-400 shrink-0" />
-    </button>
   )
 }

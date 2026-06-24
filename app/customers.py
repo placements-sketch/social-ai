@@ -26,9 +26,10 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func, or_
 
 from app import db
-from app.models import AuthUser, CustomerCache
+from app.models import AuthUser, OrderCache, CustomerCache
 from app.auth import log_audit, current_user_id
 from app.integrations.shopify import list_all_customers
+from app.sync_jobs import start_background_job, get_latest_job
 
 customers_bp = Blueprint('customers', __name__, url_prefix='/api')
 
@@ -41,6 +42,13 @@ MAX_PER_PAGE = 100
 # ─────────────────────────────────────────────
 # RFM Segmentation
 # ─────────────────────────────────────────────
+def _truncate(value, max_len):
+    """Coerce to string and clip to max_len. None → None."""
+    if value is None:
+        return None
+    s = str(value)
+    return s[:max_len] if len(s) > max_len else s
+
 
 def compute_segment(customer, vip_spend_threshold):
     """Computes the RFM segment for a single customer dict/row."""
@@ -84,7 +92,11 @@ def _vip_threshold():
 
 def _serialize_customer(c, vip_threshold):
     last_order = c.last_order_date
-    days_since = (datetime.utcnow() - last_order).days if last_order else None
+    if last_order:
+        delta = (datetime.utcnow() - last_order).total_seconds()
+        days_since = max(0, int(delta // 86400))
+    else:
+        days_since = None
     return {
         'id': c.id,
         'shopify_customer_id': c.shopify_customer_id,
@@ -131,39 +143,59 @@ def list_customers():
             CustomerCache.phone.ilike(like),
         ))
 
-    # Sort
+    # Sort (pushed to SQL)
     sort_map = {
-        'spent_desc': CustomerCache.total_spent.desc(),
+        'spent_desc':  CustomerCache.total_spent.desc(),
         'orders_desc': CustomerCache.total_orders.desc(),
-        'recent': CustomerCache.last_order_date.desc().nullslast(),
-        'name': CustomerCache.first_name.asc(),
+        'recent':      CustomerCache.last_order_date.desc().nullslast(),
+        'name':        CustomerCache.first_name.asc(),
     }
     query = query.order_by(sort_map.get(sort_by, CustomerCache.total_spent.desc()))
 
-    # Filter by segment AFTER fetching (segment is computed, not stored)
     vip_threshold = _vip_threshold()
-    all_rows = query.all()
-    serialized = [_serialize_customer(c, vip_threshold) for c in all_rows]
 
-    if segment_filter and segment_filter != 'all':
-        serialized = [c for c in serialized if c['segment'] == segment_filter]
-
-    total = len(serialized)
-    start = (page - 1) * per_page
-    paged = serialized[start:start + per_page]
+    # If no segment filter: paginate in SQL (fast — only fetches `per_page` rows)
+    if not segment_filter or segment_filter == 'all':
+        total = query.count()
+        rows = query.offset((page - 1) * per_page).limit(per_page).all()
+        serialized = [_serialize_customer(c, vip_threshold) for c in rows]
+    else:
+        # Segment is computed in Python — must scan, but at least cap memory by
+        # iterating in chunks and stopping once we have enough.
+        target_start = (page - 1) * per_page
+        target_end = target_start + per_page
+        serialized = []
+        skipped = 0
+        total = 0
+        BATCH = 1000
+        offset = 0
+        while True:
+            batch = query.offset(offset).limit(BATCH).all()
+            if not batch:
+                break
+            for c in batch:
+                s = _serialize_customer(c, vip_threshold)
+                if s['segment'] != segment_filter:
+                    continue
+                total += 1
+                if skipped < target_start:
+                    skipped += 1
+                    continue
+                if len(serialized) < per_page:
+                    serialized.append(s)
+            offset += BATCH
 
     last = db.session.query(func.max(CustomerCache.cached_at)).scalar()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
 
     return jsonify({
-        'customers': paged,
+        'customers': serialized,
         'total': total,
         'page': page,
         'per_page': per_page,
         'last_synced_at': last.isoformat() if last else None,
         'stale': stale,
     }), 200
-
 
 # ─────────────────────────────────────────────
 # GET /api/customers/overview
@@ -293,97 +325,134 @@ def customer_orders(customer_id):
 
 
 # ─────────────────────────────────────────────
-# POST /api/customers/sync
+# POST /api/customers/sync — async background job
 # ─────────────────────────────────────────────
+
+def _parse_dt(s):
+    """ISO 8601 parser that strips tz to a naive UTC datetime (matches DB cols)."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace('Z', '+00:00')).replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return None
+
 
 @customers_bp.route('/customers/sync', methods=['POST'])
 @jwt_required()
 def sync_customers():
+    """
+    Kick off a background job that mirrors Shopify customers into customers_cache.
+    Returns 202 + job_id immediately. Frontend polls /api/customers/sync/status
+    to see when it's done.
+    """
     current_user = AuthUser.query.get(current_user_id())
     if current_user is None:
         return jsonify({'error': 'User not found'}), 404
 
-    try:
+    # Capture the user ID as a plain int — safe to use inside the background
+    # thread where the ORM object would be detached.
+    user_id = current_user.id
+
+    def do_sync(job):
+        # Fetch from Shopify
+        job.progress = "Fetching customers from Shopify..."
+        db.session.commit()
         shopify_customers = list_all_customers()
-    except Exception as e:
-        return jsonify({'ok': False, 'reason': 'shopify_error', 'message': str(e)}), 502
 
-    snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
-    cached = {c.shopify_customer_id: c for c in CustomerCache.query.all()}
+        snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
+        cached = {c.shopify_customer_id: c for c in CustomerCache.query.all()}
 
-    now = datetime.utcnow()
-    added = updated = removed = 0
+        now = datetime.utcnow()
+        added = updated = removed = 0
 
-    def parse_dt(s):
-        if not s:
-            return None
-        try:
-            return datetime.fromisoformat(s.replace('Z', '+00:00')).replace(tzinfo=None)
-        except (ValueError, AttributeError):
-            return None
+        job.progress = f"Upserting {len(snapshot)} customers..."
+        db.session.commit()
 
-    # Inserts + updates
-    for spid, snap in snapshot.items():
-        last_order = parse_dt(snap.get('updated_at'))  # proxy until orders_cache exists
-        if spid in cached:
-            row = cached[spid]
-            row.email = snap.get('email')
-            row.first_name = snap.get('first_name')
-            row.last_name = snap.get('last_name')
-            row.phone = snap.get('phone')
-            row.city = snap.get('city')
-            row.country = snap.get('country')
-            row.accepts_marketing = snap.get('accepts_marketing', False)
-            row.tags = snap.get('tags', [])
-            row.total_orders = snap.get('total_orders', 0)
-            row.total_spent = Decimal(str(snap.get('total_spent', 0)))
-            row.last_order_date = last_order if (row.total_orders or 0) > 0 else None
-            row.shopify_created_at = parse_dt(snap.get('shopify_created_at'))
-            row.cached_at = now
-            updated += 1
-        else:
-            new_row = CustomerCache(
-                shopify_customer_id=spid,
-                email=snap.get('email'),
-                first_name=snap.get('first_name'),
-                last_name=snap.get('last_name'),
-                phone=snap.get('phone'),
-                city=snap.get('city'),
-                country=snap.get('country'),
-                accepts_marketing=snap.get('accepts_marketing', False),
-                tags=snap.get('tags', []),
-                total_orders=snap.get('total_orders', 0),
-                total_spent=Decimal(str(snap.get('total_spent', 0))),
-                last_order_date=last_order if (snap.get('total_orders') or 0) > 0 else None,
-                shopify_created_at=parse_dt(snap.get('shopify_created_at')),
-                cached_at=now,
-            )
-            db.session.add(new_row)
-            added += 1
+        # Upsert in chunks so memory + transaction size stay manageable.
+        CHUNK = 500
+        processed = 0
+        items = list(snapshot.items())
 
-    # Deletes
-    for spid, row in cached.items():
-        if spid not in snapshot:
-            db.session.delete(row)
-            removed += 1
+        for chunk_start in range(0, len(items), CHUNK):
+            for spid, snap in items[chunk_start:chunk_start + CHUNK]:
+                last_order = _parse_dt(snap.get('updated_at'))
+                if spid in cached:
+                    row = cached[spid]
+                    row.email      = _truncate(snap.get('email'),      512)
+                    row.first_name = _truncate(snap.get('first_name'), 512)
+                    row.last_name  = _truncate(snap.get('last_name'),  512)
+                    row.phone      = _truncate(snap.get('phone'),      128)
+                    row.city       = _truncate(snap.get('city'),       256)
+                    row.country    = _truncate(snap.get('country'),    128)
+                    row.accepts_marketing = snap.get('accepts_marketing', False)
+                    row.tags = snap.get('tags', [])
+                    row.total_orders = snap.get('total_orders', 0)
+                    row.total_spent = Decimal(str(snap.get('total_spent', 0)))
+                    row.last_order_date = last_order if (row.total_orders or 0) > 0 else None
+                    row.shopify_created_at = _parse_dt(snap.get('shopify_created_at'))
+                    row.cached_at = now
+                    updated += 1
+                else:
+                    db.session.add(CustomerCache(
+                        shopify_customer_id=spid,
+                        email=_truncate(snap.get('email'),           512),
+                        first_name=_truncate(snap.get('first_name'), 512),
+                        last_name=_truncate(snap.get('last_name'),   512),
+                        phone=_truncate(snap.get('phone'),           128),
+                        city=_truncate(snap.get('city'),             256),
+                        country=_truncate(snap.get('country'),       128),
+                        accepts_marketing=snap.get('accepts_marketing', False),
+                        tags=snap.get('tags', []),
+                        total_orders=snap.get('total_orders', 0),
+                        total_spent=Decimal(str(snap.get('total_spent', 0))),
+                        last_order_date=last_order if (snap.get('total_orders') or 0) > 0 else None,
+                        shopify_created_at=_parse_dt(snap.get('shopify_created_at')),
+                        cached_at=now,
+                    ))
+                    added += 1
+            db.session.commit()
+            processed += min(CHUNK, len(items) - chunk_start)
+            job.progress = f"Upserted {processed:,} / {len(items):,} customers..."
+            db.session.commit()
 
-    db.session.commit()
+        # Deletes (also chunked for symmetry)
+        to_delete = [row for spid, row in cached.items() if spid not in snapshot]
+        for d_start in range(0, len(to_delete), CHUNK):
+            for row in to_delete[d_start:d_start + CHUNK]:
+                db.session.delete(row)
+                removed += 1
+            db.session.commit()
 
-    log_audit(
-        current_user.id, 'sync_customers',
-        resource_type='customers', resource_id=None,
-        changes={'added': added, 'updated': updated, 'removed': removed},
+        # current_user was loaded in the request thread; pass the captured ID
+        # rather than touching the detached ORM object inside the background thread.
+        log_audit(
+            user_id, 'sync_customers',
+            resource_type='customers', resource_id=None,
+            changes={'added': added, 'updated': updated, 'removed': removed},
+        )
+
+        return {
+            'added_count': added,
+            'updated_count': updated,
+            'removed_count': removed,
+            'total_customers': CustomerCache.query.count(),
+            'synced_at': now.isoformat(),
+        }
+
+    job, started = start_background_job(
+        kind='customers_apply',
+        work_fn=do_sync,
+        user_id=user_id,
     )
+    if not started:
+        return jsonify({
+            'job_id': job.id,
+            'status': job.status,
+            'message': 'A customers sync is already running.',
+        }), 409
 
-    return jsonify({
-        'ok': True,
-        'added_count': added,
-        'updated_count': updated,
-        'removed_count': removed,
-        'synced_at': now.isoformat(),
-        'total_customers': CustomerCache.query.count(),
-    }), 200
-
+    return jsonify({'job_id': job.id, 'status': job.status}), 202
 
 # ─────────────────────────────────────────────
 # GET /api/customers/sync/status
@@ -395,9 +464,14 @@ def customers_sync_status():
     last = db.session.query(func.max(CustomerCache.cached_at)).scalar()
     count = CustomerCache.query.count()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
+
+    # Include the most recent customer sync job for polling
+    job = get_latest_job('customers_apply')
+
     return jsonify({
         'last_synced_at': last.isoformat() if last else None,
         'customer_count': count,
         'stale': stale,
         'stale_threshold_hours': int(STALE_AFTER.total_seconds() // 3600),
+        'current_job': job.to_dict() if job else None,
     }), 200
