@@ -17,7 +17,7 @@ from sqlalchemy import func
 from app import db
 from app.models import AuthUser, OrderCache, CustomerCache
 from app.auth import log_audit, current_user_id
-from app.integrations.shopify import list_all_orders
+from app.integrations.shopify import list_all_orders, iter_all_orders
 from app.sync_jobs import start_background_job, get_latest_job
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
@@ -68,15 +68,10 @@ def sync_orders():
     user_id = current_user.id
 
     def do_sync(job):
-        # ── Step 1: fetch from Shopify ──────────────────────────────────
-        job.progress = "Fetching orders from Shopify..."
+        # ── Step 1: load existing IDs (small footprint) ─────────────────
+        job.progress = "Loading existing order IDs..."
         db.session.commit()
-        shopify_orders = list_all_orders()
 
-        snapshot = {str(o['shopify_id']): o for o in shopify_orders}
-
-        # Don't load all order rows just to check existence — fetch IDs only.
-        # Each ID is ~10 bytes vs ~2KB per full row, so ~200x less memory.
         existing_ids = set(
             spid for (spid,) in
             db.session.query(OrderCache.shopify_order_id).all()
@@ -84,23 +79,21 @@ def sync_orders():
 
         now = datetime.utcnow()
         added = updated = removed = 0
-
-        # ── Step 2: chunked upsert ──────────────────────────────────────
         CHUNK = 500
-        items = list(snapshot.items())
-        total_items = len(items)
+        buffer = []  # accumulates (spid, snap) tuples up to CHUNK size
+        seen_ids = set()  # track which order IDs we received from Shopify
 
-        job.progress = f"Upserting 0 / {total_items:,} orders..."
+        job.progress = "Streaming orders from Shopify..."
         db.session.commit()
 
-        for chunk_start in range(0, total_items, CHUNK):
-            for spid, snap in items[chunk_start:chunk_start + CHUNK]:
+        def flush_buffer():
+            """Process & commit the accumulated chunk."""
+            nonlocal added, updated
+            for spid, snap in buffer:
                 order_date = _parse_dt(snap.get('order_date'))
                 if spid in existing_ids:
-                    # Targeted fetch — one row per UPDATE
                     row = OrderCache.query.filter_by(shopify_order_id=spid).first()
                     if row is None:
-                        # Race: was in existing_ids but disappeared. Fall through to insert.
                         existing_ids.discard(spid)
                     else:
                         row.shopify_customer_id = _truncate(snap.get('shopify_customer_id'),  64)
@@ -114,9 +107,8 @@ def sync_orders():
                         row.order_date          = order_date
                         row.cached_at           = now
                         updated += 1
-                        continue  # done, skip insert
+                        continue
 
-                # Insert path (not in existing_ids OR row was missing)
                 db.session.add(OrderCache(
                     shopify_order_id=spid,
                     shopify_customer_id=_truncate(snap.get('shopify_customer_id'),  64),
@@ -132,15 +124,32 @@ def sync_orders():
                 ))
                 existing_ids.add(spid)
                 added += 1
-            db.session.commit()
-            processed = min(chunk_start + CHUNK, total_items)
-            job.progress = f"Upserted {processed:,} / {total_items:,} orders..."
-            db.session.commit()
-            # Release per-row references between chunks
-            db.session.expunge_all()
 
-        # ── Step 3: chunked deletes via IN-clause (no row materialization) ──
-        to_delete_ids = list(existing_ids - set(snapshot.keys()))
+            db.session.commit()
+            db.session.expunge_all()
+            buffer.clear()
+
+        # ── Step 2: stream from Shopify, flush every CHUNK ──────────────
+        total_received = 0
+        for snap in iter_all_orders():
+            spid = str(snap['shopify_id'])
+            seen_ids.add(spid)
+            buffer.append((spid, snap))
+            total_received += 1
+
+            if len(buffer) >= CHUNK:
+                flush_buffer()
+                job.progress = f"Processed {total_received:,} orders..."
+                db.session.commit()
+
+        # Final partial chunk
+        if buffer:
+            flush_buffer()
+            job.progress = f"Processed {total_received:,} orders..."
+            db.session.commit()
+
+        # ── Step 3: chunked deletes via IN-clause ───────────────────────
+        to_delete_ids = list(existing_ids - seen_ids)
         for d_start in range(0, len(to_delete_ids), CHUNK):
             batch_ids = to_delete_ids[d_start:d_start + CHUNK]
             OrderCache.query.filter(
@@ -153,8 +162,6 @@ def sync_orders():
         job.progress = "Recomputing customer aggregates..."
         db.session.commit()
 
-        # Single SQL aggregate — returns a small dict (one row per customer).
-        # Even with 161k customers that's ~10MB max (a tuple of 5 small fields each).
         customer_aggs = dict(
             (cid, (count, total_spent, last_date, first_date))
             for cid, count, total_spent, last_date, first_date in
@@ -200,15 +207,15 @@ def sync_orders():
             offset += CHUNK
             job.progress = f"Recomputed {customers_updated:,} customer aggregates..."
             db.session.commit()
-            # Release per-row references between batches
             db.session.expunge_all()
 
-        # ── Step 5: audit log (use captured user_id, not ORM object) ────
+        # ── Step 5: audit log ───────────────────────────────────────────
         log_audit(
             user_id, 'sync_orders',
             resource_type='orders', resource_id=None,
             changes={'added': added, 'updated': updated, 'removed': removed,
-                     'customers_refreshed': customers_updated},
+                     'customers_refreshed': customers_updated,
+                     'total_received': total_received},
         )
 
         return {
@@ -219,6 +226,7 @@ def sync_orders():
             'total_orders': OrderCache.query.count(),
             'synced_at': now.isoformat(),
         }
+    
     job, started = start_background_job(
         kind='orders_apply',
         work_fn=do_sync,

@@ -643,6 +643,70 @@ def _real_list_all_orders() -> list[dict]:
         raise
 
 
+def iter_all_orders():
+    """
+    Generator version of list_all_orders. Yields one order at a time as we
+    page through Shopify, so callers never need to hold the full list in memory.
+    
+    Same fields as list_all_orders. Use this for sync loops that process orders
+    one-by-one; use list_all_orders only when you actually need the whole list.
+    """
+    if USE_MOCK:
+        return  # No mock data; just yield nothing
+    yield from _real_iter_all_orders()
+
+
+def _real_iter_all_orders():
+    """Streams orders page by page. Same shape as _real_list_all_orders."""
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        url = f"{store_url}/admin/api/2024-01/orders.json?status=any&limit=250"
+        total_yielded = 0
+
+        while url:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            for o in response.json().get('orders', []):
+                customer = o.get('customer') or {}
+                line_items = o.get('line_items') or []
+                yield {
+                    "shopify_id": str(o.get('id')),
+                    "shopify_customer_id": str(customer.get('id')) if customer.get('id') else None,
+                    "order_number": str(o.get('order_number') or o.get('name') or ''),
+                    "total": float(o.get('total_price', 0) or 0),
+                    "currency": o.get('currency', 'KES'),
+                    "items_count": sum(int(li.get('quantity', 0) or 0) for li in line_items),
+                    "products": [li.get('title', '') for li in line_items if li.get('title')],
+                    "financial_status": o.get('financial_status'),
+                    "fulfillment_status": o.get('fulfillment_status'),
+                    "order_date": o.get('created_at'),
+                }
+                total_yielded += 1
+
+            link_header = response.headers.get('Link', '')
+            url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        url = part.split(';')[0].strip().strip('<>')
+                        break
+
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify orders stream completed — {total_yielded} orders",
+                  payload={"count": total_yielded, "kind": "orders_stream"})
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify", f"Failed during order stream: {str(e)}")
+        raise
+
+
 def _real_get_customer_orders(shopify_customer_id: str) -> list[dict]:
     """
     GET /admin/api/2024-01/customers/{id}/orders.json?status=any
