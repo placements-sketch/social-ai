@@ -11,12 +11,13 @@ Endpoints (JWT-protected, /api prefix):
   GET  /api/customers/sync/status      last_synced_at + stale flag
 
 Segments computed on-the-fly:
-  vip      — top 25% by spend, ordered in last 60 days
-  loyal    — 5+ orders, ordered in last 60 days
-  new      — joined in last 30 days OR 0-1 orders
-  at_risk  — 2+ orders, last order 90-180 days ago
-  churned  — 2+ orders, last order 180+ days ago
-  regular  — anyone else with at least 1 order
+  never_bought — signed up, no orders yet
+  vip          — top 25% by spend, ordered in last 60 days
+  loyal        — 5+ orders, ordered in last 60 days
+  new          — joined in last 30 days AND placed 1 order
+  at_risk      — 2+ orders, last order 90-180 days ago
+  churned      — 2+ orders, last order 180+ days ago
+  regular      — anyone else with at least 1 order
 """
 
 from datetime import datetime, timedelta
@@ -51,19 +52,31 @@ def _truncate(value, max_len):
 
 
 def compute_segment(customer, vip_spend_threshold):
-    """Computes the RFM segment for a single customer dict/row."""
+    """
+    Computes the RFM segment for a single customer dict/row.
+    
+    Segments:
+      never_bought — signed up but never placed an order (regardless of how long ago)
+      vip          — top spenders, ordered in last 60 days
+      loyal        — 5+ orders, ordered in last 60 days
+      new          — joined in last 30 days with 1 order
+      churned      — 2+ orders, last order 180+ days ago
+      at_risk      — 2+ orders, last order 90-180 days ago
+      regular      — everyone else with at least 1 order
+    """
     total_orders = customer.total_orders or 0
     total_spent = float(customer.total_spent or 0)
     last_order = customer.last_order_date
     created = customer.shopify_created_at
 
     now = datetime.utcnow()
-
     days_since_order = (now - last_order).days if last_order else None
     days_since_join = (now - created).days if created else None
 
+    # Never bought — signed up but no conversion. Distinct from "new" (recent signup with 1 order).
     if total_orders == 0:
-        return 'new'
+        return 'never_bought'
+
     if total_spent >= vip_spend_threshold and days_since_order is not None and days_since_order <= 60:
         return 'vip'
     if total_orders >= 5 and days_since_order is not None and days_since_order <= 60:
@@ -72,7 +85,8 @@ def compute_segment(customer, vip_spend_threshold):
         return 'churned'
     if days_since_order is not None and days_since_order > 90 and total_orders >= 2:
         return 'at_risk'
-    if total_orders <= 1 and days_since_join is not None and days_since_join <= 30:
+    # Recently joined AND made 1 order (proper "new convert")
+    if total_orders == 1 and days_since_join is not None and days_since_join <= 30:
         return 'new'
     return 'regular'
 

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
   Repeat, Tag, Heart, Crown, Sparkles, AlertTriangle, UserMinus, Users,
-  Loader2, AlertCircle, Package,
+  Loader2, AlertCircle, Package, UserPlus,
 } from 'lucide-react'
 import {
   LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -13,12 +13,13 @@ import { parseBackendTime, formatDateAgo } from '../utils/time'
 import { getCustomer, getCustomerOrders } from '../api/customers'
 
 const SEGMENT_META = {
-  vip:     { label: 'VIP',     icon: Crown,         color: 'text-amber-600', bg: 'bg-amber-50',  border: 'border-amber-200' },
-  loyal:   { label: 'Loyal',   icon: Heart,         color: 'text-pink-600',  bg: 'bg-pink-50',   border: 'border-pink-200' },
-  regular: { label: 'Regular', icon: Users,         color: 'text-blue-600',  bg: 'bg-blue-50',   border: 'border-blue-200' },
-  new:     { label: 'New',     icon: Sparkles,      color: 'text-green-600', bg: 'bg-green-50',  border: 'border-green-200' },
-  at_risk: { label: 'At Risk', icon: AlertTriangle, color: 'text-orange-600',bg: 'bg-orange-50', border: 'border-orange-200' },
-  churned: { label: 'Churned', icon: UserMinus,     color: 'text-gray-600',  bg: 'bg-gray-100',  border: 'border-gray-300' },
+  vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200' },
+  loyal:        { label: 'Loyal',        icon: Heart,         color: 'text-pink-600',   bg: 'bg-pink-50',   border: 'border-pink-200' },
+  regular:      { label: 'Regular',      icon: Users,         color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200' },
+  new:          { label: 'New Convert',  icon: Sparkles,      color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-200' },
+  never_bought: { label: 'Never Bought', icon: UserPlus,      color: 'text-slate-600',  bg: 'bg-slate-50',  border: 'border-slate-200' },
+  at_risk:      { label: 'At Risk',      icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
+  churned:      { label: 'Churned',      icon: UserMinus,     color: 'text-gray-600',   bg: 'bg-gray-100',  border: 'border-gray-300' },
 }
 
 function formatKES(n) {
