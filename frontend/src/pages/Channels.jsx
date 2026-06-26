@@ -1,9 +1,10 @@
 import { useState, useEffect, useContext } from 'react'
-import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, ExternalLink, Loader2, Copy, Check, Zap, ZapOff } from 'lucide-react'
+import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, ExternalLink, Loader2, Copy, Check, Zap, ZapOff, Plus, CheckCircle2 } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { parseBackendTime } from '../utils/time'
+import { getMetaOAuthUrl, listMetaConnections } from '../api/auth_meta'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -246,6 +247,11 @@ export default function Channels() {
   const [testingChannelId, setTestingChannelId] = useState(null)
   const [testResults, setTestResults]     = useState({})
   const { confirm } = useContext(ConfirmationContext)
+  // Meta connections (OAuth-issued)
+  const [metaConnections, setMetaConnections] = useState([])
+  const [loadingMeta, setLoadingMeta] = useState(true)
+  const [connecting, setConnecting] = useState(false)
+  const [connectSuccess, setConnectSuccess] = useState(false)
 
   useEffect(() => {
     const fetchChannels = async () => {
@@ -266,6 +272,31 @@ export default function Channels() {
       }
     }
     fetchChannels()
+  }, [])
+
+  // Load existing Meta OAuth connections + handle return-from-OAuth
+  useEffect(() => {
+    const loadConnections = async () => {
+      setLoadingMeta(true)
+      try {
+        const data = await listMetaConnections()
+        setMetaConnections(data.connections || [])
+      } catch (err) {
+        console.error('Failed to load Meta connections:', err)
+      } finally {
+        setLoadingMeta(false)
+      }
+    }
+    loadConnections()
+
+    // If we just came back from a successful OAuth (?connected=1), flash a banner
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('connected') === '1') {
+      setConnectSuccess(true)
+      // Strip the param from the URL so a refresh doesn't re-show it
+      window.history.replaceState({}, '', window.location.pathname)
+      setTimeout(() => setConnectSuccess(false), 6000)
+    }
   }, [])
 
   const toggleChannel = async (id, currentEnabled) => {
@@ -293,6 +324,18 @@ export default function Channels() {
       setChannels(prev => prev.map(ch => ch.id === id ? data.channel : ch))
     } catch (err) {
       console.error('Toggle failed:', err)
+    }
+  }
+
+  const handleConnectMeta = async () => {
+    setConnecting(true)
+    try {
+      const { oauth_url } = await getMetaOAuthUrl(window.location.pathname)
+      // Full-page redirect — Facebook can't be loaded in an iframe / popup reliably
+      window.location.href = oauth_url
+    } catch (err) {
+      setError(err.message)
+      setConnecting(false)
     }
   }
 
@@ -353,6 +396,84 @@ export default function Channels() {
           <span className="text-xs font-semibold text-gray-700">
             {activeCount} <span className="text-gray-400 font-normal">of</span> {totalCount} active
           </span>
+        </div>
+      </div>
+
+      {/* ── Meta Connections (OAuth-issued tokens) ────────────────── */}
+      <div className="card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gray-50/50">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-pink-500" />
+            <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">Instagram Business Login</h2>
+            <span className="text-xs text-gray-400 font-medium">
+              Required for live Meta App Review
+            </span>
+          </div>
+          <button
+            onClick={handleConnectMeta}
+            disabled={connecting}
+            className="btn-primary flex items-center gap-2 text-xs"
+          >
+            {connecting
+              ? <><Loader2 size={13} className="animate-spin" /> Redirecting…</>
+              : <><Plus size={13} /> Connect Instagram</>
+            }
+          </button>
+        </div>
+
+        {connectSuccess && (
+          <div className="px-5 py-3 bg-green-50 border-b border-green-100 flex items-center gap-2">
+            <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+            <p className="text-xs font-medium text-green-900">
+              Connection successful. Your Instagram account is now wired through OAuth.
+            </p>
+          </div>
+        )}
+
+        <div className="divide-y divide-gray-100">
+          {loadingMeta ? (
+            <div className="px-5 py-6 text-center text-xs text-gray-400">
+              <Loader2 size={14} className="animate-spin inline-block mr-2" />
+              Loading connections…
+            </div>
+          ) : metaConnections.length === 0 ? (
+            <div className="px-5 py-8 text-center">
+              <p className="text-sm text-gray-700 font-semibold">No Instagram accounts connected yet</p>
+              <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                Click <span className="font-semibold">Connect Instagram</span> above to authorize this app
+                against an Instagram Business Account via Facebook Login.
+              </p>
+            </div>
+          ) : (
+            metaConnections.map(conn => (
+              <div key={conn.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/60 transition-colors">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-pink-400 to-pink-600 flex items-center justify-center shrink-0">
+                  <Instagram size={16} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-gray-900 truncate">
+                      {conn.ig_username ? `@${conn.ig_username}` : conn.page_name || 'Connected Page'}
+                    </p>
+                    {conn.is_active && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                        <CheckCircle2 size={9} /> Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">
+                    Page: {conn.page_name || conn.page_id}
+                    {conn.connected_at && ` · Connected ${new Date(conn.connected_at).toLocaleDateString()}`}
+                  </p>
+                  {conn.scopes?.length > 0 && (
+                    <p className="text-[10px] text-gray-400 mt-1 font-mono truncate">
+                      {conn.scopes.join(' · ')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
