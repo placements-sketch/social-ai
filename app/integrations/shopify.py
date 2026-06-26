@@ -286,7 +286,12 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
         rows = (
             db.session.query(ProductCache, score)
             .filter(or_(*like_clauses))
-            .order_by(score.desc(), ProductCache.name.asc())
+            .order_by(
+                # In-stock products first. NULL stock = unknown, treat as available.
+                (ProductCache.stock_quantity == 0).asc(),
+                score.desc(),
+                ProductCache.name.asc(),
+            )
             .limit(limit)
             .all()
         )

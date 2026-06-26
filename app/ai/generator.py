@@ -212,35 +212,57 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
             [context_data["product"]] if "product" in context_data else []
         )
 
+        def _fmt_price(raw):
+            s = str(raw) if raw is not None else ''
+            if not s or s.upper() == 'N/A':
+                return 'price on request'
+            return s if 'KES' in s.upper() else f"KES {s}"
+
+        def _is_in_stock(p):
+            """A product is 'in stock' if quantity > 0, OR if quantity is None
+            (untracked inventory — we don't know, so don't assume out)."""
+            qty = p.get('stock_quantity')
+            return qty is None or qty > 0
+
         if products:
-            if len(products) == 1:
-                p = products[0]
-                variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
-                price_str = p.get('price')
-                if price_str and 'KES' not in str(price_str).upper():
-                    price_str = f"KES {price_str}"
+            in_stock_products  = [p for p in products if _is_in_stock(p)]
+            out_of_stock_products = [p for p in products if not _is_in_stock(p)]
+
+            if in_stock_products:
                 context_lines.append(
-                    f"Product available: {p.get('name')} | "
-                    f"Price: {price_str} | "
-                    f"Variants: {variants} | "
-                    f"Stock: {p.get('stock_quantity', 0)} units | "
-                    f"Description: {p.get('description', 'N/A')}"
+                    f"AVAILABLE PRODUCTS (recommend from these only — they're in stock):"
                 )
-            else:
-                context_lines.append(f"We have {len(products)} matching products available:")
-                for i, p in enumerate(products, 1):
+                for i, p in enumerate(in_stock_products, 1):
                     variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
-                    price_str = p.get('price')
-                    if price_str and 'KES' not in str(price_str).upper():
-                        price_str = f"KES {price_str}"
+                    qty = p.get('stock_quantity')
+                    qty_str = f"{qty} units in stock" if qty is not None else "stock available"
                     context_lines.append(
-                        f"  {i}. {p.get('name')} — {price_str} | "
-                        f"Variants: {variants} | "
-                        f"Stock: {p.get('stock_quantity', 0)} units"
+                        f"  {i}. {p.get('name')} — {_fmt_price(p.get('price'))} | "
+                        f"Variants: {variants} | {qty_str} | "
+                        f"Description: {(p.get('description') or 'N/A')[:120]}"
                     )
+
+            if out_of_stock_products:
                 context_lines.append(
-                    "Recommend the most relevant 1-2 to the customer with specific names and prices. "
-                    "Don't list all options unless they explicitly ask."
+                    f"OUT OF STOCK (do NOT recommend these as a purchase option; "
+                    f"only mention if customer asks specifically, then pivot to an available product):"
+                )
+                for p in out_of_stock_products:
+                    context_lines.append(
+                        f"  - {p.get('name')} — {_fmt_price(p.get('price'))} (currently sold out)"
+                    )
+
+            if not in_stock_products and out_of_stock_products:
+                context_lines.append(
+                    "NOTE: All matched products are sold out. Be honest with the customer — "
+                    "don't pretend they're available. Offer to take their details for restock "
+                    "alerts or suggest browsing other categories."
+                )
+
+            if in_stock_products and len(in_stock_products) > 1:
+                context_lines.append(
+                    "Recommend the most relevant 1-2 available products with specific names and prices. "
+                    "Don't list everything unless asked."
                 )
 
         if context_data.get("delivery_asked"):
