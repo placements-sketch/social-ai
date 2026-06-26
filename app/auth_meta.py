@@ -304,10 +304,16 @@ def oauth_finish():
         )
 
     log_event("info", "auth_meta.finish.success", f"Connected {len(connections_made)} Page(s)")
+    # Build absolute return URL using the configured frontend origin.
+    frontend_base = os.getenv('FRONTEND_BASE_URL', '').rstrip('/')
+    absolute_return = return_to
+    if frontend_base and return_to.startswith('/'):
+        absolute_return = f"{frontend_base}{return_to}"
+
     return jsonify({
         'success': True,
         'connections': connections_made,
-        'return_to': return_to,
+        'return_to': absolute_return,
     }), 200
 
 
