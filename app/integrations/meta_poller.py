@@ -23,8 +23,9 @@ GRAPH_API_VERSION = "v25.0"
 
 def _conversations_url():
     """Build the FB Graph conversations URL for the configured Page."""
-    import os
-    page_id = os.getenv("FB_PAGE_ID")
+    from app.integrations.meta import _get_meta_credentials
+    page_id, _ = _get_meta_credentials()  # NEW
+
     if not page_id:
         return None
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/conversations"
@@ -50,8 +51,10 @@ def start_poller(app):
         if os.getenv("IG_POLL_ENABLED", "true").lower() != "true":
             log_event("info", "ig_poller", "IG poller disabled via IG_POLL_ENABLED env var")
             return
-        if not os.getenv("FB_ACCESS_TOKEN"):
-            log_event("warning", "ig_poller", "FB_ACCESS_TOKEN not set — poller will not start")
+        from app.integrations.meta import _get_meta_credentials
+        _, token = _get_meta_credentials()
+        if not token:
+            log_event("warning", "ig_poller", "No Meta token available (DB + env empty) — poller will not start")
             return
         if not os.getenv("FB_PAGE_ID"):
             log_event("warning", "ig_poller", "FB_PAGE_ID not set — poller will not start")
@@ -80,12 +83,13 @@ def _poller_loop(app):
 
 def _poll_once():
     """One polling cycle: fetch all conversations, route new inbound."""
-    token = os.getenv("FB_ACCESS_TOKEN")
+    from app.integrations.meta import _get_meta_credentials
+    page_id, token = _get_meta_credentials()
     url = _conversations_url()
 
     # TEMP DEBUG
     print(f"[POLL DEBUG] token first 30 chars: {(token or '')[:30]}")
-    print(f"[POLL DEBUG] page id env: {os.getenv('FB_PAGE_ID')}")
+    print(f"[POLL DEBUG] page id: {page_id}")
     print(f"[POLL DEBUG] url: {url}")
     
     if not token or not url:

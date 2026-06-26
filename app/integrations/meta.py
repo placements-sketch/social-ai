@@ -20,9 +20,37 @@ from app.utils.logger import log_event
 
 GRAPH_API_VERSION = "v25.0"
 
+
+def _get_meta_credentials():
+    """
+    Returns (page_id, page_access_token) — preferring an active MetaConnection
+    row in the DB (issued via OAuth), falling back to the legacy env vars
+    (FB_PAGE_ID + FB_ACCESS_TOKEN) so existing setups keep working.
+
+    Both can be None if neither source has them. Callers must handle that.
+    """
+    # 1. Try DB (the OAuth-issued token, what App Review needs us to use)
+    try:
+        from app import db
+        from app.models import MetaConnection
+        conn = (MetaConnection.query
+                .filter_by(is_active=True)
+                .order_by(MetaConnection.connected_at.desc())
+                .first())
+        if conn and conn.page_id and conn.page_access_token:
+            return conn.page_id, conn.page_access_token
+    except Exception as e:
+        # DB unavailable, table missing, no Flask app context, etc.
+        # Don't crash — fall through to env vars.
+        log_event("warn", "integrations.meta.creds_db_lookup_failed", str(e))
+
+    # 2. Fall back to env vars (legacy Explorer-token setup)
+    return os.getenv("FB_PAGE_ID"), os.getenv("FB_ACCESS_TOKEN")
+
+
 def _send_url():
     """FB Graph send URL for the configured Page."""
-    page_id = os.getenv("FB_PAGE_ID")
+    page_id, _ = _get_meta_credentials()
     if not page_id:
         return None
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/messages"
@@ -44,7 +72,7 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
     Returns:
         Meta's response dict on success, or None on failure.
     """
-    token = os.getenv("FB_ACCESS_TOKEN")
+    _, token = _get_meta_credentials()
     url = _send_url()
     if not token or not url:
         log_event("error", "integrations.meta.send",
@@ -119,7 +147,7 @@ def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
         Meta's response dict on success (contains new reply's `id`), or
         None on failure. Failures are logged but never raised.
     """
-    token = os.getenv("FB_ACCESS_TOKEN")
+    _, token = _get_meta_credentials()
     if not token:
         log_event("error", "integrations.meta.comment_send",
                   "FB_ACCESS_TOKEN not set — cannot reply to comment",
@@ -229,7 +257,7 @@ def unsend_instagram_message(message_id: str) -> bool:
     Meta allows this within 24 hours of send.
     Returns True on success, False on failure (logs the reason).
     """
-    token = os.getenv("FB_ACCESS_TOKEN")
+    _, token = _get_meta_credentials()
     if not token:
         log_event("error", "integrations.meta.unsend",
                   "FB_ACCESS_TOKEN not set — cannot unsend",
@@ -273,7 +301,7 @@ def delete_instagram_comment(comment_id: str) -> bool:
     Meta uses the same DELETE pattern for comments as for messages, but
     against the comment's ID rather than a message ID.
     """
-    token = os.getenv("FB_ACCESS_TOKEN")
+    _, token = _get_meta_credentials()
     if not token:
         log_event("error", "integrations.meta.delete_comment",
                   "FB_ACCESS_TOKEN not set — cannot delete comment",

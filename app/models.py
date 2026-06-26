@@ -670,3 +670,55 @@ class SyncJob(db.Model):
 
     def __repr__(self):
         return f"<SyncJob #{self.id} {self.kind} {self.status}>"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# META CONNECTIONS — stores OAuth-issued tokens per IG/Page connection
+# ─────────────────────────────────────────────────────────────────────────────
+
+class MetaConnection(db.Model):
+    """
+    One row per IG Business Account + Facebook Page connected through OAuth.
+    Replaces the FB_ACCESS_TOKEN env var approach with per-connection tokens
+    issued through the proper Facebook Login for Business flow.
+    """
+    __tablename__ = "meta_connections"
+
+    id                       = db.Column(db.Integer, primary_key=True)
+    # Which auth user inside our app connected this — supports multi-tenant later.
+    auth_user_id             = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
+    # Facebook Page identity
+    page_id                  = db.Column(db.String(64), unique=True, nullable=False)
+    page_name                = db.Column(db.String(256), nullable=True)
+    page_access_token        = db.Column(db.Text, nullable=False)
+    # Instagram Business Account connected to that Page
+    ig_business_account_id   = db.Column(db.String(64), nullable=True)
+    ig_username              = db.Column(db.String(256), nullable=True)
+    # Long-lived user token (60-day expiry; used to refresh page tokens if needed)
+    user_access_token        = db.Column(db.Text, nullable=True)
+    token_expires_at         = db.Column(db.DateTime, nullable=True)
+    # Permissions granted in this connection
+    scopes                   = db.Column(db.JSON, nullable=True)
+    # Lifecycle
+    connected_at             = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_verified_at         = db.Column(db.DateTime, nullable=True)
+    is_active                = db.Column(db.Boolean, default=True, nullable=False)
+
+    auth_user = db.relationship("AuthUser", foreign_keys=[auth_user_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'page_id': self.page_id,
+            'page_name': self.page_name,
+            'ig_business_account_id': self.ig_business_account_id,
+            'ig_username': self.ig_username,
+            'scopes': self.scopes or [],
+            'connected_at': self.connected_at.isoformat() if self.connected_at else None,
+            'last_verified_at': self.last_verified_at.isoformat() if self.last_verified_at else None,
+            'token_expires_at': self.token_expires_at.isoformat() if self.token_expires_at else None,
+            'is_active': self.is_active,
+        }
+
+    def __repr__(self):
+        return f"<MetaConnection page={self.page_name} ig={self.ig_username}>"

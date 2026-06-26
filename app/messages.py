@@ -608,9 +608,10 @@ def get_instagram_media(media_id):
     import os
     import requests
     
-    token = os.getenv("FB_ACCESS_TOKEN")
+    from app.integrations.meta import _get_meta_credentials
+    _, token = _get_meta_credentials()
     if not token:
-        return jsonify({'error': 'FB_ACCESS_TOKEN not configured'}), 500
+        return jsonify({'error': 'No active Meta connection — connect via OAuth first'}), 500
     
     url = f"https://graph.facebook.com/v25.0/{media_id}"
     params = {
