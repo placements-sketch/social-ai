@@ -259,6 +259,7 @@ class Message(db.Model):
     ai_tokens_used      = db.Column(db.Integer, nullable=True)
     ai_model            = db.Column(db.String(64), nullable=True)
     platform_message_id = db.Column(db.String(256), nullable=True, unique=True)
+    utm_token = db.Column(db.String(128), nullable=True, index=True)
     external_id = db.Column(db.String(255), nullable=True, index=True)
     media_id = db.Column(db.String(128), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -367,6 +368,7 @@ class ProductCache(db.Model):
 
     id                 = db.Column(db.Integer, primary_key=True)
     shopify_product_id = db.Column(db.String(64), unique=True, nullable=False)
+    handle             = db.Column(db.String(256), nullable=True, index=True)
     name        = db.Column(db.String(256), nullable=False)
     description = db.Column(db.Text, nullable=True)
     price       = db.Column(db.Numeric(10, 2), nullable=True)
@@ -723,3 +725,46 @@ class MetaConnection(db.Model):
 
     def __repr__(self):
         return f"<MetaConnection page={self.page_name} ig={self.ig_username}>"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONVERSION ATTRIBUTIONS — links a Shopify order back to the DM that drove it
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ConversionAttribution(db.Model):
+    __tablename__ = "conversion_attributions"
+
+    id                 = db.Column(db.Integer, primary_key=True)
+
+    shopify_order_id   = db.Column(db.String(64), unique=True, nullable=False)
+    order_number       = db.Column(db.String(128), nullable=True)
+    order_total        = db.Column(db.Numeric(12, 2), default=0, nullable=False)
+    order_currency     = db.Column(db.String(8), nullable=True)
+    order_date         = db.Column(db.DateTime, nullable=False)
+
+    conversation_id    = db.Column(db.Integer, db.ForeignKey("conversations.id"), nullable=True, index=True)
+    message_id         = db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=True, index=True)
+    utm_token          = db.Column(db.String(128), nullable=True, index=True)
+
+    minutes_to_convert = db.Column(db.Integer, nullable=True)
+    attributed_at      = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    conversation = db.relationship("Conversation", foreign_keys=[conversation_id])
+    message      = db.relationship("Message", foreign_keys=[message_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'shopify_order_id': self.shopify_order_id,
+            'order_number': self.order_number,
+            'order_total': float(self.order_total or 0),
+            'order_currency': self.order_currency,
+            'order_date': self.order_date.isoformat() if self.order_date else None,
+            'conversation_id': self.conversation_id,
+            'message_id': self.message_id,
+            'utm_token': self.utm_token,
+            'minutes_to_convert': self.minutes_to_convert,
+            'attributed_at': self.attributed_at.isoformat() if self.attributed_at else None,
+        }
+
+    def __repr__(self):
+        return f"<ConversionAttribution order={self.order_number} via msg={self.message_id}>"

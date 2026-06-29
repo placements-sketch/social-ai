@@ -85,6 +85,7 @@ def _serialize_product(p: ProductCache) -> dict:
         'shopify_product_id': p.shopify_product_id,
         'name': p.name,
         'description': p.description,
+        'handle': p.handle,
         'price': _format_price(p.price),       # display string
         'price_value': float(p.price) if p.price is not None else None,  # numeric
         'variants': p.variants or [],
@@ -101,6 +102,7 @@ def _shopify_to_cache_dict(sp: dict) -> dict:
     return {
         'shopify_product_id': str(sp.get('shopify_id') or sp.get('id') or ''),
         'name': sp.get('name', ''),
+        'handle': sp.get('handle', '') or None,
         'description': sp.get('description'),
         'price': _parse_price(sp.get('price')),
         'variants': sp.get('variants', []) or [],

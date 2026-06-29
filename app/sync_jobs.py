@@ -115,7 +115,9 @@ def start_background_job(kind: str,
                     j.error = str(e)[:2000]
                     j.finished_at = datetime.utcnow()
                     db.session.commit()
-                    _notify_discord_failure(job.kind, job.id, str(e))
+                # Notify Discord using the captured plain values (kind, job_id)
+                # — never reference the detached `job` ORM object here.
+                _notify_discord_failure(kind, job_id, str(e))
                 log_event("error", "sync_jobs.failed",
                           f"Background job #{job_id} failed: {str(e)[:200]}",
                           payload={"job_id": job_id, "kind": kind,

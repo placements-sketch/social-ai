@@ -329,6 +329,7 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
             result.append({
                 "shopify_id": product.shopify_product_id,
                 "name": product.name,
+                "handle": product.handle,
                 "description": (product.description or '')[:200],
                 "price": str(product.price) if product.price is not None else 'N/A',
                 "variants": product.variants or [],
@@ -393,6 +394,7 @@ def _real_get_product_info(keyword: str) -> dict:
         return {
             "shopify_id": str(product['id']),
             "name": product.get('title', keyword),
+            "handle": product.get('handle') or '',
             "description": product.get('body_html', '')[:200],
             "price": f"KES{product['variants'][0].get('price', 'N/A')}" if product.get('variants') else "N/A",
             "variants": [v.get('title', '') for v in product.get('variants', [])],
@@ -455,6 +457,7 @@ def _real_list_all_products() -> list[dict]:
                 all_products.append({
                     "shopify_id": str(product['id']),
                     "name": product.get('title', 'Unknown'),
+                    "handle": product.get('handle') or '',
                     "description": (product.get('body_html') or '')[:200],
                     "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
                     "variants": [v.get('title', '') for v in variants],
