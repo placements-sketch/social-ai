@@ -170,35 +170,12 @@ def list_customers():
     vip_threshold = _vip_threshold()
 
     # If no segment filter: paginate in SQL (fast — only fetches `per_page` rows)
-    if not segment_filter or segment_filter == 'all':
-        total = query.count()
-        rows = query.offset((page - 1) * per_page).limit(per_page).all()
-        serialized = [_serialize_customer(c, vip_threshold) for c in rows]
-    else:
-        # Segment is computed in Python — must scan, but at least cap memory by
-        # iterating in chunks and stopping once we have enough.
-        target_start = (page - 1) * per_page
-        target_end = target_start + per_page
-        serialized = []
-        skipped = 0
-        total = 0
-        BATCH = 1000
-        offset = 0
-        while True:
-            batch = query.offset(offset).limit(BATCH).all()
-            if not batch:
-                break
-            for c in batch:
-                s = _serialize_customer(c, vip_threshold)
-                if s['segment'] != segment_filter:
-                    continue
-                total += 1
-                if skipped < target_start:
-                    skipped += 1
-                    continue
-                if len(serialized) < per_page:
-                    serialized.append(s)
-            offset += BATCH
+    if segment_filter and segment_filter != 'all':
+        query = query.filter(CustomerCache.segment == segment_filter)
+
+    total = query.count()
+    rows = query.offset((page - 1) * per_page).limit(per_page).all()
+    serialized = [_serialize_customer(c, vip_threshold) for c in rows]
 
     last = db.session.query(func.max(CustomerCache.cached_at)).scalar()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
@@ -281,42 +258,16 @@ def customers_overview():
     )
     top_frequent_out = [_serialize_customer(c, vip_threshold) for c in top_frequent_rows]
 
-    # ── Segment counts ──────────────────────────────────────────────────
-    # Segment is computed in Python, so we DO need to scan rows for it.
-    # But we only need (total_orders, total_spent, last_order_date, shopify_created_at)
-    # — not the full row. Stream in chunks so peak memory stays low.
-    segment_counts = {}
-    CHUNK = 5000
-    offset = 0
-    while True:
-        batch = (
-            db.session.query(
-                CustomerCache.total_orders,
-                CustomerCache.total_spent,
-                CustomerCache.last_order_date,
-                CustomerCache.shopify_created_at,
-            )
-            .order_by(CustomerCache.id.asc())
-            .offset(offset)
-            .limit(CHUNK)
-            .all()
-        )
-        if not batch:
-            break
-        for total_orders_v, total_spent_v, last_order_v, created_v in batch:
-            # Build a lightweight object that compute_segment can read like a row
-            stub = type('Stub', (), {
-                'total_orders': total_orders_v,
-                'total_spent': total_spent_v,
-                'last_order_date': last_order_v,
-                'shopify_created_at': created_v,
-            })()
-            seg = compute_segment(stub, vip_threshold)
-            segment_counts[seg] = segment_counts.get(seg, 0) + 1
-        offset += CHUNK
-        # Clear the session's identity map between batches so SQLAlchemy doesn't
-        # hold references to all the rows it has seen.
-        db.session.expunge_all()
+# ── Segment counts ──────────────────────────────────────────────────
+    # Segment is now persisted as a column on CustomerCache during sync,
+    # so this is a single indexed GROUP BY query — milliseconds even for
+    # millions of rows.
+    segment_rows = (
+        db.session.query(CustomerCache.segment, func.count(CustomerCache.id))
+        .group_by(CustomerCache.segment)
+        .all()
+    )
+    segment_counts = {seg: count for seg, count in segment_rows if seg}
 
     # ── AOV by month: from OrderCache when populated, else empty ─────────
     # Real aggregation from order data — only sums + counts.
@@ -469,7 +420,7 @@ def sync_customers():
     # Capture the user ID as a plain int — safe to use inside the background
     # thread where the ORM object would be detached.
     user_id = current_user.id
-
+    
     def do_sync(job):
         # Capture job ID — refetch by ID after each expunge_all() since
         # the ORM object gets detached from the session.
@@ -481,6 +432,9 @@ def sync_customers():
             if j is not None:
                 j.progress = text
                 db.session.commit()
+
+        # VIP threshold computed once for this entire sync.
+        vip_threshold = _vip_threshold()
 
         # Fetch from Shopify
         update_progress("Fetching customers from Shopify...")
@@ -528,12 +482,13 @@ def sync_customers():
                         row.total_spent = Decimal(str(snap.get('total_spent', 0)))
                         row.last_order_date = last_order if (row.total_orders or 0) > 0 else None
                         row.shopify_created_at = _parse_dt(snap.get('shopify_created_at'))
+                        row.segment = compute_segment(row, vip_threshold)
                         row.cached_at = now
                         updated += 1
                         continue  # done, skip the insert branch
 
                 # Insert path (either spid not in existing_ids, or row was missing)
-                db.session.add(CustomerCache(
+                new_row = CustomerCache(
                     shopify_customer_id=spid,
                     email=_truncate(snap.get('email'),           512),
                     first_name=_truncate(snap.get('first_name'), 512),
@@ -548,7 +503,9 @@ def sync_customers():
                     last_order_date=last_order if (snap.get('total_orders') or 0) > 0 else None,
                     shopify_created_at=_parse_dt(snap.get('shopify_created_at')),
                     cached_at=now,
-                ))
+                )
+                new_row.segment = compute_segment(new_row, vip_threshold)
+                db.session.add(new_row)
                 existing_ids.add(spid)
                 added += 1
             db.session.commit()

@@ -401,6 +401,7 @@ class CustomerCache(db.Model):
     total_orders        = db.Column(db.Integer, default=0)
     total_spent         = db.Column(db.Numeric(12, 2), default=0)
     last_order_date     = db.Column(db.DateTime, nullable=True)
+    segment                  = db.Column(db.String(32), nullable=True, index=True)
     first_order_date    = db.Column(db.DateTime, nullable=True)
     shopify_created_at  = db.Column(db.DateTime, nullable=True)
     cached_at           = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

@@ -22,6 +22,7 @@ from functools import wraps
 from app import db
 from app.sync_jobs import start_background_job, get_latest_job
 from app.utils.logger import log_event
+from app.customers import compute_segment, _vip_threshold
 
 cron_bp = Blueprint('cron', __name__, url_prefix='/api/cron')
 
@@ -79,6 +80,8 @@ def cron_sync_products():
             if j is not None:
                 j.progress = text
                 db.session.commit()
+
+        vip_threshold = _vip_threshold()
 
         update_progress("Fetching products from Shopify...")
         products = list_all_products()
@@ -156,7 +159,6 @@ def cron_sync_products():
 @require_cron_secret
 def cron_sync_customers():
     """Trigger a customers sync. Uses the same async pattern as /api/customers/sync."""
-    from app.customers import sync_customers as customer_sync_view
     from app.integrations.shopify import list_all_customers
     from app.models import CustomerCache
     from app.customers import _truncate, _parse_dt
@@ -171,6 +173,9 @@ def cron_sync_customers():
             if j is not None:
                 j.progress = text
                 db.session.commit()
+
+        # Compute VIP threshold once at start of sync
+        vip_threshold = _vip_threshold()
 
         update_progress("Fetching customers from Shopify...")
         shopify_customers = list_all_customers()
@@ -207,11 +212,12 @@ def cron_sync_customers():
                         row.total_spent = Decimal(str(snap.get('total_spent', 0)))
                         row.last_order_date = last_order if (row.total_orders or 0) > 0 else None
                         row.shopify_created_at = _parse_dt(snap.get('shopify_created_at'))
+                        row.segment = compute_segment(row, vip_threshold)
                         row.cached_at = now
                         updated += 1
                         continue
 
-                db.session.add(CustomerCache(
+                new_row = CustomerCache(
                     shopify_customer_id=spid,
                     email=_truncate(snap.get('email'), 512),
                     first_name=_truncate(snap.get('first_name'), 512),
@@ -226,7 +232,9 @@ def cron_sync_customers():
                     last_order_date=last_order if (snap.get('total_orders') or 0) > 0 else None,
                     shopify_created_at=_parse_dt(snap.get('shopify_created_at')),
                     cached_at=now,
-                ))
+                )
+                new_row.segment = compute_segment(new_row, vip_threshold)
+                db.session.add(new_row)
                 existing_ids.add(spid)
                 added += 1
 
@@ -369,8 +377,10 @@ def cron_sync_orders():
             removed += len(batch_ids)
             db.session.commit()
 
-        # Recompute customer aggregates
+        # Recompute customer aggregates AND segment
         update_progress("Recomputing customer aggregates...")
+        vip_threshold = _vip_threshold()
+
         customer_aggs = dict(
             (cid, (count, total_spent, last_date, first_date))
             for cid, count, total_spent, last_date, first_date in
@@ -410,6 +420,7 @@ def cron_sync_orders():
                     customer.total_spent = Decimal('0')
                     customer.last_order_date = None
                     customer.first_order_date = None
+                customer.segment = compute_segment(customer, vip_threshold)
                 customers_updated += 1
 
             db.session.commit()

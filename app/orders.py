@@ -19,6 +19,7 @@ from app.models import AuthUser, OrderCache, CustomerCache
 from app.auth import log_audit, current_user_id
 from app.integrations.shopify import list_all_orders, iter_all_orders
 from app.sync_jobs import start_background_job, get_latest_job
+from app.customers import compute_segment, _vip_threshold
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
 
@@ -181,6 +182,9 @@ def sync_orders():
             .all()
         )
 
+        # VIP threshold computed once for this entire recompute step.
+        vip_threshold = _vip_threshold()
+
         customers_updated = 0
         offset = 0
         while True:
@@ -205,6 +209,7 @@ def sync_orders():
                     customer.total_spent = Decimal('0')
                     customer.last_order_date = None
                     customer.first_order_date = None
+                customer.segment = compute_segment(customer, vip_threshold)
                 customers_updated += 1
 
             db.session.commit()
