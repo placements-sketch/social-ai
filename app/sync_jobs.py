@@ -26,6 +26,9 @@ from app import db
 from app.models import SyncJob
 from app.utils.logger import log_event
 
+import os
+import requests as _requests  # alias so we don't conflict if there's another import
+
 
 def _has_active_job(kind: str) -> SyncJob | None:
     """
@@ -112,6 +115,7 @@ def start_background_job(kind: str,
                     j.error = str(e)[:2000]
                     j.finished_at = datetime.utcnow()
                     db.session.commit()
+                    _notify_discord_failure(job.kind, job.id, str(e))
                 log_event("error", "sync_jobs.failed",
                           f"Background job #{job_id} failed: {str(e)[:200]}",
                           payload={"job_id": job_id, "kind": kind,
@@ -121,3 +125,29 @@ def start_background_job(kind: str,
     thread.start()
 
     return job, True
+
+def _notify_discord_failure(kind: str, job_id: int, error: str):
+    """Best-effort Discord ping when a sync job fails. Never raises."""
+    webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+    if not webhook_url:
+        return  # not configured; silent no-op
+
+    payload = {
+        "username": "Sync Alerts",
+        "embeds": [{
+            "title": f"🔴 Sync Job Failed",
+            "description": f"Backend sync job died after starting.",
+            "color": 15158332,
+            "fields": [
+                {"name": "Kind",   "value": kind,           "inline": True},
+                {"name": "Job ID", "value": str(job_id),    "inline": True},
+                {"name": "Error",  "value": f"```{error[:400]}```", "inline": False},
+            ],
+            "footer": {"text": "social-ai-backend (Render)"},
+        }]
+    }
+
+    try:
+        _requests.post(webhook_url, json=payload, timeout=5)
+    except Exception:
+        pass  # alerts are best-effort; never let them break the failing flow

@@ -451,3 +451,74 @@ def cron_sync_orders():
 
     log_event("info", "cron.orders_sync.started", f"Cron triggered job {job.id}")
     return jsonify({'job_id': job.id, 'status': job.status, 'triggered_by': 'cron'}), 202
+
+@cron_bp.route('/watchdog', methods=['POST'])
+@require_cron_secret
+def cron_watchdog():
+    """
+    Detects stuck sync jobs and alerts Discord.
+    A job is 'stuck' if its status is 'running' for longer than the kind's threshold.
+    Thresholds reflect realistic max durations:
+      products  — 10 min
+      customers — 45 min
+      orders    — 90 min
+    """
+    from datetime import timedelta
+    from app.models import SyncJob
+
+    THRESHOLDS = {
+        'products_apply':  timedelta(minutes=10),
+        'customers_apply': timedelta(minutes=45),
+        'orders_apply':    timedelta(minutes=90),
+    }
+
+    now = datetime.utcnow()
+    stuck = []
+
+    running_jobs = (SyncJob.query
+                    .filter(SyncJob.status == 'running')
+                    .all())
+
+    for job in running_jobs:
+        threshold = THRESHOLDS.get(job.kind, timedelta(minutes=60))
+        started = job.started_at
+        if started is None:
+            continue
+        elapsed = now - started
+        if elapsed > threshold:
+            stuck.append({
+                'id': job.id,
+                'kind': job.kind,
+                'elapsed_min': int(elapsed.total_seconds() / 60),
+                'threshold_min': int(threshold.total_seconds() / 60),
+                'progress': job.progress or 'unknown',
+            })
+
+    if stuck:
+        webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+        if webhook_url:
+            try:
+                fields = []
+                for j in stuck[:5]:
+                    fields.append({
+                        "name": f"Job #{j['id']} ({j['kind']})",
+                        "value": f"Running {j['elapsed_min']} min (limit {j['threshold_min']}). Progress: {j['progress'][:200]}",
+                        "inline": False,
+                    })
+                import requests as _requests
+                _requests.post(webhook_url, json={
+                    "username": "Sync Alerts",
+                    "embeds": [{
+                        "title": "🟡 Sync Job(s) Running Unusually Long",
+                        "description": f"Found {len(stuck)} job(s) past their normal duration.",
+                        "color": 16763904,
+                        "fields": fields,
+                    }]
+                }, timeout=5)
+            except Exception:
+                pass
+
+    return jsonify({
+        'checked': len(running_jobs),
+        'stuck': stuck,
+    }), 200

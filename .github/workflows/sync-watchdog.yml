@@ -1,0 +1,26 @@
+name: Sync Watchdog
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # every 30 minutes
+  workflow_dispatch:        # allow manual triggering from the UI
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check for stuck sync jobs
+        run: |
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://social-ai-backend-tult.onrender.com/api/cron/watchdog" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+          echo "Status: $status"
+          echo "Body: $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Watchdog endpoint returned $status"
+            exit 1
+          fi

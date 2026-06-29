@@ -17,6 +17,34 @@ from datetime import datetime, timezone, timedelta
 import requests
 from app.utils.logger import log_event
 
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
+# Module-level session with built-in retry on transient Shopify failures.
+# This handles 429 (rate limit), 502/503/504 (Shopify server hiccups),
+# and connection errors with exponential backoff.
+_shopify_session = None
+
+def _get_shopify_session():
+    """Returns a singleton requests.Session configured with retry-with-backoff.
+    Retries: 5 attempts total, waits 2s/4s/8s/16s/32s between them.
+    Total worst-case extra delay before giving up: ~62 seconds."""
+    global _shopify_session
+    if _shopify_session is None:
+        _shopify_session = requests.Session()
+        retry = Retry(
+            total=5,
+            backoff_factor=2,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=['GET', 'POST'],
+            raise_on_status=False,
+            respect_retry_after_header=True,  # honour Shopify's Retry-After on rate limits
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+        _shopify_session.mount('https://', adapter)
+        _shopify_session.mount('http://', adapter)
+    return _shopify_session
+
 USE_MOCK = False  # Flip to False once Shopify credentials are configured
 
 # Token cache (in production, store in DB or Redis).
@@ -65,7 +93,7 @@ def _get_shopify_access_token():
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     
     try:
-        response = requests.post(token_url, data=payload, headers=headers, timeout=10)
+        response = _get_shopify_session().post(token_url, data=payload, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         
@@ -336,7 +364,7 @@ def _real_get_product_info(keyword: str) -> dict:
         
         # Search by product title
         url = f"{store_url}/admin/api/2024-01/products.json?title={keyword}"
-        response = requests.get(url, headers=headers, timeout=10)
+        response = _get_shopify_session().get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
         products = response.json().get('products', [])
@@ -409,7 +437,7 @@ def _real_list_all_products() -> list[dict]:
         url = f"{store_url}/admin/api/2024-01/products.json?limit=250"
 
         while url:
-            response = requests.get(url, headers=headers, timeout=30)
+            response = _get_shopify_session().get(url, headers=headers, timeout=30)
             response.raise_for_status()
 
             for product in response.json().get('products', []):
@@ -473,7 +501,7 @@ def _real_list_all_locations() -> list[dict]:
             'Content-Type': 'application/json',
         }
         url = f"{store_url}/admin/api/2024-01/locations.json"
-        response = requests.get(url, headers=headers, timeout=15)
+        response = _get_shopify_session().get(url, headers=headers, timeout=15)
         response.raise_for_status()
 
         locations = response.json().get('locations', [])

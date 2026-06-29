@@ -7,6 +7,7 @@ on:
     - cron: '0 0 * * *'    # 03:00 EAT — products
     - cron: '15 0 * * *'   # 03:15 EAT — customers
     - cron: '45 0 * * *'   # 03:45 EAT — orders
+    - cron: '*/30 * * * *' # every 30 minutes — watchdog
   # Allow manual triggering from the GitHub UI for testing
   workflow_dispatch:
     inputs:
@@ -53,6 +54,7 @@ jobs:
           fi
 
       - name: Trigger products sync
+        id: products_sync
         if: steps.which.outputs.sync == 'products' || steps.which.outputs.sync == 'all'
         run: |
           response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
@@ -65,6 +67,10 @@ jobs:
 
           echo "Status: $status"
           echo "Body: $body"
+          echo "status=$status" >> $GITHUB_OUTPUT
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$body" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
           if [ "$status" != "202" ] && [ "$status" != "409" ]; then
             echo "::error::Products sync failed with status $status"
@@ -117,3 +123,27 @@ jobs:
             echo "::error::Orders sync failed with status $status"
             exit 1
           fi
+
+      - name: Discord alert on failure
+        if: failure()
+        run: |
+          # Pick the sync that's actually being run for the message
+          SYNC_TYPE="${{ steps.which.outputs.sync }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          curl -sS -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"username\": \"Sync Alerts\",
+              \"embeds\": [{
+                \"title\": \"🔴 Daily Sync Failed\",
+                \"description\": \"Cron job for **${SYNC_TYPE}** sync failed to trigger or complete.\",
+                \"color\": 15158332,
+                \"fields\": [
+                  {\"name\": \"Sync type\", \"value\": \"${SYNC_TYPE}\", \"inline\": true},
+                  {\"name\": \"Time (UTC)\", \"value\": \"$(date -u +'%Y-%m-%d %H:%M')\", \"inline\": true}
+                ],
+                \"footer\": {\"text\": \"GitHub Actions\"},
+                \"url\": \"${RUN_URL}\"
+              }]
+            }"
