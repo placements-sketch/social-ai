@@ -1,0 +1,119 @@
+name: Daily Sync
+
+# Schedule times are in UTC. EAT = UTC+3.
+# So 3:00 AM EAT = 00:00 UTC, 3:15 AM EAT = 00:15 UTC, 3:45 AM EAT = 00:45 UTC.
+on:
+  schedule:
+    - cron: '0 0 * * *'    # 03:00 EAT — products
+    - cron: '15 0 * * *'   # 03:15 EAT — customers
+    - cron: '45 0 * * *'   # 03:45 EAT — orders
+  # Allow manual triggering from the GitHub UI for testing
+  workflow_dispatch:
+    inputs:
+      sync_type:
+        description: 'Which sync to run (products, customers, orders, or all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - products
+          - customers
+          - orders
+          - all
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Determine which sync to run
+        id: which
+        run: |
+          # GitHub Actions provides the schedule that triggered this run in github.event.schedule
+          # For manual runs, use the workflow_dispatch input.
+          SCHEDULE="${{ github.event.schedule }}"
+          MANUAL_INPUT="${{ github.event.inputs.sync_type }}"
+
+          if [ -n "$MANUAL_INPUT" ]; then
+            echo "Manual run, sync_type=$MANUAL_INPUT"
+            echo "sync=$MANUAL_INPUT" >> $GITHUB_OUTPUT
+          elif [ "$SCHEDULE" = "0 0 * * *" ]; then
+            echo "Scheduled run for products"
+            echo "sync=products" >> $GITHUB_OUTPUT
+          elif [ "$SCHEDULE" = "15 0 * * *" ]; then
+            echo "Scheduled run for customers"
+            echo "sync=customers" >> $GITHUB_OUTPUT
+          elif [ "$SCHEDULE" = "45 0 * * *" ]; then
+            echo "Scheduled run for orders"
+            echo "sync=orders" >> $GITHUB_OUTPUT
+          else
+            echo "Unknown trigger, defaulting to products"
+            echo "sync=products" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger products sync
+        if: steps.which.outputs.sync == 'products' || steps.which.outputs.sync == 'all'
+        run: |
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://social-ai-backend-tult.onrender.com/api/cron/sync-products" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" != "202" ] && [ "$status" != "409" ]; then
+            echo "::error::Products sync failed with status $status"
+            exit 1
+          fi
+
+      # If running "all" sequentially, wait between syncs
+      - name: Wait before customers sync
+        if: steps.which.outputs.sync == 'all'
+        run: sleep 60
+
+      - name: Trigger customers sync
+        if: steps.which.outputs.sync == 'customers' || steps.which.outputs.sync == 'all'
+        run: |
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://social-ai-backend-tult.onrender.com/api/cron/sync-customers" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" != "202" ] && [ "$status" != "409" ]; then
+            echo "::error::Customers sync failed with status $status"
+            exit 1
+          fi
+
+      - name: Wait before orders sync
+        if: steps.which.outputs.sync == 'all'
+        run: sleep 60
+
+      - name: Trigger orders sync
+        if: steps.which.outputs.sync == 'orders' || steps.which.outputs.sync == 'all'
+        run: |
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://social-ai-backend-tult.onrender.com/api/cron/sync-orders" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" != "202" ] && [ "$status" != "409" ]; then
+            echo "::error::Orders sync failed with status $status"
+            exit 1
+          fi

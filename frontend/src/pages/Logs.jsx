@@ -331,8 +331,10 @@ export default function Logs() {
         ) : (
           <div className="divide-y divide-gray-50">
             {logs.map(log => {
-              const level = log.level || 'info'
-              const cfg = levelConfig[level]
+              // Normalize backend level names: "warn" → "warning"
+              const rawLevel = (log.level || 'info').toLowerCase()
+              const level = rawLevel === 'warn' ? 'warning' : rawLevel
+              const cfg = levelConfig[level] || levelConfig.info
               const Icon = cfg.icon
               const createdAt = parseBackendTime(log.created_at)
               const time = createdAt ? createdAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—'
