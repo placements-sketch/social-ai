@@ -118,6 +118,7 @@ def _row_matches_shopify(row: ProductCache, snap: dict) -> bool:
     return (
         row.name == snap['name']
         and row.description == snap['description']
+        and (row.handle or None) == (snap.get('handle') or None)
         and (row.price or None) == (snap['price'] or None)
         and (row.variants or []) == (snap['variants'] or [])
         and (row.images or []) == (snap['images'] or [])
@@ -324,6 +325,7 @@ def sync_products():
                 row = cached[spid]
                 if not _row_matches_shopify(row, snap):
                     row.name = snap['name']
+                    row.handle = snap.get('handle')
                     row.description = snap['description']
                     row.price = snap['price']
                     row.variants = snap['variants']

@@ -105,7 +105,7 @@ def cron_sync_products():
                     else:
                         row.name = (p.get('name') or '')[:512]
                         row.description = p.get('description') or ''
-                        row.handle = (p.get('handle') or '')[:256] or None   # ← NEW (add near other field updates)
+                        row.handle = (p.get('handle') or '')[:256] or None
                         row.price = Decimal(str(p.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if p.get('price') else None
                         row.variants = p.get('variants') or []
                         row.tags = p.get('tags') or []
