@@ -550,7 +550,7 @@ def _real_iter_all_products():
     except requests.RequestException as e:
         log_event("error", "integrations.shopify", f"Failed during product stream: {str(e)}")
         raise
-    
+
 def list_all_locations() -> list[dict]:
     """
     Fetch all physical store locations from Shopify. Used by store-info sync
@@ -683,7 +683,68 @@ def _real_list_all_customers() -> list[dict]:
         log_event("error", "integrations.shopify", f"Failed to fetch customers: {str(e)}")
         raise
 
+def iter_all_customers():
+    """
+    Generator version of list_all_customers. Yields one customer at a time
+    so callers never need to hold all 160k+ customers in memory.
+    """
+    if USE_MOCK:
+        return
+    yield from _real_iter_all_customers()
 
+
+def _real_iter_all_customers():
+    """Streams customers page by page. Same dict shape as _real_list_all_customers."""
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        url = f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+        total_yielded = 0
+
+        while url:
+            response = _get_shopify_session().get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            for c in response.json().get('customers', []):
+                default_address = c.get('default_address') or {}
+                yield {
+                    "shopify_id": str(c['id']),
+                    "email": c.get('email'),
+                    "first_name": c.get('first_name'),
+                    "last_name": c.get('last_name'),
+                    "phone": c.get('phone') or default_address.get('phone'),
+                    "city": default_address.get('city'),
+                    "country": default_address.get('country'),
+                    "accepts_marketing": bool(c.get('accepts_marketing', False)),
+                    "tags": [t.strip() for t in (c.get('tags') or '').split(',') if t.strip()],
+                    "total_orders": int(c.get('orders_count', 0) or 0),
+                    "total_spent": float(c.get('total_spent', 0) or 0),
+                    "shopify_created_at": c.get('created_at'),
+                    "updated_at": c.get('updated_at'),
+                }
+                total_yielded += 1
+
+            link_header = response.headers.get('Link', '')
+            url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        url = part.split(';')[0].strip().strip('<>')
+                        break
+
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify customers stream completed — {total_yielded} customers",
+                  payload={"count": total_yielded, "kind": "customers_stream"})
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify", f"Failed during customer stream: {str(e)}")
+        raise
+    
 def list_all_orders() -> list[dict]:
     """
     Full orders list from Shopify, paginated. Used by /api/orders/sync.

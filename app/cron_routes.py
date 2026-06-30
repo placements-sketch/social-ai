@@ -196,6 +196,7 @@ def cron_sync_customers():
 
     def do_sync(job):
         from app.models import SyncJob
+        from app.integrations.shopify import iter_all_customers
         job_id = job.id
 
         def update_progress(text):
@@ -204,13 +205,9 @@ def cron_sync_customers():
                 j.progress = text
                 db.session.commit()
 
-        # Compute VIP threshold once at start of sync
         vip_threshold = _vip_threshold()
 
-        update_progress("Fetching customers from Shopify...")
-        shopify_customers = list_all_customers()
-
-        snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
+        update_progress("Loading existing customer IDs...")
         existing_ids = set(
             spid for (spid,) in
             db.session.query(CustomerCache.shopify_customer_id).all()
@@ -219,11 +216,15 @@ def cron_sync_customers():
         now = datetime.utcnow()
         added = updated = removed = 0
         CHUNK = 500
-        items = list(snapshot.items())
-        total_items = len(items)
+        buffer = []
+        seen_ids = set()
 
-        for chunk_start in range(0, total_items, CHUNK):
-            for spid, snap in items[chunk_start:chunk_start + CHUNK]:
+        update_progress("Streaming customers from Shopify...")
+
+        def flush_buffer():
+            """Process one chunk: upsert, compute segment, commit, expunge."""
+            nonlocal added, updated
+            for spid, snap in buffer:
                 last_order = _parse_dt(snap.get('updated_at'))
                 if spid in existing_ids:
                     row = CustomerCache.query.filter_by(shopify_customer_id=spid).first()
@@ -269,17 +270,32 @@ def cron_sync_customers():
                 added += 1
 
             db.session.commit()
-            processed = min(chunk_start + CHUNK, total_items)
-            update_progress(f"Upserted {processed:,} / {total_items:,} customers...")
             db.session.expunge_all()
+            buffer.clear()
+
+        total_received = 0
+        for snap in iter_all_customers():
+            spid = str(snap['shopify_id'])
+            seen_ids.add(spid)
+            buffer.append((spid, snap))
+            total_received += 1
+
+            if len(buffer) >= CHUNK:
+                flush_buffer()
+                update_progress(f"Processed {total_received:,} customers...")
+
+        if buffer:
+            flush_buffer()
+            update_progress(f"Processed {total_received:,} customers...")
 
         # Chunked deletes
-        to_delete_list = list(existing_ids - set(snapshot.keys()))
-        for d_start in range(0, len(to_delete_list), CHUNK):
+        to_delete_ids = list(existing_ids - seen_ids)
+        for d_start in range(0, len(to_delete_ids), CHUNK):
+            batch_ids = to_delete_ids[d_start:d_start + CHUNK]
             CustomerCache.query.filter(
-                CustomerCache.shopify_customer_id.in_(to_delete_list[d_start:d_start + CHUNK])
+                CustomerCache.shopify_customer_id.in_(batch_ids)
             ).delete(synchronize_session=False)
-            removed += len(to_delete_list[d_start:d_start + CHUNK])
+            removed += len(batch_ids)
             db.session.commit()
 
         return {
