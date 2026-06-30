@@ -97,6 +97,12 @@ def start_background_job(kind: str,
 
                 result = work_fn(j)
 
+                # work_fn may have called db.session.expunge_all() during its
+                # chunked commits, detaching our `j` reference. Re-fetch by ID
+                # so mutations land properly.
+                j = SyncJob.query.get(job_id)
+                if j is None:
+                    return
                 j.status = 'success'
                 j.result = result
                 j.finished_at = datetime.utcnow()
