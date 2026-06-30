@@ -483,6 +483,74 @@ def _real_list_all_products() -> list[dict]:
         log_event("error", "integrations.shopify", f"Failed to fetch catalog: {str(e)}")
         raise
 
+def iter_all_products():
+    """
+    Generator version of list_all_products. Yields one product at a time as we
+    page through Shopify, so callers never need to hold the full list in memory.
+
+    Same dict shape as list_all_products. Use this for sync loops that process
+    products one-by-one. Use list_all_products only when you actually need the
+    whole list at once (e.g., for diff/check operations).
+    """
+    if USE_MOCK:
+        return
+    yield from _real_iter_all_products()
+
+
+def _real_iter_all_products():
+    """Streams products page by page. Same shape as _real_list_all_products."""
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        url = f"{store_url}/admin/api/2024-01/products.json?limit=250&status=active&published_status=published"
+        total_yielded = 0
+
+        while url:
+            response = _get_shopify_session().get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            for product in response.json().get('products', []):
+                variants = product.get('variants') or []
+                inventory_tracked = any(v.get('inventory_management') == 'shopify' for v in variants)
+                stock_quantity = sum(
+                    (v.get('inventory_quantity') or 0) for v in variants
+                    if v.get('inventory_management') == 'shopify'
+                ) if inventory_tracked else None
+
+                yield {
+                    "shopify_id": str(product['id']),
+                    "name": product.get('title', 'Unknown'),
+                    "handle": product.get('handle') or '',
+                    "description": (product.get('body_html') or '')[:200],
+                    "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
+                    "variants": [v.get('title', '') for v in variants],
+                    "stock_quantity": stock_quantity,
+                    "inventory_tracked": inventory_tracked,
+                }
+                total_yielded += 1
+
+            link_header = response.headers.get('Link', '')
+            url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        url = part.split(';')[0].strip().strip('<>')
+                        break
+
+        log_event("info", "integrations.shopify.sync",
+                  f"Shopify products stream completed — {total_yielded} products",
+                  payload={"count": total_yielded, "kind": "products_stream"})
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.shopify", f"Failed during product stream: {str(e)}")
+        raise
+    
 def list_all_locations() -> list[dict]:
     """
     Fetch all physical store locations from Shopify. Used by store-info sync

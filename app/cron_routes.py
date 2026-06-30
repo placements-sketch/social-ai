@@ -73,6 +73,7 @@ def cron_sync_products():
 
     def do_sync(job):
         from app.models import SyncJob
+        from app.integrations.shopify import iter_all_products
         job_id = job.id
 
         def update_progress(text):
@@ -81,62 +82,89 @@ def cron_sync_products():
                 j.progress = text
                 db.session.commit()
 
-        vip_threshold = _vip_threshold()
-
-        update_progress("Fetching products from Shopify...")
-        products = list_all_products()
-        now = datetime.utcnow()
-
+        update_progress("Loading existing product IDs...")
         existing_ids = set(
             spid for (spid,) in
             db.session.query(ProductCache.shopify_product_id).all()
         )
 
-        added = updated = 0
+        now = datetime.utcnow()
+        added = updated = removed = 0
         CHUNK = 500
-        for i in range(0, len(products), CHUNK):
-            batch = products[i:i + CHUNK]
-            for p in batch:
-                spid = str(p['shopify_id'])
+        buffer = []
+        seen_ids = set()
+
+        update_progress("Streaming products from Shopify...")
+
+        def flush_buffer():
+            """Process one chunk of products: upsert, commit, expunge."""
+            nonlocal added, updated
+            for spid, snap in buffer:
                 if spid in existing_ids:
                     row = ProductCache.query.filter_by(shopify_product_id=spid).first()
                     if row is None:
                         existing_ids.discard(spid)
                     else:
-                        row.name = (p.get('name') or '')[:512]
-                        row.description = p.get('description') or ''
-                        row.handle = (p.get('handle') or '')[:256] or None
-                        row.price = Decimal(str(p.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if p.get('price') else None
-                        row.variants = p.get('variants') or []
-                        row.tags = p.get('tags') or []
-                        row.stock_quantity = p.get('stock_quantity')
-                        row.inventory_tracked = p.get('inventory_tracked', False)
+                        row.name = (snap.get('name') or '')[:512]
+                        row.handle = (snap.get('handle') or '')[:256] or None
+                        row.description = snap.get('description') or ''
+                        row.price = Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None
+                        row.variants = snap.get('variants') or []
+                        row.tags = snap.get('tags') or []
+                        row.stock_quantity = snap.get('stock_quantity')
+                        row.inventory_tracked = snap.get('inventory_tracked', False)
                         row.cached_at = now
                         updated += 1
                         continue
 
                 db.session.add(ProductCache(
                     shopify_product_id=spid,
-                    name=(p.get('name') or '')[:512],
-                    description=p.get('description') or '',
-                    handle=(p.get('handle') or '')[:256] or None,
-                    price=Decimal(str(p.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if p.get('price') else None,
-                    variants=p.get('variants') or [],
-                    tags=p.get('tags') or [],
-                    stock_quantity=p.get('stock_quantity'),
-                    inventory_tracked=p.get('inventory_tracked', False),
+                    name=(snap.get('name') or '')[:512],
+                    handle=(snap.get('handle') or '')[:256] or None,
+                    description=snap.get('description') or '',
+                    price=Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None,
+                    variants=snap.get('variants') or [],
+                    tags=snap.get('tags') or [],
+                    stock_quantity=snap.get('stock_quantity'),
+                    inventory_tracked=snap.get('inventory_tracked', False),
                     cached_at=now,
                 ))
                 existing_ids.add(spid)
                 added += 1
 
             db.session.commit()
-            update_progress(f"Processed {min(i + CHUNK, len(products)):,} / {len(products):,}...")
             db.session.expunge_all()
+            buffer.clear()
+
+        total_received = 0
+        for snap in iter_all_products():
+            spid = str(snap['shopify_id'])
+            seen_ids.add(spid)
+            buffer.append((spid, snap))
+            total_received += 1
+
+            if len(buffer) >= CHUNK:
+                flush_buffer()
+                update_progress(f"Processed {total_received:,} products...")
+
+        if buffer:
+            flush_buffer()
+            update_progress(f"Processed {total_received:,} products...")
+
+        # Chunked deletes — products in cache but no longer in Shopify
+        to_delete_ids = list(existing_ids - seen_ids)
+        for d_start in range(0, len(to_delete_ids), CHUNK):
+            batch_ids = to_delete_ids[d_start:d_start + CHUNK]
+            ProductCache.query.filter(
+                ProductCache.shopify_product_id.in_(batch_ids)
+            ).delete(synchronize_session=False)
+            removed += len(batch_ids)
+            db.session.commit()
 
         return {
             'added_count': added,
             'updated_count': updated,
+            'removed_count': removed,
             'total_products': ProductCache.query.count(),
             'synced_at': now.isoformat(),
         }
