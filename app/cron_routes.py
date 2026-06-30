@@ -457,14 +457,6 @@ def cron_sync_orders():
 @cron_bp.route('/watchdog', methods=['POST'])
 @require_cron_secret
 def cron_watchdog():
-    """
-    Detects stuck sync jobs and alerts Discord.
-    A job is 'stuck' if its status is 'running' for longer than the kind's threshold.
-    Thresholds reflect realistic max durations:
-      products  — 10 min
-      customers — 45 min
-      orders    — 90 min
-    """
     from datetime import timedelta
     from app.models import SyncJob
 
@@ -472,14 +464,47 @@ def cron_watchdog():
         'products_apply':  timedelta(minutes=10),
         'customers_apply': timedelta(minutes=45),
         'orders_apply':    timedelta(minutes=90),
+        'products_check':  timedelta(minutes=10),
     }
+    # Anything past this is definitely dead, not just slow. Auto-mark as failed
+    # so it stops alerting forever.
+    HARD_DEATH = timedelta(hours=6)
 
     now = datetime.utcnow()
     stuck = []
+    cleaned = []
 
     running_jobs = (SyncJob.query
                     .filter(SyncJob.status == 'running')
                     .all())
+
+    for job in running_jobs:
+        threshold = THRESHOLDS.get(job.kind, timedelta(minutes=60))
+        started = job.started_at
+        if started is None:
+            continue
+        elapsed = now - started
+
+        # First: if it's WAY past threshold, mark as dead and stop alerting
+        if elapsed > HARD_DEATH:
+            job.status = 'failed'
+            job.finished_at = now
+            job.error = f'Auto-cleanup: stuck in running state for {int(elapsed.total_seconds()/60)} min'
+            cleaned.append({'id': job.id, 'kind': job.kind})
+            continue
+
+        # Otherwise: alert if past kind-specific threshold but not yet dead
+        if elapsed > threshold:
+            stuck.append({
+                'id': job.id,
+                'kind': job.kind,
+                'elapsed_min': int(elapsed.total_seconds() / 60),
+                'threshold_min': int(threshold.total_seconds() / 60),
+                'progress': job.progress or 'unknown',
+            })
+
+    if cleaned:
+        db.session.commit()
 
     for job in running_jobs:
         threshold = THRESHOLDS.get(job.kind, timedelta(minutes=60))

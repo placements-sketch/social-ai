@@ -436,7 +436,7 @@ def _real_list_all_products() -> list[dict]:
         }
 
         all_products = []
-        url = f"{store_url}/admin/api/2024-01/products.json?limit=250"
+        url = f"{store_url}/admin/api/2024-01/products.json?limit=250&status=active&published_status=published"
 
         while url:
             response = _get_shopify_session().get(url, headers=headers, timeout=30)
