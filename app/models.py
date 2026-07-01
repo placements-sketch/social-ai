@@ -230,7 +230,10 @@ class Conversation(db.Model):
             'handoff_reason': self.handoff_reason,
         }
         if include_messages:
-            data['messages'] = [m.to_dict() for m in self.messages]
+            data['messages'] = [
+                m.to_dict() for m in self.messages
+                if m.sender != 'ai_pending'
+            ]
         return data
 
     def __repr__(self):

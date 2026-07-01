@@ -181,6 +181,7 @@ def list_messages(conversation_id):
 
     msgs = (
         Message.query.filter_by(conversation_id=conversation_id)
+        .filter((Message.sender != 'ai_pending') | (Message.sender.is_(None)))
         .order_by(Message.created_at.asc())
         .all()
     )

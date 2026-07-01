@@ -22,10 +22,10 @@ LOW_STOCK_THRESHOLD = 3
 def _format_variants_inline(product: dict) -> tuple[str, str]:
     """
     Returns (in_stock_line, sold_out_note).
-    
+
     in_stock_line: variants in stock, formatted for recommendation
       e.g. "BLACK / M (5 in stock), BLACK / L (2 left LOW)"
-    
+
     sold_out_note: brief note of sold-out variants (for context, NOT recommendation)
       e.g. "Also sold out: BLACK / XL, BLACK / 2XL"
       Empty string if no sold-out variants.
@@ -33,38 +33,39 @@ def _format_variants_inline(product: dict) -> tuple[str, str]:
     details = product.get('variants_detail') or []
     if not details:
         return "", ""
-    
+
     in_stock_parts = []
     sold_out_labels = []
-    
+
     for v in details:
         qty = v.get('inventory_quantity')
         tracked = v.get('inventory_tracked', True)
-        
-        # Build the readable label
+
+        # Build the readable label from options
         opts = [str(v.get(k)) for k in ('option1', 'option2', 'option3') if v.get(k)]
         cleaned_opts = []
         for i, o in enumerate(opts):
+            # Skip SKU-like option2 values (Shop Zetu uses option2 for internal codes)
             if i == 1 and len(o) >= 6 and any(c.isdigit() for c in o) and any(c.isalpha() for c in o):
-                continue  # skip SKU-like value
+                continue
             cleaned_opts.append(o)
         label = " / ".join(cleaned_opts) if cleaned_opts else v.get('title', 'Variant')
-        
+
         # Sold out?
         if tracked and (qty is None or qty <= 0):
             sold_out_labels.append(label)
             continue
-        
+
         if not tracked or qty is None:
             in_stock_parts.append(f"{label} (in stock)")
         elif qty <= LOW_STOCK_THRESHOLD:
             in_stock_parts.append(f"{label} ({qty} left LOW)")
         else:
             in_stock_parts.append(f"{label} ({qty} in stock)")
-    
+
     in_stock_line = ", ".join(in_stock_parts)
     sold_out_note = f"Also sold out: {', '.join(sold_out_labels)}" if sold_out_labels else ""
-    
+
     return in_stock_line, sold_out_note
 
 # ─────────────────────────────────────────────
@@ -283,17 +284,42 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 context_lines.append(
                     f"AVAILABLE PRODUCTS (recommend from these only — they're in stock):"
                 )
+                # UTM URL builder — one URL per product using shared conv_id + msg_id
+                from app.utm import build_product_url
+                utm_conv_id = context_data.get('_utm_conversation_id')
+                utm_msg_id = context_data.get('_utm_message_id')
+
+                # Track the first product's URL for post-hoc attribution fallback
+                first_product_url = None
+
                 for i, p in enumerate(in_stock_products, 1):
-                    variants_line = _format_variants_inline(p)
-                    if not variants_line:
-                        # Fall back to old-style summary if variant details missing
+                    in_stock_line, sold_out_note = _format_variants_inline(p)
+                    if not in_stock_line:
                         qty = p.get('stock_quantity')
-                        variants_line = f"{qty} units in stock" if qty is not None else "stock available"
-                    context_lines.append(
+                        in_stock_line = f"{qty} units in stock" if qty is not None else "stock available"
+
+                    # Build the UTM-tagged URL for this product
+                    handle = p.get('handle') or ''
+                    product_url = None
+                    if handle and utm_conv_id and utm_msg_id:
+                        product_url = build_product_url(handle, utm_conv_id, utm_msg_id)
+                        if first_product_url is None:
+                            first_product_url = product_url
+
+                    line = (
                         f"  {i}. {p.get('name')} — {_fmt_price(p.get('price'))} | "
-                        f"Variants: {variants_line} | "
+                        f"Variants: {in_stock_line} | "
                         f"Description: {(p.get('description') or 'N/A')[:120]}"
                     )
+                    if product_url:
+                        line += f" | URL: {product_url}"
+
+                    context_lines.append(line)
+                    if sold_out_note:
+                        context_lines.append(f"     {sold_out_note}")
+
+                # Stash for return so services.py can save on the message
+                context_data['_first_product_url'] = first_product_url
 
             if out_of_stock_products:
                 context_lines.append(
@@ -406,12 +432,15 @@ Customer's detected intents: {intents_str}
                     messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
 
+        import time
+        _start = time.time()
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=messages,
         )
+        elapsed_ms = int((time.time() - _start) * 1000)
 
         reply_text = response.content[0].text.strip()
 
@@ -423,10 +452,31 @@ Customer's detected intents: {intents_str}
 
         actual_model = getattr(response, 'model', model)
 
+        # Build the token that will be persisted on the message row
+        utm_conv_id = context_data.get('_utm_conversation_id')
+        utm_msg_id = context_data.get('_utm_message_id')
+        utm_token = None
+        if utm_conv_id and utm_msg_id:
+            from app.utm import build_utm_token
+            utm_token = build_utm_token(utm_conv_id, utm_msg_id)
+
+        # Post-hoc: which product URL did the AI actually mention?
+        # Falls back to the first in-stock product's URL if none matched.
+        product_url = context_data.get('_first_product_url')
+        if reply_text and product_url:
+            # Look for any UTM'd URL in the reply
+            import re
+            match = re.search(r'https://www\.shopzetu\.com/products/[^\s<>\)"]+', reply_text)
+            if match:
+                product_url = match.group(0)
+
         return {
             'reply':       reply_text,
             'tokens_used': tokens_total,
             'model':       actual_model,
+            'elapsed_ms':  elapsed_ms,
+            'utm_token':   utm_token,
+            'product_url': product_url,
         }
 
     except Exception as e:
@@ -441,4 +491,7 @@ Customer's detected intents: {intents_str}
             'reply':       _mock_reply(intents, context_data),
             'tokens_used': 0,
             'model':       'mock',
+            'elapsed_ms': 0,
+            'utm_token':   None,
+            'product_url': None,
         }

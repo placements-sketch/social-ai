@@ -44,8 +44,9 @@ def _conversation_history_for_ai(conversation_id: int, limit: int = 8) -> list[d
         from app.models import Message
         rows = (Message.query
                 .filter_by(conversation_id=conversation_id)
+                .filter((Message.sender != 'ai_pending') | (Message.sender.is_(None)))
                 .order_by(Message.created_at.desc())
-                .limit(limit + 1)  # +1 because we'll drop the current inbound
+                .limit(limit + 1)
                 .all())
         # rows are newest-first; reverse to chronological
         rows = list(reversed(rows))
@@ -267,21 +268,34 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     if "order_status" in intents:
         context_data["order_status_asked"] = True
 
-    # ── Step 5: Generate AI reply with full multi-intent context ───────────
-    # Fetch recent conversation history for multi-turn context.
-    # inbound_record was created in Step 1; its conversation_id is what we need.
+    # ── Step 5a: Create placeholder outbound message FIRST (two-phase) ─────
+    # We need message_id available BEFORE the AI runs so we can build UTM
+    # URLs (which include conversation_id + message_id) into the context.
+    placeholder, conversation_id, _user_row_id = _create_placeholder_outbound(
+        user_id=user_id, channel=channel,
+    )
+    if placeholder is None:
+        # Fall back to conversation-only tracking; still generate a reply
+        conversation_id = inbound_record.conversation_id if inbound_record else None
+
+    # ── Step 5b: Generate AI reply with conv_id + msg_id available ─────────
     history = []
     if inbound_record is not None:
         history = _conversation_history_for_ai(inbound_record.conversation_id, limit=8)
-        # Drop the very last turn if it duplicates the current message
         if history and history[-1].get('content') == message:
             history = history[:-1]
+
+    # Enrich context with the IDs so the generator can build UTM URLs
+    context_data['_utm_conversation_id'] = conversation_id
+    context_data['_utm_message_id'] = placeholder.id if placeholder else None
 
     ai_result = generate_reply(message, intents, context_data, channel, history=history)
     reply           = ai_result['reply']
     ai_elapsed_ms   = ai_result['elapsed_ms']
     ai_tokens_used  = ai_result['tokens_used']
     ai_model        = ai_result['model']
+    utm_token       = ai_result.get('utm_token')
+    product_url     = ai_result.get('product_url')
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,
@@ -294,26 +308,25 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                   "channel": channel,
                   "intents": intents,
                   "reply_preview": reply[:160],
+                  "utm_token": utm_token,
               },
-              conversation_id=(inbound_record.conversation_id if inbound_record else None))
+              conversation_id=conversation_id)
 
-    # ── Step 7: Brief delay before persisting outbound, so the platform's
-    # poll sees the inbound first (and shows the typing indicator), THEN the
-    # outbound appears. The customer on IG already has the reply by now —
-    # this delay only affects the IN-PLATFORM rendering, not the actual send.
+    # ── Step 7: Brief delay before finalizing the outbound (dashboard order) ─
     import time
     time.sleep(5)
-    _save_message(
-        user_id=user_id, channel=channel, content=reply,
-        intent=None, direction="outbound",
+    _finalize_outbound_message(
+        placeholder=placeholder,
+        content=reply,
         ai_response_time_ms=ai_elapsed_ms,
         ai_tokens_used=ai_tokens_used,
         ai_model=ai_model,
         external_id=new_ext_id,
+        utm_token=utm_token,
+        product_url=product_url,
     )
 
     return reply
-
 
 # ─────────────────────────────────────────────
 # Gate helpers
@@ -574,6 +587,108 @@ def _save_message(user_id, channel, content, intent, direction,
             pass
         return None
 
+def _create_placeholder_outbound(user_id, channel):
+    """
+    Two-phase message creation, Phase 1: create the outbound row IMMEDIATELY
+    so we have a message_id available before the AI runs. This lets us build
+    UTM URLs (which need message_id) at context-build time.
+    
+    Returns the (Message row, conversation_id, user_row_id) tuple, or (None, None, None) on failure.
+    
+    The row is marked sender='ai_pending' so the dashboard filters it out
+    until finalize_outbound_message() updates it with real content.
+    """
+    try:
+        from app import db
+        from app.models import Message, User, Conversation
+
+        user = User.query.filter_by(external_id=user_id, channel=channel).first()
+        if not user:
+            user = User(external_id=user_id, channel=channel)
+            db.session.add(user)
+            db.session.flush()
+
+        conversation = (
+            Conversation.query
+            .filter_by(user_id=user.id, channel=channel)
+            .order_by(Conversation.id.desc())
+            .first()
+        )
+        if not conversation:
+            conversation = Conversation(user_id=user.id, channel=channel)
+            db.session.add(conversation)
+            db.session.flush()
+
+        placeholder = Message(
+            conversation_id=conversation.id,
+            user_id=user.id,
+            channel=channel,
+            direction="outbound",
+            sender="ai_pending",   # ← dashboard filters this out
+            content="",
+            intent=None,
+        )
+        db.session.add(placeholder)
+        db.session.commit()
+        return placeholder, conversation.id, user.id
+
+    except Exception as e:
+        log_event("error", "services._create_placeholder_outbound", str(e))
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+        return None, None, None
+
+
+def _finalize_outbound_message(placeholder, content, ai_response_time_ms=None,
+                                ai_tokens_used=None, ai_model=None,
+                                external_id=None, utm_token=None, product_url=None):
+    """
+    Two-phase message creation, Phase 2: fill in the real content on the
+    placeholder created earlier. Flips sender from 'ai_pending' to 'ai' so
+    the dashboard now displays it. Also updates the conversation's last_message
+    fields so the inbox preview shows the reply.
+    
+    Safe to call even if placeholder is None (falls back to logging).
+    """
+    if placeholder is None:
+        log_event("warn", "services._finalize_outbound_message",
+                  "No placeholder to finalize — outbound message will not be persisted")
+        return None
+    
+    try:
+        from app import db
+        from app.models import Conversation
+
+        placeholder.content = content
+        placeholder.sender = "ai"
+        placeholder.external_id = external_id
+        placeholder.ai_response_time_ms = ai_response_time_ms
+        placeholder.ai_tokens_used = ai_tokens_used
+        placeholder.ai_model = ai_model
+        placeholder.utm_token = utm_token
+        placeholder.product_url = product_url
+
+        # Update conversation preview fields
+        conv = Conversation.query.get(placeholder.conversation_id)
+        if conv is not None:
+            conv.last_message = content[:200]
+            conv.last_message_at = datetime.utcnow()
+
+        db.session.commit()
+        return placeholder
+
+    except Exception as e:
+        log_event("error", "services._finalize_outbound_message", str(e))
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+        return None
+    
 
 def _patch_inbound_intent(inbound_record, intents):
     """Once intents are detected, write the label onto the inbound row."""
