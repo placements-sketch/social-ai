@@ -128,6 +128,7 @@ def cron_sync_products():
                         row.description = snap.get('description') or ''
                         row.price = Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None
                         row.variants = snap.get('variants') or []
+                        row.variants_detail = snap.get('variants_detail') or []
                         row.tags = snap.get('tags') or []
                         row.stock_quantity = snap.get('stock_quantity')
                         row.inventory_tracked = snap.get('inventory_tracked', False)
@@ -142,6 +143,7 @@ def cron_sync_products():
                     description=snap.get('description') or '',
                     price=Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None,
                     variants=snap.get('variants') or [],
+                    variants_detail=snap.get('variants_detail') or [],
                     tags=snap.get('tags') or [],
                     stock_quantity=snap.get('stock_quantity'),
                     inventory_tracked=snap.get('inventory_tracked', False),

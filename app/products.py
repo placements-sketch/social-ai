@@ -98,14 +98,14 @@ def _serialize_product(p: ProductCache) -> dict:
 
 
 def _shopify_to_cache_dict(sp: dict) -> dict:
-    """Normalize a Shopify product dict into the columns of products_cache."""
     return {
         'shopify_product_id': str(sp.get('shopify_id') or sp.get('id') or ''),
         'name': sp.get('name', ''),
-        'handle': sp.get('handle', '') or None,
+        'handle': sp.get('handle') or None,
         'description': sp.get('description'),
         'price': _parse_price(sp.get('price')),
         'variants': sp.get('variants', []) or [],
+        'variants_detail': sp.get('variants_detail', []) or [],   # ← add this
         'images': sp.get('images', []) or [],
         'tags': sp.get('tags', []) or [],
         'stock_quantity': sp.get('stock_quantity'),
@@ -114,13 +114,13 @@ def _shopify_to_cache_dict(sp: dict) -> dict:
 
 
 def _row_matches_shopify(row: ProductCache, snap: dict) -> bool:
-    """Return True if the cached row already matches the Shopify snapshot."""
     return (
         row.name == snap['name']
-        and row.description == snap['description']
         and (row.handle or None) == (snap.get('handle') or None)
+        and row.description == snap['description']
         and (row.price or None) == (snap['price'] or None)
         and (row.variants or []) == (snap['variants'] or [])
+        and (row.variants_detail or []) == (snap.get('variants_detail') or [])   # ← add this
         and (row.images or []) == (snap['images'] or [])
         and (row.tags or []) == (snap['tags'] or [])
         and row.stock_quantity == snap['stock_quantity']
@@ -329,6 +329,7 @@ def sync_products():
                     row.description = snap['description']
                     row.price = snap['price']
                     row.variants = snap['variants']
+                    row.variants_detail = snap.get('variants_detail', [])
                     row.images = snap['images']
                     row.tags = snap['tags']
                     row.stock_quantity = snap['stock_quantity']

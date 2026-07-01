@@ -467,6 +467,21 @@ def _real_list_all_products() -> list[dict]:
                     if v.get('inventory_management') == 'shopify'
                 ) if inventory_tracked else None
 
+                variants_detail = [
+                    {
+                        "shopify_variant_id": str(v.get('id')),
+                        "title": v.get('title', ''),
+                        "option1": v.get('option1'),
+                        "option2": v.get('option2'),
+                        "option3": v.get('option3'),
+                        "price": v.get('price'),
+                        "sku": v.get('sku'),
+                        "inventory_quantity": v.get('inventory_quantity'),
+                        "inventory_tracked": v.get('inventory_management') == 'shopify',
+                    }
+                    for v in variants
+                ]
+
                 all_products.append({
                     "shopify_id": str(product['id']),
                     "name": product.get('title', 'Unknown'),
@@ -474,6 +489,7 @@ def _real_list_all_products() -> list[dict]:
                     "description": (product.get('body_html') or '')[:200],
                     "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
                     "variants": [v.get('title', '') for v in variants],
+                    "variants_detail": variants_detail,
                     "stock_quantity": stock_quantity,
                     "inventory_tracked": inventory_tracked,
                 })
@@ -556,6 +572,22 @@ def _real_iter_all_products(start_url=None):
                     if v.get('inventory_management') == 'shopify'
                 ) if inventory_tracked else None
 
+                # Structured per-variant details for AI to use
+                variants_detail = [
+                    {
+                        "shopify_variant_id": str(v.get('id')),
+                        "title": v.get('title', ''),
+                        "option1": v.get('option1'),
+                        "option2": v.get('option2'),
+                        "option3": v.get('option3'),
+                        "price": v.get('price'),
+                        "sku": v.get('sku'),
+                        "inventory_quantity": v.get('inventory_quantity'),
+                        "inventory_tracked": v.get('inventory_management') == 'shopify',
+                    }
+                    for v in variants
+                ]
+
                 yield ({
                     "shopify_id": str(product['id']),
                     "name": product.get('title', 'Unknown'),
@@ -563,6 +595,7 @@ def _real_iter_all_products(start_url=None):
                     "description": (product.get('body_html') or '')[:200],
                     "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
                     "variants": [v.get('title', '') for v in variants],
+                    "variants_detail": variants_detail,
                     "stock_quantity": stock_quantity,
                     "inventory_tracked": inventory_tracked,
                 }, next_url)
