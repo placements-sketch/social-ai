@@ -655,6 +655,8 @@ class SyncJob(db.Model):
     # Error message on failure
     error       = db.Column(db.Text, nullable=True)
 
+    resume_cursor = db.Column(db.Text, nullable=True)
+
     def to_dict(self):
         return {
             'id': self.id,

@@ -27,18 +27,26 @@ _shopify_session = None
 
 def _get_shopify_session():
     """Returns a singleton requests.Session configured with retry-with-backoff.
+
+    Retries on:
+      - HTTP status codes: 429 (rate limit), 500/502/503/504 (server errors)
+      - Connection errors (network blips)
+      - ChunkedEncodingError / ProtocolError (mid-stream drops from Shopify)
+
     Retries: 5 attempts total, waits 2s/4s/8s/16s/32s between them.
-    Total worst-case extra delay before giving up: ~62 seconds."""
+    """
     global _shopify_session
     if _shopify_session is None:
         _shopify_session = requests.Session()
         retry = Retry(
             total=5,
+            connect=5,         # retry connection failures
+            read=5,            # retry read failures (mid-stream drops)
             backoff_factor=2,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=['GET', 'POST'],
             raise_on_status=False,
-            respect_retry_after_header=True,  # honour Shopify's Retry-After on rate limits
+            respect_retry_after_header=True,
         )
         adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
         _shopify_session.mount('https://', adapter)
