@@ -1009,3 +1009,76 @@ def _real_get_customer_orders(shopify_customer_id: str) -> list[dict]:
         log_event("error", "integrations.shopify",
                   f"Failed to fetch orders for customer {shopify_customer_id}: {str(e)}")
         raise
+
+
+def refresh_stock_for_products(shopify_product_ids: list[str]) -> dict:
+    """
+    Live-fetch fresh stock quantities for a small set of products from Shopify.
+    Called when the customer is asking about stock and cache staleness matters.
+    
+    Args:
+        shopify_product_ids: List of Shopify product IDs (as strings).
+    
+    Returns:
+        Dict of {shopify_product_id: {"stock_quantity": int|None, "variants_detail": [...]}}.
+        Products that fail to fetch are simply omitted — caller falls back to cache.
+    """
+    if not shopify_product_ids or USE_MOCK:
+        return {}
+
+    result = {}
+    try:
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        access_token = _get_shopify_access_token()
+        headers = {
+            'X-Shopify-Access-Token': access_token,
+            'Content-Type': 'application/json',
+        }
+
+        # Shopify supports bulk lookup: /products.json?ids=1,2,3
+        ids_param = ','.join(str(pid) for pid in shopify_product_ids[:20])  # cap at 20 for URL length
+        url = f"{store_url}/admin/api/2024-01/products.json?ids={ids_param}"
+
+        response = _get_shopify_session().get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        for product in response.json().get('products', []):
+            spid = str(product.get('id'))
+            variants = product.get('variants') or []
+
+            inventory_tracked = any(v.get('inventory_management') == 'shopify' for v in variants)
+            stock_quantity = sum(
+                (v.get('inventory_quantity') or 0) for v in variants
+                if v.get('inventory_management') == 'shopify'
+            ) if inventory_tracked else None
+
+            variants_detail = [
+                {
+                    "shopify_variant_id": str(v.get('id')),
+                    "title": v.get('title', ''),
+                    "option1": v.get('option1'),
+                    "option2": v.get('option2'),
+                    "option3": v.get('option3'),
+                    "price": v.get('price'),
+                    "sku": v.get('sku'),
+                    "inventory_quantity": v.get('inventory_quantity'),
+                    "inventory_tracked": v.get('inventory_management') == 'shopify',
+                }
+                for v in variants
+            ]
+
+            result[spid] = {
+                "stock_quantity": stock_quantity,
+                "inventory_tracked": inventory_tracked,
+                "variants_detail": variants_detail,
+            }
+
+        log_event("info", "integrations.shopify.live_stock",
+                  f"Refreshed live stock for {len(result)} products",
+                  payload={"requested": len(shopify_product_ids), "returned": len(result)})
+        return result
+
+    except Exception as e:
+        log_event("warn", "integrations.shopify.live_stock_failed",
+                  f"Live stock refresh failed, falling back to cache: {str(e)[:200]}")
+        return {}

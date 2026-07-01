@@ -268,6 +268,29 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     if "order_status" in intents:
         context_data["order_status_asked"] = True
 
+
+    if "order_status" in intents:
+        context_data["order_status_asked"] = True
+
+    # Real-time stock refresh: if customer is asking about stock, verify
+    # inventory live from Shopify for the products we're about to recommend.
+    products_in_context = context_data.get('products') or []
+    if 'stock_inquiry' in intents and products_in_context:
+        from app.integrations.shopify import refresh_stock_for_products
+        product_ids = [p.get('shopify_id') for p in products_in_context if p.get('shopify_id')]
+        fresh = refresh_stock_for_products(product_ids)
+        if fresh:
+            for p in products_in_context:
+                spid = p.get('shopify_id')
+                if spid and spid in fresh:
+                    p['stock_quantity'] = fresh[spid]['stock_quantity']
+                    p['inventory_tracked'] = fresh[spid]['inventory_tracked']
+                    p['variants_detail'] = fresh[spid]['variants_detail']
+            context_data['products'] = products_in_context
+            log_event("info", "services.live_stock_used",
+                      f"Used real-time stock for {len(fresh)} products",
+                      conversation_id=(inbound_record.conversation_id if inbound_record else None))
+
     # ── Step 5a: Create placeholder outbound message FIRST (two-phase) ─────
     # We need message_id available BEFORE the AI runs so we can build UTM
     # URLs (which include conversation_id + message_id) into the context.
