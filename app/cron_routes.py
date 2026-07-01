@@ -73,7 +73,8 @@ def cron_sync_products():
 
     def do_sync(job):
         from app.models import SyncJob
-        from app.integrations.shopify import iter_all_products
+        from app.integrations.shopify import iter_all_products, ShopifyCursorInvalidError
+        from app.sync_jobs import get_resume_cursor, notify_discord_warning
         job_id = job.id
 
         def update_progress(text):
@@ -82,7 +83,20 @@ def cron_sync_products():
                 j.progress = text
                 db.session.commit()
 
-        update_progress("Loading existing product IDs...")
+        def save_cursor(cursor_url):
+            """Persist the current pagination cursor for resume."""
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.resume_cursor = cursor_url
+                db.session.commit()
+
+        # Check if we can resume from a previous failed attempt
+        resume_url = get_resume_cursor('products_apply')
+        if resume_url:
+            update_progress("Resuming from previous failure...")
+        else:
+            update_progress("Loading existing product IDs...")
+
         existing_ids = set(
             spid for (spid,) in
             db.session.query(ProductCache.shopify_product_id).all()
@@ -93,11 +107,12 @@ def cron_sync_products():
         CHUNK = 500
         buffer = []
         seen_ids = set()
+        current_next_url = None  # cursor to save after each chunk
 
         update_progress("Streaming products from Shopify...")
 
         def flush_buffer():
-            """Process one chunk of products: upsert, commit, expunge."""
+            """Process one chunk: upsert, commit, expunge, then save cursor."""
             nonlocal added, updated
             for spid, snap in buffer:
                 if spid in existing_ids:
@@ -136,30 +151,83 @@ def cron_sync_products():
             db.session.expunge_all()
             buffer.clear()
 
-        total_received = 0
-        for snap in iter_all_products():
-            spid = str(snap['shopify_id'])
-            seen_ids.add(spid)
-            buffer.append((spid, snap))
-            total_received += 1
+            # Persist cursor AFTER commit — this is the resume point
+            save_cursor(current_next_url)
 
-            if len(buffer) >= CHUNK:
+        # Stream from Shopify, buffered upserts, cursor saved after each chunk
+        total_received = 0
+        try:
+            for snap, next_url in iter_all_products(start_url=resume_url):
+                current_next_url = next_url
+                spid = str(snap['shopify_id'])
+                seen_ids.add(spid)
+                buffer.append((spid, snap))
+                total_received += 1
+
+                if len(buffer) >= CHUNK:
+                    flush_buffer()
+                    update_progress(f"Processed {total_received:,} products...")
+
+            if buffer:
                 flush_buffer()
                 update_progress(f"Processed {total_received:,} products...")
 
-        if buffer:
-            flush_buffer()
-            update_progress(f"Processed {total_received:,} products...")
+        except ShopifyCursorInvalidError as e:
+            # Dead cursor. Alert on Discord, clear the cursor, restart from scratch.
+            notify_discord_warning(
+                title="Products sync cursor expired — restarting from scratch",
+                message=(f"Shopify rejected the resume cursor. Discarding and starting a fresh sync.\n"
+                         f"Progress so far this attempt: {total_received:,} products."),
+                fields=[
+                    {"name": "Job ID", "value": str(job_id), "inline": True},
+                    {"name": "Detail", "value": f"```{str(e)[:200]}```", "inline": False},
+                ]
+            )
+            save_cursor(None)  # discard the bad cursor
+            # Reset state and restart from the beginning
+            buffer.clear()
+            seen_ids.clear()
+            total_received = 0
 
-        # Chunked deletes — products in cache but no longer in Shopify
-        to_delete_ids = list(existing_ids - seen_ids)
-        for d_start in range(0, len(to_delete_ids), CHUNK):
-            batch_ids = to_delete_ids[d_start:d_start + CHUNK]
-            ProductCache.query.filter(
-                ProductCache.shopify_product_id.in_(batch_ids)
-            ).delete(synchronize_session=False)
-            removed += len(batch_ids)
-            db.session.commit()
+            # Re-fetch existing_ids since we may have committed some rows already
+            existing_ids = set(
+                spid for (spid,) in
+                db.session.query(ProductCache.shopify_product_id).all()
+            )
+
+            update_progress("Restarting products sync from scratch...")
+            for snap, next_url in iter_all_products(start_url=None):
+                current_next_url = next_url
+                spid = str(snap['shopify_id'])
+                seen_ids.add(spid)
+                buffer.append((spid, snap))
+                total_received += 1
+
+                if len(buffer) >= CHUNK:
+                    flush_buffer()
+                    update_progress(f"Processed {total_received:,} products...")
+
+            if buffer:
+                flush_buffer()
+                update_progress(f"Processed {total_received:,} products...")
+
+        # ── Delete stale products (in cache but not seen in Shopify this run) ──
+        # ONLY delete if we did a full sync (seen_ids covers everything).
+        # If we resumed partway, we can't tell if a "missing" product is genuinely
+        # gone or just before our resume point.
+        did_full_sync = resume_url is None
+        if did_full_sync:
+            to_delete_ids = list(existing_ids - seen_ids)
+            for d_start in range(0, len(to_delete_ids), CHUNK):
+                batch_ids = to_delete_ids[d_start:d_start + CHUNK]
+                ProductCache.query.filter(
+                    ProductCache.shopify_product_id.in_(batch_ids)
+                ).delete(synchronize_session=False)
+                removed += len(batch_ids)
+                db.session.commit()
+
+        # ── Clear cursor on successful completion ──
+        save_cursor(None)
 
         return {
             'added_count': added,
@@ -167,6 +235,7 @@ def cron_sync_products():
             'removed_count': removed,
             'total_products': ProductCache.query.count(),
             'synced_at': now.isoformat(),
+            'was_resumed': resume_url is not None,
         }
 
     job, started = start_background_job(
@@ -196,7 +265,8 @@ def cron_sync_customers():
 
     def do_sync(job):
         from app.models import SyncJob
-        from app.integrations.shopify import iter_all_customers
+        from app.integrations.shopify import iter_all_customers, ShopifyCursorInvalidError
+        from app.sync_jobs import get_resume_cursor, notify_discord_warning
         job_id = job.id
 
         def update_progress(text):
@@ -205,9 +275,21 @@ def cron_sync_customers():
                 j.progress = text
                 db.session.commit()
 
+        def save_cursor(cursor_url):
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.resume_cursor = cursor_url
+                db.session.commit()
+
+        # Check for resume cursor
+        resume_url = get_resume_cursor('customers_apply')
+        if resume_url:
+            update_progress("Resuming from previous failure...")
+        else:
+            update_progress("Loading existing customer IDs...")
+
         vip_threshold = _vip_threshold()
 
-        update_progress("Loading existing customer IDs...")
         existing_ids = set(
             spid for (spid,) in
             db.session.query(CustomerCache.shopify_customer_id).all()
@@ -215,14 +297,14 @@ def cron_sync_customers():
 
         now = datetime.utcnow()
         added = updated = removed = 0
-        CHUNK = 500
+        CHUNK = 1000
         buffer = []
         seen_ids = set()
+        current_next_url = None
 
         update_progress("Streaming customers from Shopify...")
 
         def flush_buffer():
-            """Process one chunk: upsert, compute segment, commit, expunge."""
             nonlocal added, updated
             for spid, snap in buffer:
                 last_order = _parse_dt(snap.get('updated_at'))
@@ -272,31 +354,73 @@ def cron_sync_customers():
             db.session.commit()
             db.session.expunge_all()
             buffer.clear()
+            save_cursor(current_next_url)
 
         total_received = 0
-        for snap in iter_all_customers():
-            spid = str(snap['shopify_id'])
-            seen_ids.add(spid)
-            buffer.append((spid, snap))
-            total_received += 1
+        try:
+            for snap, next_url in iter_all_customers(start_url=resume_url):
+                current_next_url = next_url
+                spid = str(snap['shopify_id'])
+                seen_ids.add(spid)
+                buffer.append((spid, snap))
+                total_received += 1
 
-            if len(buffer) >= CHUNK:
+                if len(buffer) >= CHUNK:
+                    flush_buffer()
+                    update_progress(f"Processed {total_received:,} customers...")
+
+            if buffer:
                 flush_buffer()
                 update_progress(f"Processed {total_received:,} customers...")
 
-        if buffer:
-            flush_buffer()
-            update_progress(f"Processed {total_received:,} customers...")
+        except ShopifyCursorInvalidError as e:
+            notify_discord_warning(
+                title="Customers sync cursor expired — restarting from scratch",
+                message=(f"Shopify rejected the resume cursor. Discarding and starting a fresh sync.\n"
+                         f"Progress so far this attempt: {total_received:,} customers."),
+                fields=[
+                    {"name": "Job ID", "value": str(job_id), "inline": True},
+                    {"name": "Detail", "value": f"```{str(e)[:200]}```", "inline": False},
+                ]
+            )
+            save_cursor(None)
+            buffer.clear()
+            seen_ids.clear()
+            total_received = 0
+            existing_ids = set(
+                spid for (spid,) in
+                db.session.query(CustomerCache.shopify_customer_id).all()
+            )
 
-        # Chunked deletes
-        to_delete_ids = list(existing_ids - seen_ids)
-        for d_start in range(0, len(to_delete_ids), CHUNK):
-            batch_ids = to_delete_ids[d_start:d_start + CHUNK]
-            CustomerCache.query.filter(
-                CustomerCache.shopify_customer_id.in_(batch_ids)
-            ).delete(synchronize_session=False)
-            removed += len(batch_ids)
-            db.session.commit()
+            update_progress("Restarting customers sync from scratch...")
+            for snap, next_url in iter_all_customers(start_url=None):
+                current_next_url = next_url
+                spid = str(snap['shopify_id'])
+                seen_ids.add(spid)
+                buffer.append((spid, snap))
+                total_received += 1
+
+                if len(buffer) >= CHUNK:
+                    flush_buffer()
+                    update_progress(f"Processed {total_received:,} customers...")
+
+            if buffer:
+                flush_buffer()
+                update_progress(f"Processed {total_received:,} customers...")
+
+        # Deletes — ONLY on full syncs (not resumed)
+        did_full_sync = resume_url is None
+        if did_full_sync:
+            to_delete_list = list(existing_ids - seen_ids)
+            for d_start in range(0, len(to_delete_list), CHUNK):
+                CustomerCache.query.filter(
+                    CustomerCache.shopify_customer_id.in_(to_delete_list[d_start:d_start + CHUNK])
+                ).delete(synchronize_session=False)
+                removed += len(to_delete_list[d_start:d_start + CHUNK])
+                db.session.commit()
+
+        # Clear cursor on success
+        save_cursor(None)
 
         return {
             'added_count': added,
@@ -304,6 +428,7 @@ def cron_sync_customers():
             'removed_count': removed,
             'total_customers': CustomerCache.query.count(),
             'synced_at': now.isoformat(),
+            'was_resumed': resume_url is not None,
         }
 
     job, started = start_background_job(
@@ -334,6 +459,8 @@ def cron_sync_orders():
 
     def do_sync(job):
         from app.models import SyncJob
+        from app.integrations.shopify import iter_all_orders, ShopifyCursorInvalidError
+        from app.sync_jobs import get_resume_cursor, notify_discord_warning
         job_id = job.id
 
         def update_progress(text):
@@ -342,7 +469,19 @@ def cron_sync_orders():
                 j.progress = text
                 db.session.commit()
 
-        update_progress("Loading existing order IDs...")
+        def save_cursor(cursor_url):
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.resume_cursor = cursor_url
+                db.session.commit()
+
+        # Check for resume cursor
+        resume_url = get_resume_cursor('orders_apply')
+        if resume_url:
+            update_progress("Resuming from previous failure...")
+        else:
+            update_progress("Loading existing order IDs...")
+
         existing_ids = set(
             spid for (spid,) in
             db.session.query(OrderCache.shopify_order_id).all()
@@ -350,9 +489,10 @@ def cron_sync_orders():
 
         now = datetime.utcnow()
         added = updated = removed = 0
-        CHUNK = 500
+        CHUNK = 1000
         buffer = []
         seen_ids = set()
+        current_next_url = None
 
         update_progress("Streaming orders from Shopify...")
 
@@ -397,82 +537,128 @@ def cron_sync_orders():
             db.session.commit()
             db.session.expunge_all()
             buffer.clear()
+            save_cursor(current_next_url)
 
         total_received = 0
-        for snap in iter_all_orders():
-            spid = str(snap['shopify_id'])
-            seen_ids.add(spid)
-            buffer.append((spid, snap))
-            total_received += 1
+        try:
+            for snap, next_url in iter_all_orders(start_url=resume_url):
+                current_next_url = next_url
+                spid = str(snap['shopify_id'])
+                seen_ids.add(spid)
+                buffer.append((spid, snap))
+                total_received += 1
 
-            if len(buffer) >= CHUNK:
+                if len(buffer) >= CHUNK:
+                    flush_buffer()
+                    update_progress(f"Processed {total_received:,} orders...")
+
+            if buffer:
                 flush_buffer()
                 update_progress(f"Processed {total_received:,} orders...")
 
-        if buffer:
-            flush_buffer()
-            update_progress(f"Processed {total_received:,} orders...")
-
-        # Deletes
-        to_delete_ids = list(existing_ids - seen_ids)
-        for d_start in range(0, len(to_delete_ids), CHUNK):
-            batch_ids = to_delete_ids[d_start:d_start + CHUNK]
-            OrderCache.query.filter(
-                OrderCache.shopify_order_id.in_(batch_ids)
-            ).delete(synchronize_session=False)
-            removed += len(batch_ids)
-            db.session.commit()
-
-        # Recompute customer aggregates AND segment
-        update_progress("Recomputing customer aggregates...")
-        vip_threshold = _vip_threshold()
-
-        customer_aggs = dict(
-            (cid, (count, total_spent, last_date, first_date))
-            for cid, count, total_spent, last_date, first_date in
-            db.session.query(
-                OrderCache.shopify_customer_id,
-                func.count(OrderCache.id),
-                func.coalesce(func.sum(OrderCache.total), 0),
-                func.max(OrderCache.order_date),
-                func.min(OrderCache.order_date),
+        except ShopifyCursorInvalidError as e:
+            notify_discord_warning(
+                title="Orders sync cursor expired — restarting from scratch",
+                message=(f"Shopify rejected the resume cursor. Discarding and starting a fresh sync.\n"
+                         f"Progress so far this attempt: {total_received:,} orders."),
+                fields=[
+                    {"name": "Job ID", "value": str(job_id), "inline": True},
+                    {"name": "Detail", "value": f"```{str(e)[:200]}```", "inline": False},
+                ]
             )
-            .filter(OrderCache.shopify_customer_id.isnot(None))
-            .group_by(OrderCache.shopify_customer_id)
-            .all()
-        )
+            save_cursor(None)
+            buffer.clear()
+            seen_ids.clear()
+            total_received = 0
+            existing_ids = set(
+                spid for (spid,) in
+                db.session.query(OrderCache.shopify_order_id).all()
+            )
 
+            update_progress("Restarting orders sync from scratch...")
+            for snap, next_url in iter_all_orders(start_url=None):
+                current_next_url = next_url
+                spid = str(snap['shopify_id'])
+                seen_ids.add(spid)
+                buffer.append((spid, snap))
+                total_received += 1
+
+                if len(buffer) >= CHUNK:
+                    flush_buffer()
+                    update_progress(f"Processed {total_received:,} orders...")
+
+            if buffer:
+                flush_buffer()
+                update_progress(f"Processed {total_received:,} orders...")
+
+        # ── FULL-SYNC-ONLY: deletes + Step 4 (recompute customer aggregates) ──
+        did_full_sync = resume_url is None
         customers_updated = 0
-        offset = 0
-        while True:
-            batch = (CustomerCache.query
-                     .order_by(CustomerCache.id.asc())
-                     .offset(offset)
-                     .limit(CHUNK)
-                     .all())
-            if not batch:
-                break
 
-            for customer in batch:
-                agg = customer_aggs.get(customer.shopify_customer_id)
-                if agg:
-                    count, total_spent, last_date, first_date = agg
-                    customer.total_orders = count
-                    customer.total_spent = Decimal(str(total_spent))
-                    customer.last_order_date = last_date
-                    customer.first_order_date = first_date
-                else:
-                    customer.total_orders = 0
-                    customer.total_spent = Decimal('0')
-                    customer.last_order_date = None
-                    customer.first_order_date = None
-                customer.segment = compute_segment(customer, vip_threshold)
-                customers_updated += 1
+        if did_full_sync:
+            # Deletes
+            to_delete_ids = list(existing_ids - seen_ids)
+            for d_start in range(0, len(to_delete_ids), CHUNK):
+                batch_ids = to_delete_ids[d_start:d_start + CHUNK]
+                OrderCache.query.filter(
+                    OrderCache.shopify_order_id.in_(batch_ids)
+                ).delete(synchronize_session=False)
+                removed += len(batch_ids)
+                db.session.commit()
 
-            db.session.commit()
-            offset += CHUNK
-            update_progress(f"Recomputed {customers_updated:,} customer aggregates...")
-            db.session.expunge_all()
+            # Step 4: recompute customer aggregates + segment from real order data
+            update_progress("Recomputing customer aggregates...")
+            vip_threshold = _vip_threshold()
+
+            from sqlalchemy import func as sqla_func
+            customer_aggs = dict(
+                (cid, (count, total_spent, last_date, first_date))
+                for cid, count, total_spent, last_date, first_date in
+                db.session.query(
+                    OrderCache.shopify_customer_id,
+                    sqla_func.count(OrderCache.id),
+                    sqla_func.coalesce(sqla_func.sum(OrderCache.total), 0),
+                    sqla_func.max(OrderCache.order_date),
+                    sqla_func.min(OrderCache.order_date),
+                )
+                .filter(OrderCache.shopify_customer_id.isnot(None))
+                .group_by(OrderCache.shopify_customer_id)
+                .all()
+            )
+
+            offset = 0
+            while True:
+                batch = (CustomerCache.query
+                         .order_by(CustomerCache.id.asc())
+                         .offset(offset)
+                         .limit(CHUNK)
+                         .all())
+                if not batch:
+                    break
+
+                for customer in batch:
+                    agg = customer_aggs.get(customer.shopify_customer_id)
+                    if agg:
+                        count, total_spent, last_date, first_date = agg
+                        customer.total_orders = count
+                        customer.total_spent = Decimal(str(total_spent))
+                        customer.last_order_date = last_date
+                        customer.first_order_date = first_date
+                    else:
+                        customer.total_orders = 0
+                        customer.total_spent = Decimal('0')
+                        customer.last_order_date = None
+                        customer.first_order_date = None
+                    customer.segment = compute_segment(customer, vip_threshold)
+                    customers_updated += 1
+
+                db.session.commit()
+                offset += CHUNK
+                update_progress(f"Recomputed {customers_updated:,} customer aggregates...")
+                db.session.expunge_all()
+
+        # Clear cursor on success
+        save_cursor(None)
 
         return {
             'added_count': added,
@@ -481,8 +667,9 @@ def cron_sync_orders():
             'customers_refreshed': customers_updated,
             'total_orders': OrderCache.query.count(),
             'synced_at': now.isoformat(),
+            'was_resumed': resume_url is not None,
         }
-
+    
     job, started = start_background_job(
         kind='orders_apply',
         work_fn=do_sync,

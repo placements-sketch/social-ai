@@ -17,7 +17,7 @@ intermediate state to the polling frontend.
 """
 
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 
 from flask import current_app
@@ -159,3 +159,76 @@ def _notify_discord_failure(kind: str, job_id: int, error: str):
         _requests.post(webhook_url, json=payload, timeout=5)
     except Exception:
         pass  # alerts are best-effort; never let them break the failing flow
+
+# How long a saved cursor stays valid. Older than this = discard, start fresh.
+RESUME_WINDOW = timedelta(hours=24)
+
+
+def get_resume_cursor(kind: str) -> str | None:
+    """
+    Decide whether to resume a previously-failed sync of this kind.
+    
+    Returns:
+        A URL string to resume from, OR None to start fresh.
+    
+    Resume when ALL of these are true:
+      - The most recent job of this kind failed
+      - It saved a resume_cursor before dying
+      - The failure was within the last 24 hours
+    
+    Otherwise return None (start fresh).
+    """
+    latest = (SyncJob.query
+              .filter(SyncJob.kind == kind)
+              .order_by(SyncJob.id.desc())
+              .first())
+    
+    if latest is None:
+        return None  # No prior job at all
+    
+    if latest.status != 'failed':
+        return None  # Prior job succeeded (or is still running) — start fresh
+    
+    if not latest.resume_cursor:
+        return None  # Failed but nothing saved — nothing to resume from
+    
+    # Check the failure was recent enough to trust the cursor
+    finished = latest.finished_at or latest.started_at
+    if finished is None:
+        return None
+    
+    age = datetime.utcnow() - finished
+    if age > RESUME_WINDOW:
+        log_event("info", "sync_jobs.resume.stale",
+                  f"Discarding stale cursor for {kind} (age: {age})")
+        return None
+    
+    log_event("info", "sync_jobs.resume.will_resume",
+              f"Resuming {kind} from saved cursor (age: {age})")
+    return latest.resume_cursor
+
+
+def notify_discord_warning(title: str, message: str, fields: list = None):
+    """
+    Send a yellow WARNING alert to Discord (not a red failure).
+    Used for things like 'cursor expired, restarted from scratch' where
+    the sync will still complete — we just want visibility.
+    """
+    webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+    if not webhook_url:
+        return
+    
+    payload = {
+        "username": "Sync Alerts",
+        "embeds": [{
+            "title": f"🟡 {title}",
+            "description": message,
+            "color": 16763904,  # yellow
+            "fields": fields or [],
+        }]
+    }
+    
+    try:
+        _requests.post(webhook_url, json=payload, timeout=5)
+    except Exception:
+        pass

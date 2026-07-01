@@ -20,6 +20,11 @@ from app.utils.logger import log_event
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
+class ShopifyCursorInvalidError(Exception):
+    """Raised when Shopify rejects a saved pagination cursor as stale/invalid.
+    Caller should discard the cursor and restart the sync from page 1."""
+    pass
+
 # Module-level session with built-in retry on transient Shopify failures.
 # This handles 429 (rate limit), 502/503/504 (Shopify server hiccups),
 # and connection errors with exponential backoff.
@@ -491,22 +496,25 @@ def _real_list_all_products() -> list[dict]:
         log_event("error", "integrations.shopify", f"Failed to fetch catalog: {str(e)}")
         raise
 
-def iter_all_products():
+def iter_all_products(start_url=None):
     """
-    Generator version of list_all_products. Yields one product at a time as we
-    page through Shopify, so callers never need to hold the full list in memory.
-
-    Same dict shape as list_all_products. Use this for sync loops that process
-    products one-by-one. Use list_all_products only when you actually need the
-    whole list at once (e.g., for diff/check operations).
+    Generator version of list_all_products. Yields one product at a time.
+    
+    Args:
+        start_url: Optional resume URL from a previous interrupted sync.
+                   If None, starts from the first page.
     """
     if USE_MOCK:
         return
-    yield from _real_iter_all_products()
+    yield from _real_iter_all_products(start_url=start_url)
 
 
-def _real_iter_all_products():
-    """Streams products page by page. Same shape as _real_list_all_products."""
+def _real_iter_all_products(start_url=None):
+    """Streams products page by page. Same dict shape as _real_list_all_products.
+    
+    Yields tuples of (product_dict, next_page_url) so callers can persist the
+    cursor for resumption. next_page_url is None on the last page.
+    """
     try:
         store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
         access_token = _get_shopify_access_token()
@@ -516,12 +524,29 @@ def _real_iter_all_products():
             'Content-Type': 'application/json',
         }
 
-        url = f"{store_url}/admin/api/2024-01/products.json?limit=250&status=active&published_status=published"
+        url = start_url or f"{store_url}/admin/api/2024-01/products.json?limit=250&status=active&published_status=published"
         total_yielded = 0
 
         while url:
             response = _get_shopify_session().get(url, headers=headers, timeout=30)
+            
+            # If Shopify says the cursor is stale/invalid, raise a specific error
+            # so the caller can discard the cursor and restart.
+            if response.status_code in (400, 404, 410):
+                body_preview = (response.text or '')[:200]
+                raise ShopifyCursorInvalidError(
+                    f"Shopify rejected pagination cursor (status {response.status_code}): {body_preview}"
+                )
             response.raise_for_status()
+
+            # Compute the next URL BEFORE yielding, so we can pass it to the caller
+            link_header = response.headers.get('Link', '')
+            next_url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        next_url = part.split(';')[0].strip().strip('<>')
+                        break
 
             for product in response.json().get('products', []):
                 variants = product.get('variants') or []
@@ -531,7 +556,7 @@ def _real_iter_all_products():
                     if v.get('inventory_management') == 'shopify'
                 ) if inventory_tracked else None
 
-                yield {
+                yield ({
                     "shopify_id": str(product['id']),
                     "name": product.get('title', 'Unknown'),
                     "handle": product.get('handle') or '',
@@ -540,16 +565,10 @@ def _real_iter_all_products():
                     "variants": [v.get('title', '') for v in variants],
                     "stock_quantity": stock_quantity,
                     "inventory_tracked": inventory_tracked,
-                }
+                }, next_url)
                 total_yielded += 1
 
-            link_header = response.headers.get('Link', '')
-            url = None
-            if 'rel="next"' in link_header:
-                for part in link_header.split(','):
-                    if 'rel="next"' in part:
-                        url = part.split(';')[0].strip().strip('<>')
-                        break
+            url = next_url
 
         log_event("info", "integrations.shopify.sync",
                   f"Shopify products stream completed — {total_yielded} products",
@@ -691,18 +710,20 @@ def _real_list_all_customers() -> list[dict]:
         log_event("error", "integrations.shopify", f"Failed to fetch customers: {str(e)}")
         raise
 
-def iter_all_customers():
+def iter_all_customers(start_url=None):
     """
-    Generator version of list_all_customers. Yields one customer at a time
-    so callers never need to hold all 160k+ customers in memory.
+    Generator version of list_all_customers. Yields (customer_dict, next_url) tuples.
     """
     if USE_MOCK:
         return
-    yield from _real_iter_all_customers()
+    yield from _real_iter_all_customers(start_url=start_url)
 
 
-def _real_iter_all_customers():
-    """Streams customers page by page. Same dict shape as _real_list_all_customers."""
+def _real_iter_all_customers(start_url=None):
+    """Streams customers page by page. Same shape as _real_list_all_customers.
+    
+    Yields (customer_dict, next_url) — next_url is None on the last page.
+    """
     try:
         store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
         access_token = _get_shopify_access_token()
@@ -711,16 +732,30 @@ def _real_iter_all_customers():
             'Content-Type': 'application/json',
         }
 
-        url = f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+        url = start_url or f"{store_url}/admin/api/2024-01/customers.json?limit=250"
         total_yielded = 0
 
         while url:
             response = _get_shopify_session().get(url, headers=headers, timeout=30)
+            
+            if response.status_code in (400, 404, 410):
+                body_preview = (response.text or '')[:200]
+                raise ShopifyCursorInvalidError(
+                    f"Shopify rejected pagination cursor (status {response.status_code}): {body_preview}"
+                )
             response.raise_for_status()
+
+            link_header = response.headers.get('Link', '')
+            next_url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        next_url = part.split(';')[0].strip().strip('<>')
+                        break
 
             for c in response.json().get('customers', []):
                 default_address = c.get('default_address') or {}
-                yield {
+                yield ({
                     "shopify_id": str(c['id']),
                     "email": c.get('email'),
                     "first_name": c.get('first_name'),
@@ -734,16 +769,10 @@ def _real_iter_all_customers():
                     "total_spent": float(c.get('total_spent', 0) or 0),
                     "shopify_created_at": c.get('created_at'),
                     "updated_at": c.get('updated_at'),
-                }
+                }, next_url)
                 total_yielded += 1
 
-            link_header = response.headers.get('Link', '')
-            url = None
-            if 'rel="next"' in link_header:
-                for part in link_header.split(','):
-                    if 'rel="next"' in part:
-                        url = part.split(';')[0].strip().strip('<>')
-                        break
+            url = next_url
 
         log_event("info", "integrations.shopify.sync",
                   f"Shopify customers stream completed — {total_yielded} customers",
@@ -816,21 +845,24 @@ def _real_list_all_orders() -> list[dict]:
         raise
 
 
-def iter_all_orders():
+def iter_all_orders(start_url=None):
     """
-    Generator version of list_all_orders. Yields one order at a time as we
-    page through Shopify, so callers never need to hold the full list in memory.
+    Generator version of list_all_orders. Yields (order_dict, next_url) tuples.
     
-    Same fields as list_all_orders. Use this for sync loops that process orders
-    one-by-one; use list_all_orders only when you actually need the whole list.
+    Args:
+        start_url: Optional resume URL from a previous interrupted sync.
+                   If None, starts from the first page.
     """
     if USE_MOCK:
-        return  # No mock data; just yield nothing
-    yield from _real_iter_all_orders()
+        return
+    yield from _real_iter_all_orders(start_url=start_url)
 
 
-def _real_iter_all_orders():
-    """Streams orders page by page. Same shape as _real_list_all_orders."""
+def _real_iter_all_orders(start_url=None):
+    """Streams orders page by page.
+    
+    Yields (order_dict, next_url) — next_url is None on the last page.
+    """
     try:
         store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
         access_token = _get_shopify_access_token()
@@ -839,17 +871,33 @@ def _real_iter_all_orders():
             'Content-Type': 'application/json',
         }
 
-        url = f"{store_url}/admin/api/2024-01/orders.json?status=any&limit=250"
+        url = start_url or f"{store_url}/admin/api/2024-01/orders.json?status=any&limit=250"
         total_yielded = 0
 
         while url:
-            response = requests.get(url, headers=headers, timeout=30)
+            response = _get_shopify_session().get(url, headers=headers, timeout=30)
+            
+            # Detect invalid/stale pagination cursor
+            if response.status_code in (400, 404, 410):
+                body_preview = (response.text or '')[:200]
+                raise ShopifyCursorInvalidError(
+                    f"Shopify rejected pagination cursor (status {response.status_code}): {body_preview}"
+                )
             response.raise_for_status()
+
+            # Compute next_url BEFORE yielding, so callers can persist it per row
+            link_header = response.headers.get('Link', '')
+            next_url = None
+            if 'rel="next"' in link_header:
+                for part in link_header.split(','):
+                    if 'rel="next"' in part:
+                        next_url = part.split(';')[0].strip().strip('<>')
+                        break
 
             for o in response.json().get('orders', []):
                 customer = o.get('customer') or {}
                 line_items = o.get('line_items') or []
-                yield {
+                yield ({
                     "shopify_id": str(o.get('id')),
                     "shopify_customer_id": str(customer.get('id')) if customer.get('id') else None,
                     "order_number": str(o.get('order_number') or o.get('name') or ''),
@@ -860,16 +908,10 @@ def _real_iter_all_orders():
                     "financial_status": o.get('financial_status'),
                     "fulfillment_status": o.get('fulfillment_status'),
                     "order_date": o.get('created_at'),
-                }
+                }, next_url)
                 total_yielded += 1
 
-            link_header = response.headers.get('Link', '')
-            url = None
-            if 'rel="next"' in link_header:
-                for part in link_header.split(','):
-                    if 'rel="next"' in part:
-                        url = part.split(';')[0].strip().strip('<>')
-                        break
+            url = next_url
 
         log_event("info", "integrations.shopify.sync",
                   f"Shopify orders stream completed — {total_yielded} orders",
@@ -879,7 +921,7 @@ def _real_iter_all_orders():
         log_event("error", "integrations.shopify", f"Failed during order stream: {str(e)}")
         raise
 
-
+    
 def _real_get_customer_orders(shopify_customer_id: str) -> list[dict]:
     """
     GET /admin/api/2024-01/customers/{id}/orders.json?status=any
