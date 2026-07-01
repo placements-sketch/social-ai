@@ -16,6 +16,53 @@ from app.utils.logger import log_event
 import os
 USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 
+LOW_STOCK_THRESHOLD = 3
+
+
+def _format_variants_inline(product: dict) -> str:
+    """
+    Format a product's variants for the AI's context block.
+    Only includes IN-STOCK variants. Flags variants with <=3 units as 'LOW'.
+    
+    Returns a compact single-line string like:
+      "BLACK / M (5 in stock), BLACK / L (6 in stock), BLACK / XL (1 left LOW)"
+    Or an empty string if there are no variant details to show.
+    """
+    details = product.get('variants_detail') or []
+    if not details:
+        return ""
+    
+    parts = []
+    for v in details:
+        qty = v.get('inventory_quantity')
+        tracked = v.get('inventory_tracked', True)
+        
+        # Skip out-of-stock variants (when tracked)
+        if tracked and (qty is None or qty <= 0):
+            continue
+        
+        # Build the readable label from options (e.g. "BLACK / M")
+        opts = [str(v.get(k)) for k in ('option1', 'option2', 'option3') if v.get(k)]
+        # Drop SKU-like option2 values (Shop Zetu uses option2 for internal codes)
+        # Heuristic: if option2 looks like an SKU (alphanumeric, 5+ chars, mixed digits),
+        # keep only option1 + option3.
+        cleaned_opts = []
+        for i, o in enumerate(opts):
+            if i == 1 and len(o) >= 6 and any(c.isdigit() for c in o) and any(c.isalpha() for c in o):
+                continue  # skip SKU-like value
+            cleaned_opts.append(o)
+        label = " / ".join(cleaned_opts) if cleaned_opts else v.get('title', 'Variant')
+        
+        # Untracked = "in stock" without a number
+        if not tracked or qty is None:
+            parts.append(f"{label} (in stock)")
+        elif qty <= LOW_STOCK_THRESHOLD:
+            parts.append(f"{label} ({qty} left LOW)")
+        else:
+            parts.append(f"{label} ({qty} in stock)")
+    
+    return ", ".join(parts)
+
 # ─────────────────────────────────────────────
 # AISettings → prompt translation helpers
 # ─────────────────────────────────────────────
@@ -233,12 +280,14 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                     f"AVAILABLE PRODUCTS (recommend from these only — they're in stock):"
                 )
                 for i, p in enumerate(in_stock_products, 1):
-                    variants = ", ".join(str(v) for v in p.get("variants", [])) or "N/A"
-                    qty = p.get('stock_quantity')
-                    qty_str = f"{qty} units in stock" if qty is not None else "stock available"
+                    variants_line = _format_variants_inline(p)
+                    if not variants_line:
+                        # Fall back to old-style summary if variant details missing
+                        qty = p.get('stock_quantity')
+                        variants_line = f"{qty} units in stock" if qty is not None else "stock available"
                     context_lines.append(
                         f"  {i}. {p.get('name')} — {_fmt_price(p.get('price'))} | "
-                        f"Variants: {variants} | {qty_str} | "
+                        f"Variants: {variants_line} | "
                         f"Description: {(p.get('description') or 'N/A')[:120]}"
                     )
 

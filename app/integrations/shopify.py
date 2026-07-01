@@ -346,6 +346,7 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
                 "description": (product.description or '')[:200],
                 "price": str(product.price) if product.price is not None else 'N/A',
                 "variants": product.variants or [],
+                "variants_detail": product.variants_detail or [],
                 "stock_quantity": product.stock_quantity or 0,
             })
 
