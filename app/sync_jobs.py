@@ -232,3 +232,28 @@ def notify_discord_warning(title: str, message: str, fields: list = None):
         _requests.post(webhook_url, json=payload, timeout=5)
     except Exception:
         pass
+
+import re
+
+def get_previous_progress_count(kind: str) -> int | None:
+    """
+    Extracts the last known 'processed count' from the previous failed job's
+    progress text. Used to display 'Continued after ~N' in resumed syncs.
+    
+    Returns None if no previous progress can be found.
+    """
+    latest = (SyncJob.query
+              .filter(SyncJob.kind == kind, SyncJob.status == 'failed')
+              .order_by(SyncJob.id.desc())
+              .first())
+    if latest is None or not latest.progress:
+        return None
+    
+    # Match patterns like "Processed 9,000 orders..." or "Processed 15,000 customers..."
+    match = re.search(r'Processed\s+([\d,]+)', latest.progress)
+    if not match:
+        return None
+    try:
+        return int(match.group(1).replace(',', ''))
+    except (ValueError, AttributeError):
+        return None

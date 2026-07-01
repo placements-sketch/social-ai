@@ -91,9 +91,12 @@ def cron_sync_products():
                 db.session.commit()
 
         # Check if we can resume from a previous failed attempt
+        from app.sync_jobs import get_previous_progress_count
         resume_url = get_resume_cursor('products_apply')
+        previous_count = get_previous_progress_count('products_apply') if resume_url else None
         if resume_url:
-            update_progress("Resuming from previous failure...")
+            base_msg = f"Resumed sync — continued from ~{previous_count:,} products" if previous_count else "Resumed sync"
+            update_progress(f"{base_msg} · loading...")
         else:
             update_progress("Loading existing product IDs...")
 
@@ -166,11 +169,17 @@ def cron_sync_products():
 
                 if len(buffer) >= CHUNK:
                     flush_buffer()
-                    update_progress(f"Processed {total_received:,} products...")
+                    if resume_url and previous_count:
+                        update_progress(f"Resumed sync — processed {total_received:,} products since resume point (continued from ~{previous_count:,})")
+                    else:
+                        update_progress(f"Processed {total_received:,} products...")
 
             if buffer:
                 flush_buffer()
-                update_progress(f"Processed {total_received:,} products...")
+                if resume_url and previous_count:
+                    update_progress(f"Resumed sync — processed {total_received:,} products since resume point (continued from ~{previous_count:,})")
+                else:
+                    update_progress(f"Processed {total_received:,} products...")
 
         except ShopifyCursorInvalidError as e:
             # Dead cursor. Alert on Discord, clear the cursor, restart from scratch.
@@ -205,11 +214,17 @@ def cron_sync_products():
 
                 if len(buffer) >= CHUNK:
                     flush_buffer()
-                    update_progress(f"Processed {total_received:,} products...")
+                    if resume_url and previous_count:
+                        update_progress(f"Resumed sync — processed {total_received:,} products since resume point (continued from ~{previous_count:,})")
+                    else:
+                        update_progress(f"Processed {total_received:,} products...")
 
             if buffer:
                 flush_buffer()
-                update_progress(f"Processed {total_received:,} products...")
+                if resume_url and previous_count:
+                    update_progress(f"Resumed sync — processed {total_received:,} products since resume point (continued from ~{previous_count:,})")
+                else:
+                    update_progress(f"Processed {total_received:,} products...")
 
         # ── Delete stale products (in cache but not seen in Shopify this run) ──
         # ONLY delete if we did a full sync (seen_ids covers everything).
