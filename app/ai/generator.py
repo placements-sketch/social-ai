@@ -19,33 +19,30 @@ USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 LOW_STOCK_THRESHOLD = 3
 
 
-def _format_variants_inline(product: dict) -> str:
+def _format_variants_inline(product: dict) -> tuple[str, str]:
     """
-    Format a product's variants for the AI's context block.
-    Only includes IN-STOCK variants. Flags variants with <=3 units as 'LOW'.
+    Returns (in_stock_line, sold_out_note).
     
-    Returns a compact single-line string like:
-      "BLACK / M (5 in stock), BLACK / L (6 in stock), BLACK / XL (1 left LOW)"
-    Or an empty string if there are no variant details to show.
+    in_stock_line: variants in stock, formatted for recommendation
+      e.g. "BLACK / M (5 in stock), BLACK / L (2 left LOW)"
+    
+    sold_out_note: brief note of sold-out variants (for context, NOT recommendation)
+      e.g. "Also sold out: BLACK / XL, BLACK / 2XL"
+      Empty string if no sold-out variants.
     """
     details = product.get('variants_detail') or []
     if not details:
-        return ""
+        return "", ""
     
-    parts = []
+    in_stock_parts = []
+    sold_out_labels = []
+    
     for v in details:
         qty = v.get('inventory_quantity')
         tracked = v.get('inventory_tracked', True)
         
-        # Skip out-of-stock variants (when tracked)
-        if tracked and (qty is None or qty <= 0):
-            continue
-        
-        # Build the readable label from options (e.g. "BLACK / M")
+        # Build the readable label
         opts = [str(v.get(k)) for k in ('option1', 'option2', 'option3') if v.get(k)]
-        # Drop SKU-like option2 values (Shop Zetu uses option2 for internal codes)
-        # Heuristic: if option2 looks like an SKU (alphanumeric, 5+ chars, mixed digits),
-        # keep only option1 + option3.
         cleaned_opts = []
         for i, o in enumerate(opts):
             if i == 1 and len(o) >= 6 and any(c.isdigit() for c in o) and any(c.isalpha() for c in o):
@@ -53,15 +50,22 @@ def _format_variants_inline(product: dict) -> str:
             cleaned_opts.append(o)
         label = " / ".join(cleaned_opts) if cleaned_opts else v.get('title', 'Variant')
         
-        # Untracked = "in stock" without a number
+        # Sold out?
+        if tracked and (qty is None or qty <= 0):
+            sold_out_labels.append(label)
+            continue
+        
         if not tracked or qty is None:
-            parts.append(f"{label} (in stock)")
+            in_stock_parts.append(f"{label} (in stock)")
         elif qty <= LOW_STOCK_THRESHOLD:
-            parts.append(f"{label} ({qty} left LOW)")
+            in_stock_parts.append(f"{label} ({qty} left LOW)")
         else:
-            parts.append(f"{label} ({qty} in stock)")
+            in_stock_parts.append(f"{label} ({qty} in stock)")
     
-    return ", ".join(parts)
+    in_stock_line = ", ".join(in_stock_parts)
+    sold_out_note = f"Also sold out: {', '.join(sold_out_labels)}" if sold_out_labels else ""
+    
+    return in_stock_line, sold_out_note
 
 # ─────────────────────────────────────────────
 # AISettings → prompt translation helpers
