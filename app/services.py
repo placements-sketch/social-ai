@@ -491,7 +491,7 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
 # Internal helpers (extraction)
 # ─────────────────────────────────────────────
 
-MAX_ORDER_STATUS_ORDERS = 3  # how many recent orders to summarise
+MAX_ORDER_STATUS_ORDERS = 1  # how many recent orders to summarise
 
 _EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
 _NAME_FILLER = {

@@ -178,6 +178,58 @@ def search_products(keyword, limit: int = 3) -> list[dict]:
         return _mock_search_products(terms, limit=limit)
     return _cache_search_products(terms, limit=limit)
 
+
+def iter_all_order_ids():
+    """
+    Yield every live order id (str) from Shopify, id-only (?fields=id) so
+    payloads stay tiny — for the weekly reconcile. Raises on any page error
+    so the caller knows the id set is INCOMPLETE and must skip deletes.
+    """
+    if USE_MOCK:
+        return
+    store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+    headers = {
+        'X-Shopify-Access-Token': _get_shopify_access_token(),
+        'Content-Type': 'application/json',
+    }
+    url = f"{store_url}/admin/api/2024-01/orders.json?status=any&fields=id&limit=250"
+    while url:
+        response = _get_shopify_session().get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        for o in response.json().get('orders', []):
+            yield str(o['id'])
+        link = response.headers.get('Link', '')
+        url = None
+        if 'rel="next"' in link:
+            for part in link.split(','):
+                if 'rel="next"' in part:
+                    url = part.split(';')[0].strip().strip('<>')
+                    break
+
+def iter_all_customer_ids():
+    """Same as iter_all_order_ids, for customers. Raises on any page error."""
+    if USE_MOCK:
+        return
+    store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+    headers = {
+        'X-Shopify-Access-Token': _get_shopify_access_token(),
+        'Content-Type': 'application/json',
+    }
+    url = f"{store_url}/admin/api/2024-01/customers.json?fields=id&limit=250"
+    while url:
+        response = _get_shopify_session().get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        for c in response.json().get('customers', []):
+            yield str(c['id'])
+        link = response.headers.get('Link', '')
+        url = None
+        if 'rel="next"' in link:
+            for part in link.split(','):
+                if 'rel="next"' in part:
+                    url = part.split(';')[0].strip().strip('<>')
+                    break
+
+
 # ─────────────────────────────────────────────
 # Mock implementation
 # ─────────────────────────────────────────────
@@ -293,43 +345,56 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
     try:
         from app.models import ProductCache
         from app import db
-        from sqlalchemy import or_, case, cast, String
+        from sqlalchemy import or_, case, cast, String, func
 
-        # Build a combined OR filter across all terms + a summed score expression
+        # Score each ORIGINAL term ONCE (plural/singular collapsed), then sum
+        # across terms. Coverage (how many distinct terms a product matches)
+        # dominates; field weights (name > variants > tags > description) break
+        # ties within a coverage tier. This is what makes "boxer shorts" rank
+        # the actual boxer products above generic shorts that match one term.
         like_clauses = []
-        score_components = []
+        coverage_components = []   # +1 per distinct term matched anywhere
+        field_components = []      # weighted by where each term hits
 
         for raw in terms:
             t = raw.lower().strip()
             t_singular = t.rstrip('s') if len(t) > 3 and t.endswith('s') else t
-            for kw in {t, t_singular}:
-                like_kw = f"%{kw}%"
-                like_clauses.extend([
-                    ProductCache.name.ilike(like_kw),
-                    cast(ProductCache.variants, String).ilike(like_kw),
-                    cast(ProductCache.tags, String).ilike(like_kw),
-                    ProductCache.description.ilike(like_kw),
-                ])
-                score_components.append(case((ProductCache.name.ilike(like_kw), 10), else_=0))
-                score_components.append(case((cast(ProductCache.variants, String).ilike(like_kw), 5), else_=0))
-                score_components.append(case((cast(ProductCache.tags, String).ilike(like_kw), 4), else_=0))
-                score_components.append(case((ProductCache.description.ilike(like_kw), 2), else_=0))
+            kws = {t, t_singular}
+
+            name_hit = or_(*[ProductCache.name.ilike(f"%{kw}%") for kw in kws])
+            var_hit  = or_(*[cast(ProductCache.variants, String).ilike(f"%{kw}%") for kw in kws])
+            tag_hit  = or_(*[cast(ProductCache.tags, String).ilike(f"%{kw}%") for kw in kws])
+            desc_hit = or_(*[ProductCache.description.ilike(f"%{kw}%") for kw in kws])
+            term_hit = or_(name_hit, var_hit, tag_hit, desc_hit)
+
+            like_clauses.append(term_hit)
+            coverage_components.append(case((term_hit, 1), else_=0))
+            field_components.append(case((name_hit, 10), else_=0))
+            field_components.append(case((var_hit,  5), else_=0))
+            field_components.append(case((tag_hit,  4), else_=0))
+            field_components.append(case((desc_hit, 2), else_=0))
 
         if not like_clauses:
             return []
 
-        # Sum all score components into one expression
-        score = score_components[0]
-        for c in score_components[1:]:
-            score = score + c
-        score = score.label('score')
+        coverage = coverage_components[0]
+        for c in coverage_components[1:]:
+            coverage = coverage + c
+
+        field_score = field_components[0]
+        for c in field_components[1:]:
+            field_score = field_score + c
+
+        # Coverage ×100 so matching every query term always wins; field_score
+        # ranks within the same coverage tier.
+        score = (coverage * 100 + field_score).label('score')
 
         rows = (
             db.session.query(ProductCache, score)
             .filter(or_(*like_clauses))
             .order_by(
                 # In-stock products first. NULL stock = unknown, treat as available.
-                (ProductCache.stock_quantity == 0).asc(),
+                (func.coalesce(ProductCache.stock_quantity, 1) == 0).asc(),
                 score.desc(),
                 ProductCache.name.asc(),
             )

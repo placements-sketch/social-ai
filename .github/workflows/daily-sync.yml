@@ -8,6 +8,7 @@ on:
     - cron: '5 */3 * * *'    # every 3h, :05 — orders
     - cron: '10 */3 * * *'   # every 3h, :10 — products
     - cron: '*/30 * * * *'   # every 30 minutes — watchdog
+    - cron: '0 2 * * 0'    # Sunday 05:00 EAT — weekly reconcile
 
   # Allow manual triggering from the GitHub UI for testing
   workflow_dispatch:
@@ -22,6 +23,7 @@ on:
           - customers
           - orders
           - all
+          - reconcile
 
 jobs:
   sync:
@@ -49,6 +51,9 @@ jobs:
           elif [ "$SCHEDULE" = "10 */3 * * *" ]; then
             echo "Scheduled run for products"
             echo "sync=products" >> $GITHUB_OUTPUT
+          elif [ "$SCHEDULE" = "0 2 * * 0" ]; then
+            echo "Scheduled run for reconcile"
+            echo "sync=reconcile" >> $GITHUB_OUTPUT
           else
             echo "Unknown trigger, defaulting to products"
             echo "sync=products" >> $GITHUB_OUTPUT
@@ -122,6 +127,25 @@ jobs:
 
           if [ "$status" != "202" ] && [ "$status" != "409" ]; then
             echo "::error::Orders sync failed with status $status"
+            exit 1
+          fi
+
+      - name: Trigger reconcile
+        if: steps.which.outputs.sync == 'reconcile'
+        run: |
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://social-ai-backend-tult.onrender.com/api/cron/reconcile" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+
+          echo "Status: $status"
+          echo "Body: $body"
+
+          if [ "$status" != "202" ] && [ "$status" != "409" ]; then
+            echo "::error::Reconcile failed with status $status"
             exit 1
           fi
 

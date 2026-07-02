@@ -736,6 +736,83 @@ def cron_sync_orders():
     log_event("info", "cron.orders_sync.started", f"Cron triggered job {job.id}")
     return jsonify({'job_id': job.id, 'status': job.status, 'triggered_by': 'cron'}), 202
 
+@cron_bp.route('/reconcile', methods=['POST'])
+@require_cron_secret
+def cron_reconcile():
+    """
+    Weekly reconcile for orders + customers: delete cache rows whose Shopify
+    id no longer exists live. Products self-reconcile via their full 3-hour sync.
+
+    Safety: the id fetchers raise on any page error, so the full live set is
+    built BEFORE any delete — a truncated fetch fails the job instead of
+    nuking the cache. We also refuse to delete more than a threshold of a
+    table in one run.
+    """
+    from app.integrations.shopify import iter_all_order_ids, iter_all_customer_ids
+    from app.models import OrderCache, CustomerCache
+
+    def do_sync(job):
+        from app.models import SyncJob
+        from app.sync_jobs import notify_discord_warning
+        job_id = job.id
+        CHUNK = 1000
+
+        def update_progress(text):
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.progress = text
+                db.session.commit()
+
+        def reconcile_entity(label, id_iter_fn, model, id_col):
+            update_progress(f"Reconcile: loading live {label} ids from Shopify...")
+            # Build the FULL live set first. If any page errors, this raises
+            # BEFORE any delete happens — the job fails, cache untouched.
+            live_ids = set(id_iter_fn())
+            existing_ids = set(spid for (spid,) in db.session.query(id_col).all())
+            to_delete = list(existing_ids - live_ids)
+
+            # Safety valve: refuse an implausibly large delete (likely bad fetch).
+            limit = max(100, int(0.10 * len(existing_ids)))
+            if len(to_delete) > limit:
+                notify_discord_warning(
+                    title=f"Reconcile aborted deletes for {label}",
+                    message=(f"Wanted to delete {len(to_delete):,} {label} "
+                             f"(> safety limit {limit:,} of {len(existing_ids):,}). "
+                             f"Skipped — investigate a possible bad Shopify fetch."),
+                    fields=[{"name": "Job ID", "value": str(job_id), "inline": True}],
+                )
+                update_progress(f"Reconcile {label}: ABORTED ({len(to_delete):,} > {limit:,})")
+                return {"deleted": 0, "aborted": True, "candidates": len(to_delete)}
+
+            deleted = 0
+            for i in range(0, len(to_delete), CHUNK):
+                batch = to_delete[i:i + CHUNK]
+                model.query.filter(id_col.in_(batch)).delete(synchronize_session=False)
+                deleted += len(batch)
+                db.session.commit()
+                update_progress(f"Reconcile {label}: deleted {deleted:,}/{len(to_delete):,}")
+            return {"deleted": deleted, "aborted": False, "candidates": len(to_delete)}
+
+        orders_res = reconcile_entity("orders", iter_all_order_ids,
+                                      OrderCache, OrderCache.shopify_order_id)
+        customers_res = reconcile_entity("customers", iter_all_customer_ids,
+                                         CustomerCache, CustomerCache.shopify_customer_id)
+
+        return {
+            "orders": orders_res,
+            "customers": customers_res,
+            "reconciled_at": datetime.utcnow().isoformat(),
+        }
+
+    job, started = start_background_job(kind='reconcile', work_fn=do_sync, user_id=None)
+    if not started:
+        return jsonify({'job_id': job.id, 'status': job.status,
+                        'message': 'A reconcile is already running.'}), 409
+
+    log_event("info", "cron.reconcile.started", f"Cron triggered reconcile job {job.id}")
+    return jsonify({'job_id': job.id, 'status': job.status, 'triggered_by': 'cron'}), 202
+
+
 @cron_bp.route('/watchdog', methods=['POST'])
 @require_cron_secret
 def cron_watchdog():
@@ -747,6 +824,7 @@ def cron_watchdog():
         'customers_apply': timedelta(minutes=45),
         'orders_apply':    timedelta(minutes=90),
         'products_check':  timedelta(minutes=10),
+        'reconcile':       timedelta(minutes=60),
     }
     # Anything past this is definitely dead, not just slow. Auto-mark as failed
     # so it stops alerting forever.
