@@ -221,7 +221,7 @@ def _mock_reply(intents: list[str], context_data: dict) -> str:
             parts.append("We deliver nationwide across Kenya. 🚚 Delivery costs KES 350 and takes 1–3 business days.")
 
     if "order_status" in intents:
-        parts.append("For your order status, please share your order number and I'll look it up right away.")
+        parts.append("Happy to check your order! Could you share the full name and email used to place the order?")
 
     if "complaint" in intents:
         parts.append("I'm really sorry to hear that 😔 Please DM us your order details and we'll make it right.")
@@ -353,9 +353,55 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 f"and confirm shortly — do not invent specifics."
             )
 
-        if context_data.get("order_status_asked"):
+        # ── Order status (live Shopify lookup, verified by name + email) ──
+        os_data = context_data.get("order_status")
+        if os_data:
+            state = os_data.get("state")
+            if state == "found":
+                lines = [
+                    f"ORDER STATUS for {os_data.get('customer_name', 'the customer')} "
+                    f"(identity verified by name + email). Report ONLY these real orders — "
+                    f"never invent order numbers, items, amounts, or statuses:"
+                ]
+                for o in os_data.get("orders", []):
+                    items = ", ".join(o.get("products", [])) or f"{o.get('items_count', 0)} item(s)"
+                    total = o.get("total") or 0
+                    cur   = o.get("currency", "KES")
+                    fin   = o.get("financial_status") or "unknown"
+                    ful   = o.get("fulfillment_status") or "unfulfilled"
+                    lines.append(
+                        f"  - Order #{o.get('order_number', '?')} "
+                        f"({(o.get('order_date') or '')[:10]}): {items} | "
+                        f"{cur} {total:,.0f} | payment: {fin} | delivery: {ful}"
+                    )
+                lines.append(
+                    "Summarise warmly and clearly. Translate delivery status for the customer: "
+                    "null/'unfulfilled' → 'not yet shipped', 'fulfilled' → 'shipped / on its way', "
+                    "'partial' → 'partially shipped'."
+                )
+                context_lines.append("\n".join(lines))
+            elif state == "no_orders":
+                context_lines.append(
+                    f"The customer ({os_data.get('customer_name', '')}) is verified but has NO orders "
+                    f"on record. Tell them warmly you couldn't find any orders on their account, and "
+                    f"offer to help place one or check a different email."
+                )
+            elif state == "name_mismatch":
+                context_lines.append(
+                    "The email matches an account but the NAME given does not. Do NOT reveal any order "
+                    "details. Politely say the name and email don't seem to match and ask them to "
+                    "double-check both."
+                )
+            elif state == "no_account":
+                context_lines.append(
+                    "No account was found under that email. Tell the customer you couldn't find an "
+                    "account with that email, and ask them to double-check it or share the email used "
+                    "at checkout."
+                )
+        elif context_data.get("order_status_asked"):
             context_lines.append(
-                "Customer asked about an order. Ask for their order number if not provided."
+                "Customer is asking about an order but hasn't given details yet. Ask for the full name "
+                "and email used on the order so you can look it up. Do NOT ask for an order number."
             )
 
         context_block = "\n".join(context_lines) if context_lines else "No specific product data available."

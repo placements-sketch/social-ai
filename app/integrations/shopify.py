@@ -1100,3 +1100,159 @@ def refresh_stock_for_products(shopify_product_ids: list[str]) -> dict:
         log_event("warn", "integrations.shopify.live_stock_failed",
                   f"Live stock refresh failed, falling back to cache: {str(e)[:200]}")
         return {}
+    
+
+def live_search_products(terms, window_days=1, limit=250, max_pages=2):
+    """
+    Live fallback for a cache MISS: fetch products updated in the last
+    `window_days` (active/published only) and keyword-filter them locally.
+
+    Covers the one gap the 3-hourly full products sync can leave: a product
+    created OR newly-published/edited since the last run. Returns snap dicts
+    in the same shape the sync produces, so the caller can upsert them into
+    the cache and re-run the normal cache search. Returns [] on no match/error.
+    """
+    if not terms or USE_MOCK:
+        return []
+    try:
+        from datetime import datetime, timedelta, timezone
+        from urllib.parse import quote
+
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        headers = {
+            'X-Shopify-Access-Token': _get_shopify_access_token(),
+            'Content-Type': 'application/json',
+        }
+
+        updated_min = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+        # Filters go on the FIRST page only; the Link header carries them forward.
+        url = (f"{store_url}/admin/api/2024-01/products.json"
+               f"?limit=250&status=active&published_status=published"
+               f"&updated_at_min={quote(updated_min)}")
+
+        # Lowercase needles + singular fallback, mirroring the cache search.
+        needles = set()
+        for t in terms:
+            t = (t or '').strip().lower()
+            if len(t) < 3:
+                continue
+            needles.add(t)
+            if len(t) > 3 and t.endswith('s'):
+                needles.add(t[:-1])
+        if not needles:
+            return []
+
+        matches = []
+        pages = 0
+        while url and pages < max_pages:  # safety cap
+            response = _get_shopify_session().get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+
+            for product in response.json().get('products', []):
+                variants = product.get('variants') or []
+                tags = [s.strip() for s in (product.get('tags') or '').split(',') if s.strip()]
+
+                haystack = ' '.join([
+                    product.get('title', ''),
+                    product.get('body_html', '') or '',
+                    ' '.join(v.get('title', '') for v in variants),
+                    ' '.join(tags),
+                ]).lower()
+                if not any(n in haystack for n in needles):
+                    continue
+
+                inventory_tracked = any(v.get('inventory_management') == 'shopify' for v in variants)
+                stock_quantity = sum(
+                    (v.get('inventory_quantity') or 0) for v in variants
+                    if v.get('inventory_management') == 'shopify'
+                ) if inventory_tracked else None
+
+                variants_detail = [
+                    {
+                        "shopify_variant_id": str(v.get('id')),
+                        "title": v.get('title', ''),
+                        "option1": v.get('option1'),
+                        "option2": v.get('option2'),
+                        "option3": v.get('option3'),
+                        "price": v.get('price'),
+                        "sku": v.get('sku'),
+                        "inventory_quantity": v.get('inventory_quantity'),
+                        "inventory_tracked": v.get('inventory_management') == 'shopify',
+                    }
+                    for v in variants
+                ]
+
+                matches.append({
+                    "shopify_id": str(product['id']),
+                    "name": product.get('title', 'Unknown'),
+                    "handle": product.get('handle') or '',
+                    "description": (product.get('body_html') or '')[:200],
+                    "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
+                    "variants": [v.get('title', '') for v in variants],
+                    "variants_detail": variants_detail,
+                    "stock_quantity": stock_quantity,
+                    "inventory_tracked": inventory_tracked,
+                    "tags": tags,
+                })
+                if len(matches) >= limit:
+                    break
+
+            next_url = None
+            link = response.headers.get('Link', '')
+            if 'rel="next"' in link:
+                for part in link.split(','):
+                    if 'rel="next"' in part:
+                        next_url = part.split(';')[0].strip().strip('<>')
+                        break
+            url = next_url
+            pages += 1
+            if len(matches) >= limit:
+                break
+
+        log_event("info", "integrations.shopify.live_fallback",
+                  f"Live product fallback for {terms}: {len(matches)} match(es)",
+                  payload={"terms": terms, "matches": [m["name"] for m in matches[:10]]})
+        return matches
+
+    except Exception as e:
+        log_event("warn", "integrations.shopify.live_fallback_failed",
+                  f"Live product fallback failed for {terms}: {str(e)[:200]}")
+        return []
+    
+def find_customer_by_email(email: str) -> dict | None:
+    """
+    Live lookup: find a Shopify customer by exact email, for real-time
+    order-status verification. Never cached.
+    GET /admin/api/2024-01/customers/search.json?query=email:{email}
+    Returns {shopify_id, email, first_name, last_name} on an exact email
+    match, else None. Requires read_customers scope (already granted).
+    """
+    if not email or USE_MOCK:
+        return None
+    try:
+        from urllib.parse import quote
+        target = email.strip().lower()
+        store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+        headers = {
+            'X-Shopify-Access-Token': _get_shopify_access_token(),
+            'Content-Type': 'application/json',
+        }
+        url = (f"{store_url}/admin/api/2024-01/customers/search.json"
+               f"?query={quote('email:' + target)}&limit=5")
+        response = _get_shopify_session().get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        # search can be fuzzy — require an EXACT email match before returning
+        for c in response.json().get('customers', []):
+            if (c.get('email') or '').strip().lower() == target:
+                return {
+                    "shopify_id": str(c.get('id')),
+                    "email": c.get('email'),
+                    "first_name": c.get('first_name') or '',
+                    "last_name": c.get('last_name') or '',
+                }
+        return None
+    except Exception as e:
+        log_event("warn", "integrations.shopify.customer_search_failed",
+                  f"Customer email lookup failed: {str(e)[:200]}")
+        return None

@@ -25,6 +25,7 @@ from app.utils.intent import detect_intents, intents_to_label
 from app.utils.logger import log_event
 from app.handoff import check_handoff
 
+import re
 
 # Sentinel returned when the AI is gated off — useful for tests and
 # anyone calling process_message synchronously.
@@ -64,6 +65,46 @@ def _conversation_history_for_ai(conversation_id: int, limit: int = 8) -> list[d
                   f"History fetch failed, replying without context: {e}")
         return []
 
+def _writeback_products(snaps):
+    """
+    Upsert live-fetched product snaps into ProductCache so the normal cache
+    search can find them — and so the next customer gets a fast cache hit.
+    Reuses products.py's shape mapping. Safe to commit here: the placeholder
+    outbound isn't created until Step 5a, so nothing critical is pending.
+    """
+    if not snaps:
+        return
+    from app import db
+    from app.models import ProductCache
+    from app.products import _shopify_to_cache_dict
+    now = datetime.utcnow()
+    try:
+        for sp in snaps:
+            d = _shopify_to_cache_dict(sp)
+            spid = d.get('shopify_product_id')
+            if not spid:
+                continue
+            row = ProductCache.query.filter_by(shopify_product_id=spid).first()
+            if row is None:
+                row = ProductCache(shopify_product_id=spid)
+                db.session.add(row)
+            row.name = d['name']
+            row.handle = d['handle']
+            row.description = d['description']
+            row.price = d['price']
+            row.variants = d['variants']
+            row.variants_detail = d['variants_detail']
+            row.images = d['images']
+            row.tags = d['tags']
+            row.stock_quantity = d['stock_quantity']
+            row.inventory_tracked = d['inventory_tracked']
+            row.cached_at = now
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log_event("warn", "services.product_writeback_failed",
+                  f"Live product write-back failed: {str(e)[:200]}")
+        
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None) -> str:
     """
     Main pipeline entry point. Called by every webhook route.
@@ -251,26 +292,67 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                       },
                       conversation_id=(inbound_record.conversation_id if inbound_record else None))
         else:
-            log_event("info", "services.shopify_lookup_empty",
-                      f"No cache matches for '{product_keyword}' (source: {keyword_source})",
-                      payload={
-                          "user_external_id": user_id,
-                          "channel": channel,
-                          "product_keyword": product_keyword,
-                          "keyword_source": keyword_source,
-                      },
-                      conversation_id=(inbound_record.conversation_id if inbound_record else None))
+            # Cache miss — the product may be new or newly-published since the
+            # last 3-hourly sync. Try a live Shopify lookup, write hits back
+            # into the cache, then re-run the cache search so ranking + shape
+            # are identical to a normal hit.
+            from app.integrations.shopify import live_search_products
+            live = live_search_products(search_terms, window_days=1, max_pages=2)
+            if live:
+                _writeback_products(live)
+                matches = search_products(search_terms, limit=3)
+
+            if matches:
+                context_data["products"] = matches
+                context_data["product"]  = matches[0]
+                context_data["stock"]    = {
+                    "product_name": matches[0].get("name"),
+                    "quantity":     matches[0].get("stock_quantity", 0),
+                    "unit":         "pcs",
+                }
+                _patch_inbound_product_keyword(inbound_record, product_keyword)
+                log_event("info", "services.shopify_lookup_live",
+                          f"Live fallback found {len(matches)} matches for '{product_keyword}'",
+                          payload={
+                              "user_external_id": user_id,
+                              "channel": channel,
+                              "product_keyword": product_keyword,
+                              "keyword_source": keyword_source,
+                              "match_count": len(matches),
+                              "match_names": [p.get("name") for p in matches],
+                          },
+                          conversation_id=(inbound_record.conversation_id if inbound_record else None))
+            else:
+                log_event("info", "services.shopify_lookup_empty",
+                          f"No cache or live matches for '{product_keyword}' (source: {keyword_source})",
+                          payload={
+                              "user_external_id": user_id,
+                              "channel": channel,
+                              "product_keyword": product_keyword,
+                              "keyword_source": keyword_source,
+                          },
+                          conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
     if "delivery_inquiry" in intents:
         context_data["delivery_asked"] = True
         context_data["delivery_location"] = _extract_location(message)
 
-    if "order_status" in intents:
-        context_data["order_status_asked"] = True
-
-
-    if "order_status" in intents:
-        context_data["order_status_asked"] = True
+    # ── Order-status flow (live, never cached) ─────────────────────────────
+    # Fires when the message asks about an order, OR when it's a follow-up
+    # (contains an email) to a recent order-status ask.
+    _os_email = _extract_email(message)
+    _os_flow = ("order_status" in intents) or (
+        _os_email is not None
+        and inbound_record is not None
+        and _recent_intent_was_order_status(inbound_record.conversation_id)
+    )
+    if _os_flow:
+        if _os_email:
+            context_data["order_status"] = _lookup_order_status(
+                _os_email, _extract_name_tokens(message)
+            )
+        else:
+            context_data["order_status_asked"] = True   # ask for full name + email
 
     # Real-time stock refresh: if customer is asking about stock, verify
     # inventory live from Shopify for the products we're about to recommend.
@@ -408,6 +490,100 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
 # ─────────────────────────────────────────────
 # Internal helpers (extraction)
 # ─────────────────────────────────────────────
+
+MAX_ORDER_STATUS_ORDERS = 3  # how many recent orders to summarise
+
+_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+_NAME_FILLER = {
+    'my', 'name', 'is', 'im', "i'm", 'the', 'email', 'mail', 'e-mail',
+    'and', 'order', 'number', 'its', "it's", 'here', 'hi', 'hello', 'hey',
+    'please', 'thanks', 'thank', 'you', 'for', 'an', 'a', 'this',
+}
+
+
+def _extract_email(message: str):
+    """First email address in the message, lowercased, or None."""
+    if not message:
+        return None
+    m = _EMAIL_RE.search(message)
+    return m.group(0).strip().lower() if m else None
+
+
+def _extract_name_tokens(message: str) -> list[str]:
+    """
+    Candidate name words: alphabetic tokens minus the email and common filler.
+    Order-independent — used only to check whether any token matches the
+    Shopify customer's first or last name.
+    """
+    if not message:
+        return []
+    tokens = []
+    for raw in re.split(r'[\s,;:]+', message):
+        w = raw.strip("?.!,()[]'\"").strip()
+        if not w or '@' in w:
+            continue
+        if not w.replace('-', '').replace("'", '').isalpha():
+            continue
+        if len(w) < 2 or w.lower() in _NAME_FILLER:
+            continue
+        tokens.append(w)
+    return tokens
+
+
+def _recent_intent_was_order_status(conversation_id: int, max_lookback: int = 5) -> bool:
+    """
+    True if a recent inbound message carried the order_status intent — lets a
+    bare "Jane, jane@x.com" follow-up be recognised as the continuation of an
+    order-status flow. Intents are stored pipe-joined on Message.intent.
+    """
+    if not conversation_id:
+        return False
+    try:
+        from app.models import Message
+        rows = (Message.query
+                .filter_by(conversation_id=conversation_id, direction='inbound')
+                .order_by(Message.created_at.desc())
+                .limit(max_lookback)
+                .all())
+        return any(m.intent and 'order_status' in m.intent for m in rows)
+    except Exception as e:
+        log_event("warn", "services._recent_intent_was_order_status", str(e))
+        return False
+
+
+def _lookup_order_status(email: str, name_tokens: list[str]) -> dict:
+    """
+    Live order-status lookup (never cached). Returns one of:
+      {'state': 'no_account'}
+      {'state': 'name_mismatch'}
+      {'state': 'no_orders', 'customer_name': str}
+      {'state': 'found',     'customer_name': str, 'orders': [...]}
+    Name check is forgiving: first OR last name must appear among the tokens.
+    """
+    from app.integrations.shopify import find_customer_by_email, get_customer_orders
+
+    customer = find_customer_by_email(email)
+    if not customer:
+        return {'state': 'no_account'}
+
+    first = (customer.get('first_name') or '').strip().lower()
+    last  = (customer.get('last_name')  or '').strip().lower()
+    provided = {t.lower() for t in (name_tokens or [])}
+    name_ok = bool(provided) and ((first and first in provided) or (last and last in provided))
+    if not name_ok:
+        return {'state': 'name_mismatch'}
+
+    full_name = ' '.join(p for p in (customer.get('first_name'), customer.get('last_name')) if p).strip()
+    orders = get_customer_orders(customer['shopify_id'])
+    if not orders:
+        return {'state': 'no_orders', 'customer_name': full_name}
+
+    orders_sorted = sorted(orders, key=lambda o: o.get('order_date') or '', reverse=True)
+    return {
+        'state': 'found',
+        'customer_name': full_name,
+        'orders': orders_sorted[:MAX_ORDER_STATUS_ORDERS],
+    }
 
 def _extract_product_keywords(message: str, max_terms: int = 4) -> list[str]:
     """
@@ -889,3 +1065,4 @@ def _notify_assigned_agent_of_inbound(inbound_record, message_text):
             db.session.rollback()
         except Exception:
             pass
+
