@@ -312,6 +312,15 @@ def cron_sync_customers():
             db.session.query(CustomerCache.shopify_customer_id).all()
         )
 
+        # ── Incremental: watermark decides full backfill vs delta ──────────
+        from app.models import SyncState
+        from datetime import timedelta
+
+        state = SyncState.query.filter_by(kind='customers').first()
+        watermark = state.watermark if state else None
+        is_delta  = watermark is not None
+        delta_filter = (watermark - timedelta(minutes=5)).isoformat() if is_delta else None
+
         now = datetime.utcnow()
         added = updated = removed = 0
         CHUNK = 1000
@@ -375,7 +384,9 @@ def cron_sync_customers():
 
         total_received = 0
         try:
-            for snap, next_url in iter_all_customers(start_url=resume_url):
+            for snap, next_url in iter_all_customers(
+                    start_url=resume_url,
+                    updated_at_min=(None if resume_url else delta_filter)):
                 current_next_url = next_url
                 spid = str(snap['shopify_id'])
                 seen_ids.add(spid)
@@ -410,7 +421,7 @@ def cron_sync_customers():
             )
 
             update_progress("Restarting customers sync from scratch...")
-            for snap, next_url in iter_all_customers(start_url=None):
+            for snap, next_url in iter_all_customers(start_url=None, updated_at_min=delta_filter):
                 current_next_url = next_url
                 spid = str(snap['shopify_id'])
                 seen_ids.add(spid)
@@ -425,16 +436,18 @@ def cron_sync_customers():
                 flush_buffer()
                 update_progress(f"Processed {total_received:,} customers...")
 
-        # Deletes — ONLY on full syncs (not resumed)
-        did_full_sync = resume_url is None
-        if did_full_sync:
-            to_delete_list = list(existing_ids - seen_ids)
-            for d_start in range(0, len(to_delete_list), CHUNK):
-                CustomerCache.query.filter(
-                    CustomerCache.shopify_customer_id.in_(to_delete_list[d_start:d_start + CHUNK])
-                ).delete(synchronize_session=False)
-                removed += len(to_delete_list[d_start:d_start + CHUNK])
-                db.session.commit()
+        # Deletes are NOT done here anymore — the weekly reconcile owns them.
+        # (A delta run only sees changed customers, so existing_ids - seen_ids
+        #  would wrongly target almost the whole table.)
+
+        # ── Advance watermark — only reached on successful completion ──────
+        state = SyncState.query.filter_by(kind='customers').first()
+        if state is None:
+            state = SyncState(kind='customers', watermark=now)
+            db.session.add(state)
+        else:
+            state.watermark = now
+        db.session.commit()
 
         # Clear cursor on success
         save_cursor(None)
@@ -504,8 +517,21 @@ def cron_sync_orders():
             db.session.query(OrderCache.shopify_order_id).all()
         )
 
+        # ── Incremental: watermark decides full backfill vs delta ──────────
+        from app.models import SyncState
+        from datetime import timedelta
+
+        state = SyncState.query.filter_by(kind='orders').first()
+        watermark = state.watermark if state else None
+        is_delta  = watermark is not None
+
+        # Only fetch orders changed since the watermark (minus a 5-min overlap).
+        # NULL watermark → delta_filter stays None → full backfill.
+        delta_filter = (watermark - timedelta(minutes=5)).isoformat() if is_delta else None
+
         now = datetime.utcnow()
         added = updated = removed = 0
+        affected_customer_ids = set()
         CHUNK = 1000
         buffer = []
         seen_ids = set()
@@ -558,10 +584,15 @@ def cron_sync_orders():
 
         total_received = 0
         try:
-            for snap, next_url in iter_all_orders(start_url=resume_url):
+            for snap, next_url in iter_all_orders(
+                    start_url=resume_url,
+                    updated_at_min=(None if resume_url else delta_filter)):
                 current_next_url = next_url
                 spid = str(snap['shopify_id'])
                 seen_ids.add(spid)
+                cust = snap.get('shopify_customer_id')
+                if cust:
+                    affected_customer_ids.add(str(cust))
                 buffer.append((spid, snap))
                 total_received += 1
 
@@ -593,10 +624,13 @@ def cron_sync_orders():
             )
 
             update_progress("Restarting orders sync from scratch...")
-            for snap, next_url in iter_all_orders(start_url=None):
+            for snap, next_url in iter_all_orders(start_url=None, updated_at_min=delta_filter):
                 current_next_url = next_url
                 spid = str(snap['shopify_id'])
                 seen_ids.add(spid)
+                cust = snap.get('shopify_customer_id')
+                if cust:
+                    affected_customer_ids.add(str(cust))
                 buffer.append((spid, snap))
                 total_received += 1
 
@@ -608,71 +642,71 @@ def cron_sync_orders():
                 flush_buffer()
                 update_progress(f"Processed {total_received:,} orders...")
 
-        # ── FULL-SYNC-ONLY: deletes + Step 4 (recompute customer aggregates) ──
-        did_full_sync = resume_url is None
+        # ── Recompute customer aggregates + segment ───────────────────────
+        # Backfill → recompute everyone (one-time). Delta → only customers
+        # touched by this run. Deletes are NOT done here — the weekly
+        # reconcile owns them.
         customers_updated = 0
+        do_recompute = (not is_delta) or bool(affected_customer_ids)
 
-        if did_full_sync:
-            # Deletes
-            to_delete_ids = list(existing_ids - seen_ids)
-            for d_start in range(0, len(to_delete_ids), CHUNK):
-                batch_ids = to_delete_ids[d_start:d_start + CHUNK]
-                OrderCache.query.filter(
-                    OrderCache.shopify_order_id.in_(batch_ids)
-                ).delete(synchronize_session=False)
-                removed += len(batch_ids)
-                db.session.commit()
-
-            # Step 4: recompute customer aggregates + segment from real order data
+        if do_recompute:
             update_progress("Recomputing customer aggregates...")
             vip_threshold = _vip_threshold()
 
             from sqlalchemy import func as sqla_func
+            agg_q = db.session.query(
+                OrderCache.shopify_customer_id,
+                sqla_func.count(OrderCache.id),
+                sqla_func.coalesce(sqla_func.sum(OrderCache.total), 0),
+                sqla_func.max(OrderCache.order_date),
+                sqla_func.min(OrderCache.order_date),
+            ).filter(OrderCache.shopify_customer_id.isnot(None))
+
+            cust_q = CustomerCache.query
+            if is_delta:
+                agg_q  = agg_q.filter(OrderCache.shopify_customer_id.in_(affected_customer_ids))
+                cust_q = cust_q.filter(CustomerCache.shopify_customer_id.in_(affected_customer_ids))
+
             customer_aggs = dict(
                 (cid, (count, total_spent, last_date, first_date))
                 for cid, count, total_spent, last_date, first_date in
-                db.session.query(
-                    OrderCache.shopify_customer_id,
-                    sqla_func.count(OrderCache.id),
-                    sqla_func.coalesce(sqla_func.sum(OrderCache.total), 0),
-                    sqla_func.max(OrderCache.order_date),
-                    sqla_func.min(OrderCache.order_date),
-                )
-                .filter(OrderCache.shopify_customer_id.isnot(None))
-                .group_by(OrderCache.shopify_customer_id)
-                .all()
+                agg_q.group_by(OrderCache.shopify_customer_id).all()
             )
 
+            cust_q = cust_q.order_by(CustomerCache.id.asc())
             offset = 0
             while True:
-                batch = (CustomerCache.query
-                         .order_by(CustomerCache.id.asc())
-                         .offset(offset)
-                         .limit(CHUNK)
-                         .all())
+                batch = cust_q.offset(offset).limit(CHUNK).all()
                 if not batch:
                     break
-
                 for customer in batch:
                     agg = customer_aggs.get(customer.shopify_customer_id)
                     if agg:
                         count, total_spent, last_date, first_date = agg
-                        customer.total_orders = count
-                        customer.total_spent = Decimal(str(total_spent))
-                        customer.last_order_date = last_date
+                        customer.total_orders     = count
+                        customer.total_spent      = Decimal(str(total_spent))
+                        customer.last_order_date  = last_date
                         customer.first_order_date = first_date
                     else:
-                        customer.total_orders = 0
-                        customer.total_spent = Decimal('0')
-                        customer.last_order_date = None
+                        customer.total_orders     = 0
+                        customer.total_spent      = Decimal('0')
+                        customer.last_order_date  = None
                         customer.first_order_date = None
                     customer.segment = compute_segment(customer, vip_threshold)
                     customers_updated += 1
-
                 db.session.commit()
                 offset += CHUNK
                 update_progress(f"Recomputed {customers_updated:,} customer aggregates...")
                 db.session.expunge_all()
+
+        # ── Advance watermark — only reached on successful completion ──────
+        state = SyncState.query.filter_by(kind='orders').first()
+        if state is None:
+            state = SyncState(kind='orders', watermark=now)
+            db.session.add(state)
+        else:
+            state.watermark = now
+        db.session.commit()
 
         # Clear cursor on success
         save_cursor(None)

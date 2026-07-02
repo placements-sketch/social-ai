@@ -744,16 +744,16 @@ def _real_list_all_customers() -> list[dict]:
         log_event("error", "integrations.shopify", f"Failed to fetch customers: {str(e)}")
         raise
 
-def iter_all_customers(start_url=None):
+def iter_all_customers(start_url=None, updated_at_min=None):
     """
     Generator version of list_all_customers. Yields (customer_dict, next_url) tuples.
     """
     if USE_MOCK:
         return
-    yield from _real_iter_all_customers(start_url=start_url)
+    yield from _real_iter_all_customers(start_url=start_url, updated_at_min=updated_at_min)
 
 
-def _real_iter_all_customers(start_url=None):
+def _real_iter_all_customers(start_url=None, updated_at_min=None):
     """Streams customers page by page. Same shape as _real_list_all_customers.
     
     Yields (customer_dict, next_url) — next_url is None on the last page.
@@ -766,7 +766,13 @@ def _real_iter_all_customers(start_url=None):
             'Content-Type': 'application/json',
         }
 
-        url = start_url or f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+        from urllib.parse import quote
+        if start_url:
+            url = start_url
+        else:
+            url = f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+            if updated_at_min:
+                url += f"&updated_at_min={quote(updated_at_min)}"
         total_yielded = 0
 
         while url:
@@ -879,25 +885,29 @@ def _real_list_all_orders() -> list[dict]:
         raise
 
 
-def iter_all_orders(start_url=None):
+def iter_all_orders(start_url=None, updated_at_min=None):
     """
     Generator version of list_all_orders. Yields (order_dict, next_url) tuples.
-    
+
     Args:
         start_url: Optional resume URL from a previous interrupted sync.
-                   If None, starts from the first page.
+        updated_at_min: Optional ISO-8601 string. When set (and start_url is
+                        None), only orders changed at/after this time are
+                        fetched — this is the delta sync.
     """
     if USE_MOCK:
         return
-    yield from _real_iter_all_orders(start_url=start_url)
+    yield from _real_iter_all_orders(start_url=start_url, updated_at_min=updated_at_min)
 
 
-def _real_iter_all_orders(start_url=None):
+def _real_iter_all_orders(start_url=None, updated_at_min=None):
     """Streams orders page by page.
-    
+
     Yields (order_dict, next_url) — next_url is None on the last page.
     """
     try:
+        from urllib.parse import quote
+
         store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
         access_token = _get_shopify_access_token()
         headers = {
@@ -905,7 +915,15 @@ def _real_iter_all_orders(start_url=None):
             'Content-Type': 'application/json',
         }
 
-        url = start_url or f"{store_url}/admin/api/2024-01/orders.json?status=any&limit=250"
+        # Build the first-page URL. updated_at_min is ONLY applied here, never
+        # on subsequent pages or resumes — see note below.
+        if start_url:
+            url = start_url
+        else:
+            url = f"{store_url}/admin/api/2024-01/orders.json?status=any&limit=250"
+            if updated_at_min:
+                url += f"&updated_at_min={quote(updated_at_min)}"
+
         total_yielded = 0
 
         while url:

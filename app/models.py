@@ -681,7 +681,31 @@ class SyncJob(db.Model):
     def __repr__(self):
         return f"<SyncJob #{self.id} {self.kind} {self.status}>"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SYNC STATE — per-entity incremental-sync watermark
+# ─────────────────────────────────────────────────────────────────────────────
 
+class SyncState(db.Model):
+    """
+    One row per sync entity ('orders' | 'customers' | 'products').
+    Holds the high-water mark: the moment we last *successfully* pulled that
+    entity from Shopify. Each delta run asks Shopify for records with
+    updated_at >= (watermark - safety buffer), so only changes get fetched.
+
+    watermark is NULL until the first successful sync — NULL means
+    "never synced, do a full backfill".
+    """
+    __tablename__ = "sync_state"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    kind       = db.Column(db.String(64), unique=True, nullable=False)
+    watermark  = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<SyncState {self.kind} watermark={self.watermark}>"
+    
 # ─────────────────────────────────────────────────────────────────────────────
 # META CONNECTIONS — stores OAuth-issued tokens per IG/Page connection
 # ─────────────────────────────────────────────────────────────────────────────
