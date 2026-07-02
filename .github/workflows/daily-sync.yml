@@ -4,10 +4,11 @@ name: Daily Sync
 # So 3:00 AM EAT = 00:00 UTC, 3:15 AM EAT = 00:15 UTC, 3:45 AM EAT = 00:45 UTC.
 on:
   schedule:
-    - cron: '0 0 * * *'    # 03:00 EAT — products
-    - cron: '15 0 * * *'   # 03:15 EAT — customers
-    - cron: '45 0 * * *'   # 03:45 EAT — orders
-    - cron: '*/30 * * * *' # every 30 minutes — watchdog
+    - cron: '0 */3 * * *'    # every 3h on the hour — customers
+    - cron: '5 */3 * * *'    # every 3h, :05 — orders
+    - cron: '10 */3 * * *'   # every 3h, :10 — products
+    - cron: '*/30 * * * *'   # every 30 minutes — watchdog
+
   # Allow manual triggering from the GitHub UI for testing
   workflow_dispatch:
     inputs:
@@ -39,15 +40,15 @@ jobs:
           if [ -n "$MANUAL_INPUT" ]; then
             echo "Manual run, sync_type=$MANUAL_INPUT"
             echo "sync=$MANUAL_INPUT" >> $GITHUB_OUTPUT
-          elif [ "$SCHEDULE" = "0 0 * * *" ]; then
-            echo "Scheduled run for products"
-            echo "sync=products" >> $GITHUB_OUTPUT
-          elif [ "$SCHEDULE" = "15 0 * * *" ]; then
+          elif [ "$SCHEDULE" = "0 */3 * * *" ]; then
             echo "Scheduled run for customers"
             echo "sync=customers" >> $GITHUB_OUTPUT
-          elif [ "$SCHEDULE" = "45 0 * * *" ]; then
+          elif [ "$SCHEDULE" = "5 */3 * * *" ]; then
             echo "Scheduled run for orders"
             echo "sync=orders" >> $GITHUB_OUTPUT
+          elif [ "$SCHEDULE" = "10 */3 * * *" ]; then
+            echo "Scheduled run for products"
+            echo "sync=products" >> $GITHUB_OUTPUT
           else
             echo "Unknown trigger, defaulting to products"
             echo "sync=products" >> $GITHUB_OUTPUT
