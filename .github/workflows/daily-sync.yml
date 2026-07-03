@@ -7,7 +7,6 @@ on:
     - cron: '0 */3 * * *'    # every 3h on the hour — customers
     - cron: '5 */3 * * *'    # every 3h, :05 — orders
     - cron: '10 */3 * * *'   # every 3h, :10 — products
-    - cron: '*/30 * * * *'   # every 30 minutes — watchdog
     - cron: '0 2 * * 0'    # Sunday 05:00 EAT — weekly reconcile
 
   # Allow manual triggering from the GitHub UI for testing
@@ -55,8 +54,8 @@ jobs:
             echo "Scheduled run for reconcile"
             echo "sync=reconcile" >> $GITHUB_OUTPUT
           else
-            echo "Unknown trigger, defaulting to products"
-            echo "sync=products" >> $GITHUB_OUTPUT
+            echo "Unknown trigger, running nothing"
+            echo "sync=none" >> $GITHUB_OUTPUT
           fi
 
       - name: Trigger products sync
