@@ -690,32 +690,54 @@ export default function Dashboard() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="section-title">Conversion Rate</p>
-              <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">↑ 12%</span>
+              <span className="text-[10px] font-semibold text-gray-400">{PERIOD_LABELS[period]}</span>
             </div>
-            <div className="space-y-3">
-              {[
-                { label: 'Conversations', value: 42, total: 156, color: 'bg-orange-500' },
-                { label: 'Purchases', value: 42, total: 156, color: 'bg-black' },
-                { label: 'Conversion', value: '26.9%', total: null, color: 'bg-orange-600' },
-              ].map(({ label, value, total, color }) => (
-                <div key={label}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-medium text-gray-600">{label}</span>
-                    <span className="text-xs font-bold text-gray-900">
-                      {total ? `${value}/${total}` : value}
+            {(() => {
+              const conv = analyticsData?.conversion || {}
+              const recommended = conv.recommended_conversations || 0
+              const converted = conv.converted_conversations || 0
+              const rate = (conv.conversion_rate || 0) * 100
+              const revenue = conv.attributed_revenue || 0
+              const orders = conv.attributed_orders || 0
+              const rows = [
+                { label: 'Recommended', value: recommended, total: null, color: 'bg-orange-500' },
+                { label: 'Converted',   value: converted, total: recommended, color: 'bg-black' },
+                { label: 'Conversion',  value: `${rate.toFixed(1)}%`, total: null, color: 'bg-orange-600' },
+              ]
+              return (
+                <>
+                  <div className="space-y-3">
+                    {rows.map(({ label, value, total, color }) => (
+                      <div key={label}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-gray-600">{label}</span>
+                          <span className="text-xs font-bold text-gray-900">
+                            {total ? `${value}/${total}` : value}
+                          </span>
+                        </div>
+                        {total ? (
+                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={clsx('h-full rounded-full transition-all', color)}
+                              style={{ width: `${(value / total) * 100}%` }}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-600">Revenue driven</span>
+                    <span className="text-sm font-bold text-gray-900">
+                      KES {Math.round(revenue).toLocaleString()}
                     </span>
                   </div>
-                  {total && (
-                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={clsx('h-full rounded-full transition-all', color)}
-                        style={{ width: `${(value / total) * 100}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    {orders} attributed order{orders === 1 ? '' : 's'}
+                  </p>
+                </>
+              )
+            })()}
           </div>
         </div>
       </div>

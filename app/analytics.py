@@ -185,6 +185,7 @@ def summary():
             'human_override_total': human_override,
             'escalated_total':     escalated,
             'conversations_total': total_convs,
+            'conversion': conversion,
         }
 
     now = datetime.utcnow()
@@ -199,6 +200,44 @@ def summary():
     # Flat kpis dict for backward compatibility with the Analytics page.
     # Adds a `previous` nested object that the Dashboard uses for change arrows.
     kpis = {**current, 'previous': previous}
+
+    # ── Conversion attribution (real, from conversion_attributions) ──────
+    # Denominator B: conversations where the AI recommended a product (sent a
+    # message carrying a utm_token) in the window. Numerator: distinct
+    # conversations that produced an attributed order. Global (not agent-scoped)
+    # since it's a business KPI.
+    from app.models import ConversionAttribution
+
+    recommended_convos = (
+        db.session.query(Message.conversation_id)
+          .filter(Message.utm_token.isnot(None))
+          .filter(Message.created_at >= cutoff)
+          .filter(Message.created_at < now)
+          .distinct().count()
+    )
+    converted_convos = (
+        db.session.query(ConversionAttribution.conversation_id)
+          .filter(ConversionAttribution.order_date >= cutoff)
+          .filter(ConversionAttribution.conversation_id.isnot(None))
+          .distinct().count()
+    )
+    attributed_orders = (
+        db.session.query(ConversionAttribution)
+          .filter(ConversionAttribution.order_date >= cutoff)
+          .count()
+    )
+    attributed_revenue = float(
+        db.session.query(func.coalesce(func.sum(ConversionAttribution.order_total), 0))
+          .filter(ConversionAttribution.order_date >= cutoff)
+          .scalar() or 0
+    )
+    conversion = {
+        'recommended_conversations': recommended_convos,
+        'converted_conversations':   converted_convos,
+        'conversion_rate':           round((converted_convos / recommended_convos) if recommended_convos else 0.0, 4),
+        'attributed_orders':         attributed_orders,
+        'attributed_revenue':        attributed_revenue,
+    }
 
     # Keep these in scope for the chart/intent/etc. blocks below
     inbound_total = current['inbound_total']

@@ -1321,3 +1321,43 @@ def find_customer_by_email(email: str) -> dict | None:
         log_event("warn", "integrations.shopify.customer_search_failed",
                   f"Customer email lookup failed: {str(e)[:200]}")
         return None
+
+def iter_orders_for_attribution(updated_at_min=None):
+    """
+    Yield lightweight order dicts for conversion attribution — crucially
+    includes `landing_site`, the URL that carries our UTM token (the main
+    orders sync doesn't store it). Field-limited to keep payloads small.
+    Yields {id, order_number, total, currency, order_date, landing_site}.
+    Raises on any page error (caller should treat a failed run as incomplete).
+    """
+    if USE_MOCK:
+        return
+    from urllib.parse import quote
+    store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+    headers = {
+        'X-Shopify-Access-Token': _get_shopify_access_token(),
+        'Content-Type': 'application/json',
+    }
+    fields = "id,name,total_price,currency,created_at,landing_site"
+    url = f"{store_url}/admin/api/2024-01/orders.json?status=any&fields={fields}&limit=250"
+    if updated_at_min:
+        url += f"&updated_at_min={quote(updated_at_min)}"
+    while url:
+        response = _get_shopify_session().get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        for o in response.json().get('orders', []):
+            yield {
+                "id": str(o.get('id')),
+                "order_number": o.get('name'),
+                "total": o.get('total_price'),
+                "currency": o.get('currency'),
+                "order_date": o.get('created_at'),
+                "landing_site": o.get('landing_site'),
+            }
+        link = response.headers.get('Link', '')
+        url = None
+        if 'rel="next"' in link:
+            for part in link.split(','):
+                if 'rel="next"' in part:
+                    url = part.split(';')[0].strip().strip('<>')
+                    break

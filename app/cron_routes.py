@@ -812,6 +812,93 @@ def cron_reconcile():
     log_event("info", "cron.reconcile.started", f"Cron triggered reconcile job {job.id}")
     return jsonify({'job_id': job.id, 'status': job.status, 'triggered_by': 'cron'}), 202
 
+@cron_bp.route('/attribute', methods=['POST'])
+@require_cron_secret
+def cron_attribute():
+    """
+    Conversion attribution: scan recent Shopify orders; for any whose landing
+    URL carries OUR utm token, link the order back to the DM/message that drove
+    it, writing a row into conversion_attributions. Idempotent per order.
+    """
+    from app.integrations.shopify import iter_orders_for_attribution
+    from app.models import ConversionAttribution, Message
+    from app.utm import extract_utm_token_from_url, parse_utm_token
+    from app.orders import _parse_dt
+    from decimal import Decimal
+    from datetime import timedelta
+
+    def do_sync(job):
+        from app.models import SyncJob
+        job_id = job.id
+
+        def update_progress(text):
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.progress = text
+                db.session.commit()
+
+        # Look back a window so orders that convert a few days after the DM get
+        # caught. Idempotent: orders already attributed are skipped.
+        window_days = 7
+        updated_min = (datetime.utcnow() - timedelta(days=window_days)).isoformat()
+
+        existing = set(
+            oid for (oid,) in
+            db.session.query(ConversionAttribution.shopify_order_id).all()
+        )
+
+        scanned = attributed = 0
+        update_progress("Scanning recent orders for UTM attribution...")
+
+        for o in iter_orders_for_attribution(updated_at_min=updated_min):
+            scanned += 1
+            if o['id'] in existing:
+                continue
+            token = extract_utm_token_from_url(o.get('landing_site'))
+            if not token:
+                continue  # not one of our DM-driven orders
+            parsed = parse_utm_token(token)
+            if not parsed:
+                continue
+
+            # Only set FKs if the message still exists (avoid dangling refs).
+            msg = Message.query.get(parsed['message_id'])
+            conv_id = parsed['conversation_id'] if msg else None
+            msg_id  = parsed['message_id'] if msg else None
+
+            order_dt = _parse_dt(o.get('order_date'))
+            minutes = None
+            if msg is not None and msg.created_at and order_dt:
+                minutes = max(0, int((order_dt - msg.created_at).total_seconds() // 60))
+
+            db.session.add(ConversionAttribution(
+                shopify_order_id=o['id'],
+                order_number=o.get('order_number'),
+                order_total=Decimal(str(o.get('total') or 0)),
+                order_currency=o.get('currency'),
+                order_date=order_dt or datetime.utcnow(),
+                conversation_id=conv_id,
+                message_id=msg_id,
+                utm_token=token,
+                minutes_to_convert=minutes,
+            ))
+            existing.add(o['id'])
+            attributed += 1
+            if attributed % 100 == 0:
+                db.session.commit()
+                update_progress(f"Attributed {attributed} (scanned {scanned})...")
+
+        db.session.commit()
+        return {"scanned": scanned, "attributed": attributed}
+
+    job, started = start_background_job(kind='attribute', work_fn=do_sync, user_id=None)
+    if not started:
+        return jsonify({'job_id': job.id, 'status': job.status,
+                        'message': 'An attribution run is already running.'}), 409
+
+    log_event("info", "cron.attribute.started", f"Cron triggered attribution job {job.id}")
+    return jsonify({'job_id': job.id, 'status': job.status, 'triggered_by': 'cron'}), 202
+
 
 @cron_bp.route('/watchdog', methods=['POST'])
 @require_cron_secret
