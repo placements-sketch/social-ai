@@ -22,6 +22,7 @@ from sqlalchemy import func, case
 from app import db
 from app.models import AuthUser, Conversation, Message, Channel
 from app.auth import current_user_id
+from app.utils.logger import log_event
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/api')
 
@@ -84,6 +85,8 @@ def summary():
     Returns the data the Analytics page needs in one response:
       kpis           : avg_response_time_ms, ai_success_rate, override_rate,
                        messages_total, ai_replies_total, human_replies_total
+      conversion     : real conversion attribution (recommended vs converted
+                       conversations, rate, attributed orders + revenue)
       weekly         : last N days of (date, inbound, ai_replied)
       intent_breakdown : top intents with counts and percents
       channel_split  : per-channel message counts and percents
@@ -185,7 +188,6 @@ def summary():
             'human_override_total': human_override,
             'escalated_total':     escalated,
             'conversations_total': total_convs,
-            'conversion': conversion,
         }
 
     now = datetime.utcnow()
@@ -205,43 +207,53 @@ def summary():
     # Denominator B: conversations where the AI recommended a product (sent a
     # message carrying a utm_token) in the window. Numerator: distinct
     # conversations that produced an attributed order. Global (not agent-scoped)
-    # since it's a business KPI.
-    from app.models import ConversionAttribution
-
-    recommended_convos = (
-        db.session.query(Message.conversation_id)
-          .filter(Message.utm_token.isnot(None))
-          .filter(Message.created_at >= cutoff)
-          .filter(Message.created_at < now)
-          .distinct().count()
-    )
-    converted_convos = (
-        db.session.query(ConversionAttribution.conversation_id)
-          .filter(ConversionAttribution.order_date >= cutoff)
-          .filter(ConversionAttribution.conversation_id.isnot(None))
-          .distinct().count()
-    )
-    attributed_orders = (
-        db.session.query(ConversionAttribution)
-          .filter(ConversionAttribution.order_date >= cutoff)
-          .count()
-    )
-    attributed_revenue = float(
-        db.session.query(func.coalesce(func.sum(ConversionAttribution.order_total), 0))
-          .filter(ConversionAttribution.order_date >= cutoff)
-          .scalar() or 0
-    )
-    conversion = {
-        'recommended_conversations': recommended_convos,
-        'converted_conversations':   converted_convos,
-        'conversion_rate':           round((converted_convos / recommended_convos) if recommended_convos else 0.0, 4),
-        'attributed_orders':         attributed_orders,
-        'attributed_revenue':        attributed_revenue,
-    }
+    # since it's a business KPI. Wrapped so a query issue can never 500 the
+    # whole dashboard — it just degrades the tile to zeros.
+    try:
+        from app.models import ConversionAttribution
+        recommended_convos = (
+            db.session.query(Message.conversation_id)
+              .filter(Message.utm_token.isnot(None))
+              .filter(Message.created_at >= cutoff)
+              .filter(Message.created_at < now)
+              .distinct().count()
+        )
+        converted_convos = (
+            db.session.query(ConversionAttribution.conversation_id)
+              .filter(ConversionAttribution.order_date >= cutoff)
+              .filter(ConversionAttribution.conversation_id.isnot(None))
+              .distinct().count()
+        )
+        attributed_orders = (
+            db.session.query(ConversionAttribution)
+              .filter(ConversionAttribution.order_date >= cutoff)
+              .count()
+        )
+        attributed_revenue = float(
+            db.session.query(func.coalesce(func.sum(ConversionAttribution.order_total), 0))
+              .filter(ConversionAttribution.order_date >= cutoff)
+              .scalar() or 0
+        )
+        conversion = {
+            'recommended_conversations': recommended_convos,
+            'converted_conversations':   converted_convos,
+            'conversion_rate':           round((converted_convos / recommended_convos) if recommended_convos else 0.0, 4),
+            'attributed_orders':         attributed_orders,
+            'attributed_revenue':        attributed_revenue,
+        }
+    except Exception as e:
+        log_event("warn", "analytics.conversion_failed", str(e))
+        conversion = {
+            'recommended_conversations': 0,
+            'converted_conversations':   0,
+            'conversion_rate':           0.0,
+            'attributed_orders':         0,
+            'attributed_revenue':        0.0,
+        }
 
     # Keep these in scope for the chart/intent/etc. blocks below
     inbound_total = current['inbound_total']
-    ai_replies    = current['ai_replies_total']    
+    ai_replies    = current['ai_replies_total']
 
     # ── Weekly chart data ─────────────────────────────────────────────────
     # One row per day in the window with both totals and per-channel inbound
@@ -375,6 +387,7 @@ def summary():
         'window_days': days,
         'scope': 'agent' if user.role == 'agent' else 'company',
         'kpis': kpis,
+        'conversion': conversion,
         'weekly': weekly,
         'intent_breakdown': intent_breakdown,
         'channel_split': channel_split,
