@@ -335,30 +335,50 @@ export default function Analytics() {
       </div>
 
       {/* Top products section */}
-      {top_products && top_products.length > 0 && (
-        <div className="card p-5">
-          <h2 className="text-sm font-bold text-gray-900 mb-4">Top Products Customers Ask About</h2>
-          <div className="space-y-3">
-            {top_products.map((product, i) => (
-              <div key={product.name} className="flex items-center gap-3">
-                <span className="text-xs font-bold text-gray-400 w-4">{i + 1}</span>
-                <div className="flex-1">
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-gray-800 font-semibold">{product.name}</span>
-                    <span className="text-gray-500 font-medium">{product.mentions} mentions</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-brand-500 rounded-full transition-all"
-                      style={{ width: `${(product.mentions / top_products[0].mentions) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+      <div className="card p-5">
+        <div className="flex items-baseline justify-between mb-3.5">
+          <h2 className="text-sm font-bold text-gray-900">Top Products Customers Ask About</h2>
+          {top_products?.length > 0 && (
+            <span className="text-[11px] text-gray-400 font-medium">by customer interest</span>
+          )}
         </div>
-      )}
+        {top_products && top_products.length > 0 ? (
+          <div className="space-y-1.5">
+            {top_products.map((product, i) => {
+              const pct = Math.max(Math.round((product.mentions / top_products[0].mentions) * 100), 8)
+              const isTop = i === 0
+              return (
+                <div key={product.name} className="relative flex items-center gap-3 rounded-xl px-3 py-2.5 overflow-hidden">
+                  <div
+                    className={clsx('absolute inset-y-0 left-0 rounded-xl', isTop ? 'bg-brand-500/10' : 'bg-gray-50')}
+                    style={{ width: `${pct}%` }}
+                  />
+                  <span className={clsx(
+                    'relative z-10 shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                    isTop ? 'bg-brand-500 text-white' : 'bg-white text-gray-500 border border-gray-200'
+                  )}>
+                    {i + 1}
+                  </span>
+                  <span className="relative z-10 flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">
+                    {product.name}
+                  </span>
+                  {isTop && (
+                    <span className="relative z-10 shrink-0 text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">
+                      Most asked
+                    </span>
+                  )}
+                  <span className="relative z-10 shrink-0 text-sm font-bold text-gray-900 tabular-nums">
+                    {product.mentions}
+                    <span className="text-[10px] font-medium text-gray-400 ml-1">asks</span>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-center text-xs text-gray-400 py-8">No product data yet for this period</p>
+        )}
+      </div>
 
       {/* Summary metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
