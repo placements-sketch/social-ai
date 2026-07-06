@@ -370,18 +370,39 @@ def summary():
         key=lambda x: x['count'], reverse=True,
     )
 
-    # ── Top products (by product_keyword mention) ─────────────────────────
-    prod_q = _scope_filter(
-        db.session.query(Message.product_keyword, func.count(Message.id))
-        .filter(Message.created_at >= cutoff)
-        .filter(Message.product_keyword.isnot(None))
-        .group_by(Message.product_keyword),
-        Message, user,
+    # ── Top products (by ACTUAL product recommended) ──────────────────────
+    # product_url carries the real handle (…/products/{handle}?utm=…), whereas
+    # product_keyword is just the raw search word. Count by handle, then map to
+    # the real product name from the cache.
+    from app.models import ProductCache
+    handle_expr = func.split_part(
+        func.split_part(Message.product_url, '/products/', 2), '?', 1
     )
-    top_products = sorted(
-        [{'name': name, 'mentions': int(c)} for name, c in prod_q.all() if name],
-        key=lambda x: x['mentions'], reverse=True,
-    )[:5]
+    prod_rows = _scope_filter(
+        db.session.query(handle_expr.label('handle'), func.count(Message.id))
+        .filter(Message.created_at >= cutoff)
+        .filter(Message.product_url.isnot(None))
+        .group_by(handle_expr),
+        Message, user,
+    ).all()
+
+    handle_counts = {h: int(c) for h, c in prod_rows if h}
+    top_handles = sorted(handle_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
+
+    name_by_handle = {}
+    if top_handles:
+        name_rows = (
+            ProductCache.query
+            .with_entities(ProductCache.handle, ProductCache.name)
+            .filter(ProductCache.handle.in_([h for h, _ in top_handles]))
+            .all()
+        )
+        name_by_handle = {h: n for h, n in name_rows}
+
+    top_products = [
+        {'name': name_by_handle.get(h, h), 'mentions': cnt}
+        for h, cnt in top_handles
+    ]
 
     return jsonify({
         'window_days': days,
