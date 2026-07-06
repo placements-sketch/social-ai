@@ -192,13 +192,24 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # A single message can contain multiple intents:
     # "Hi, is this available in blue and how much is delivery to Kilimani?"
     # → ["greeting", "stock_inquiry", "product_inquiry", "delivery_inquiry", "price_inquiry"]
-    intents = detect_intents(message)
+   # ── Step 3: Classify the message (intents + handoff) via Claude ────────
+    # Semantic classification replaces brittle keyword matching — understands
+    # meaning, so far fewer "unknown"s, and flags handoff for things no keyword
+    # covers (e.g. "get me a human", abuse). Degrades to keywords on any failure.
+    from app.ai.classifier import classify_message
+    _class_history = _conversation_history_for_ai(
+        inbound_record.conversation_id if inbound_record else None, limit=4)
+    classification = classify_message(message, history=_class_history)
+    intents = classification["intents"]
+    _llm_handoff = classification["handoff"]
+
     log_event("info", "services.intents",
               f"Intents detected: {intents}",
               payload={
                   "user_external_id": user_id,
                   "channel": channel,
                   "intents": intents,
+                  "handoff_signal": _llm_handoff,
               },
               conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
@@ -206,7 +217,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     _patch_inbound_intent(inbound_record, intents)
 
     # ── Step 3.5: Handoff check — should this conversation go to a human? ──
-    handoff = _check_handoff_for_inbound(message, intents, inbound_record)
+    handoff = _check_handoff_for_inbound(message, intents, inbound_record, llm_handoff=_llm_handoff)
     if handoff:
         bridging = handoff["bridging_reply"]
         new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=bridging,
@@ -1066,3 +1077,19 @@ def _notify_assigned_agent_of_inbound(inbound_record, message_text):
         except Exception:
             pass
 
+def _check_handoff_for_inbound(message, intents, inbound_record, llm_handoff=None):
+    """
+    Resolve the conversation from the freshly-persisted inbound message
+    and run the handoff check against it. Returns the handoff dict, or None.
+    """
+    if inbound_record is None:
+        return None
+    try:
+        from app.models import Conversation
+        conv = Conversation.query.get(inbound_record.conversation_id)
+        if conv is None:
+            return None
+        return check_handoff(message, intents, conv, llm_handoff=llm_handoff)
+    except Exception as e:
+        log_event("error", "services._check_handoff_for_inbound", str(e))
+        return None

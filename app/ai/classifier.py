@@ -1,0 +1,100 @@
+"""
+app/ai/classifier.py
+LLM-based inbound classification via Claude Haiku — replaces brittle keyword
+intent detection with semantic understanding, and adds smart handoff detection
+(explicit human requests, abuse, strong frustration).
+
+Falls back to keyword detection on ANY failure (or in mock mode) so the
+message pipeline never breaks.
+"""
+
+import os
+import json
+
+from app.utils.intent import detect_intents
+from app.utils.logger import log_event
+
+USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
+
+VALID_INTENTS = {
+    "greeting", "stock_inquiry", "price_inquiry", "product_inquiry",
+    "delivery_inquiry", "order_status", "complaint", "unknown",
+}
+VALID_HANDOFF_REASONS = {"explicit_human_request", "abuse", "frustration", "complaint"}
+
+_SYSTEM = """You classify inbound customer messages for a Kenyan fashion & beauty store's support assistant. Reply with ONLY a JSON object — no prose, no code fences.
+
+Schema:
+{"intents": [ ... ], "handoff": {"should": true|false, "reason": "explicit_human_request"|"abuse"|"frustration"|"complaint"|null}}
+
+Allowed intents: greeting, stock_inquiry, price_inquiry, product_inquiry, delivery_inquiry, order_status, complaint, unknown.
+
+Intent guidance:
+- Include EVERY intent that applies (a message can have several).
+- Read meaning, not keywords: "you restock the tan mules?" -> ["stock_inquiry","product_inquiry"].
+- Use "unknown" ONLY when nothing else fits.
+
+Handoff — set should=true ONLY when a human is genuinely needed:
+- explicit_human_request: they want a person ("get me a human", "can I talk to someone", "is anyone real").
+- abuse: insults, hostility, threats, profanity aimed at the store ("you're stupid").
+- frustration: STRONG frustration / clear escalation demand ("this is unacceptable", angrily demanding a refund).
+- complaint: a real problem needing a person (wrong/damaged/missing item, payment issue).
+Otherwise should=false with reason=null — mild dissatisfaction and ordinary questions should let the assistant try first."""
+
+
+def _fallback(message):
+    return {"intents": detect_intents(message), "handoff": {"should": False, "reason": None}}
+
+
+def classify_message(message: str, history=None) -> dict:
+    """
+    Returns {"intents": [...], "handoff": {"should": bool, "reason": str|None}}.
+    Never raises — degrades to keyword detection on any problem.
+    """
+    text = (message or "").strip()
+    if not text:
+        return {"intents": ["unknown"], "handoff": {"should": False, "reason": None}}
+    if USE_MOCK_AI:
+        return _fallback(text)
+
+    try:
+        import anthropic
+        from flask import current_app
+
+        client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
+        model = current_app.config.get("CLASSIFIER_MODEL") or current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
+
+        # A little history helps judge escalation (e.g. repeated frustration).
+        msgs = []
+        if history:
+            for h in history[-4:]:
+                role, content = h.get("role"), h.get("content")
+                if role in ("user", "assistant") and content:
+                    msgs.append({"role": role, "content": content})
+        msgs.append({"role": "user", "content": text})
+
+        resp = client.messages.create(
+            model=model,
+            max_tokens=200,
+            system=_SYSTEM,
+            messages=msgs,
+        )
+        raw = resp.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+        data = json.loads(raw)
+
+        intents = [i for i in data.get("intents", []) if i in VALID_INTENTS] or ["unknown"]
+        h = data.get("handoff") or {}
+        should = bool(h.get("should"))
+        reason = h.get("reason") if h.get("reason") in VALID_HANDOFF_REASONS else None
+        if should and reason is None:
+            reason = "ai_detected"
+
+        log_event("info", "ai.classifier",
+                  f"Classified: intents={intents} handoff={should}",
+                  payload={"intents": intents, "handoff_should": should, "handoff_reason": reason})
+        return {"intents": intents, "handoff": {"should": should, "reason": reason}}
+
+    except Exception as e:
+        log_event("warn", "ai.classifier.fallback",
+                  f"Classifier failed, keyword fallback: {str(e)[:200]}")
+        return _fallback(text)

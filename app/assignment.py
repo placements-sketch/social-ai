@@ -24,11 +24,27 @@ from app.notifications import create_notification
 assignment_bp = Blueprint('assignment', __name__, url_prefix='/api')
 
 
+import os
+from datetime import datetime, timedelta
+
+# Max open conversations before an agent is skipped for auto-assignment.
+MAX_AGENT_LOAD = int(os.getenv('MAX_AGENT_LOAD', '10'))
+# "Present" = seen within this many seconds (matches online + idle window).
+PRESENCE_WINDOW_SECONDS = int(os.getenv('PRESENCE_WINDOW_SECONDS', '300'))
+
+
 def pick_next_agent():
     """
-    Round-robin (stateless): pick the active agent with the fewest open
-    assignments. Used by auto-assign on handoff. Returns AuthUser or None.
+    Choose the best agent for an auto-assignment, professional-balancer style:
+      1. Only agents who are PRESENT (seen within PRESENCE_WINDOW_SECONDS).
+      2. Skip anyone at/over MAX_AGENT_LOAD open conversations (no overloading).
+      3. Among the rest, fewest open conversations wins; ties broken by
+         least-recently-assigned so it rotates fairly.
+    Returns an AuthUser, or None if nobody is eligible (→ caller queues it).
     """
+    present_cutoff = datetime.utcnow() - timedelta(seconds=PRESENCE_WINDOW_SECONDS)
+
+    # Open-conversation load per assignee (unresolved = real workload).
     open_counts = dict(
         db.session.query(Conversation.assigned_to, func.count(Conversation.id))
         .filter(Conversation.assigned_to.isnot(None))
@@ -36,12 +52,35 @@ def pick_next_agent():
         .group_by(Conversation.assigned_to)
         .all()
     )
+
+    # Most-recent auto/any assignment time per agent, for fair tie-breaking.
+    last_assigned = dict(
+        db.session.query(Conversation.assigned_to, func.max(Conversation.assigned_at))
+        .filter(Conversation.assigned_to.isnot(None))
+        .group_by(Conversation.assigned_to)
+        .all()
+    )
+
     agents = (AuthUser.query
               .filter(AuthUser.role == 'agent', AuthUser.status == 'active')
+              .filter(AuthUser.last_seen_at.isnot(None))
+              .filter(AuthUser.last_seen_at >= present_cutoff)
               .all())
-    if not agents:
-        return None
-    return min(agents, key=lambda a: open_counts.get(a.id, 0))
+
+    # Only agents with headroom under the cap.
+    eligible = [a for a in agents if open_counts.get(a.id, 0) < MAX_AGENT_LOAD]
+    if not eligible:
+        return None  # everyone present is saturated (or nobody present) → queue it
+
+    # Fewest open convs first; tie-break by who was assigned longest ago
+    # (None/never-assigned sorts earliest, so fresh agents get work first).
+    def sort_key(a):
+        return (
+            open_counts.get(a.id, 0),
+            last_assigned.get(a.id) or datetime.min,
+        )
+
+    return min(eligible, key=sort_key)
 
 
 @assignment_bp.route('/conversations/<int:conversation_id>/assign', methods=['POST'])
@@ -64,7 +103,6 @@ def assign(conversation_id):
     if not isinstance(agent_id, int):
         return jsonify({'error': 'agent_id (integer) is required'}), 400
 
-    # Agents can only assign to themselves
     if current_user.role == 'agent' and agent_id != current_user.id:
         return jsonify({'error': 'Agents can only self-claim conversations'}), 403
 
@@ -77,68 +115,16 @@ def assign(conversation_id):
         return jsonify({'error': 'Target user cannot be assigned conversations'}), 400
 
     now = datetime.utcnow()
-    previous_assignee = conv.assigned_to  # for reassignment notifications
+    previous_assignee = conv.assigned_to
+    prev_user = AuthUser.query.get(previous_assignee) if previous_assignee else None  # fetch once (#3)
+    is_reassign = previous_assignee is not None and previous_assignee != target.id
 
     conv.assigned_to = target.id
     conv.assigned_at = now
     conv.assigned_by = current_user.id
     conv.updated_at = now
 
-    # Notify the new assignee (unless they assigned to themselves)
-    if target.id != current_user.id:
-        is_reassign = previous_assignee is not None and previous_assignee != target.id
-        handle = conv.user.handle if conv.user else 'a customer'
-        create_notification(
-            user_id=target.id,
-            type_='reassigned' if is_reassign else 'assigned',
-            title=f"Conversation assigned to you",
-            body=f"From {handle} on {conv.channel.replace('_', ' ')}",
-            resource_type='conversation',
-            resource_id=conv.id,
-        )
-        
-        # Also notify all admins and supervisors
-        admin_supervisors = AuthUser.query.filter(
-            AuthUser.role.in_(['admin', 'supervisor']),
-            AuthUser.id != target.id  # Don't duplicate if target is admin/supervisor
-        ).all()
-        for admin in admin_supervisors:
-            create_notification(
-                user_id=admin.id,
-                type_='reassigned' if is_reassign else 'assigned',
-                title=f"Conversation assigned to {target.full_name}",
-                body=f"From {handle} on {conv.channel.replace('_', ' ')}",
-                resource_type='conversation',
-                resource_id=conv.id,
-            )
-
-    # If this is a reassignment, notify the previous assignee that they're off the hook
-    if previous_assignee is not None and previous_assignee != target.id:
-        handle = conv.user.handle if conv.user else 'a customer'
-        create_notification(
-            user_id=previous_assignee,
-            type_='unassigned',
-            title=f"Conversation reassigned",
-            body=f"{handle} has been moved to {target.full_name}",
-            resource_type='conversation',
-            resource_id=conv.id,
-        )
-        
-        # Also notify all admins and supervisors
-        admin_supervisors = AuthUser.query.filter(
-            AuthUser.role.in_(['admin', 'supervisor']),
-            AuthUser.id != previous_assignee  # Don't duplicate
-        ).all()
-        for admin in admin_supervisors:
-            create_notification(
-                user_id=admin.id,
-                type_='unassigned',
-                title=f"Conversation reassigned",
-                body=f"{handle} moved from {AuthUser.query.get(previous_assignee).full_name} to {target.full_name}",
-                resource_type='conversation',
-                resource_id=conv.id,
-            )
-
+    # Commit the assignment FIRST — notifications must never roll it back (#1).
     db.session.commit()
 
     log_audit(
@@ -148,23 +134,74 @@ def assign(conversation_id):
     )
 
     from app.utils.logger import log_event
-    is_reassign = previous_assignee is not None and previous_assignee != target.id
     log_event("info", "assignment.assigned",
               f"Conversation {conv.id} {'reassigned' if is_reassign else 'assigned'} to {target.email}",
               payload={
-                  "agent_id": target.id,
-                  "agent_email": target.email,
+                  "agent_id": target.id, "agent_email": target.email,
                   "agent_name": target.full_name,
-                  "assigned_by_id": current_user.id,
-                  "assigned_by_email": current_user.email,
-                  "is_reassign": is_reassign,
-                  "previous_assignee_id": previous_assignee,
+                  "assigned_by_id": current_user.id, "assigned_by_email": current_user.email,
+                  "is_reassign": is_reassign, "previous_assignee_id": previous_assignee,
                   "channel": conv.channel,
-                  "handle": (conv.user.external_id if conv.user else None),              },
+                  "handle": (conv.user.external_id if conv.user else None),
+              },
               conversation_id=conv.id)
 
+    # All notifications are best-effort — a failure here must not 500 the request (#1).
     try:
+        handle = conv.user.handle if conv.user else 'a customer'
+
+        if target.id != current_user.id:
+            create_notification(
+                user_id=target.id,
+                type_='reassigned' if is_reassign else 'assigned',
+                title="Conversation assigned to you",
+                body=f"From {handle} on {conv.channel.replace('_', ' ')}",
+                resource_type='conversation', resource_id=conv.id,
+            )
+            for admin in AuthUser.query.filter(
+                AuthUser.role.in_(['admin', 'supervisor']), AuthUser.id != target.id
+            ).all():
+                create_notification(
+                    user_id=admin.id,
+                    type_='reassigned' if is_reassign else 'assigned',
+                    title=f"Conversation assigned to {target.full_name}",
+                    body=f"From {handle} on {conv.channel.replace('_', ' ')}",
+                    resource_type='conversation', resource_id=conv.id,
+                )
+
+        if is_reassign:
+            create_notification(
+                user_id=previous_assignee,
+                type_='unassigned',
+                title="Conversation reassigned",
+                body=f"{handle} has been moved to {target.full_name}",
+                resource_type='conversation', resource_id=conv.id,
+            )
+            prev_name = prev_user.full_name if prev_user else 'someone'
+            for admin in AuthUser.query.filter(
+                AuthUser.role.in_(['admin', 'supervisor']), AuthUser.id != previous_assignee
+            ).all():
+                create_notification(
+                    user_id=admin.id,
+                    type_='unassigned',
+                    title="Conversation reassigned",
+                    body=f"{handle} moved from {prev_name} to {target.full_name}",
+                    resource_type='conversation', resource_id=conv.id,
+                )
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log_event("error", "assignment.notify_fail",
+                  f"Assignment notifications failed: {e}", conversation_id=conv.id)
+
+    # Surface presence + current load so the UI can warn on offline/saturated (#2/#4).
+    try:
+        open_load = (Conversation.query
+                     .filter(Conversation.assigned_to == target.id,
+                             Conversation.status != 'resolved').count())
         conv_dict = conv.to_dict(include_messages=False)
+        conv_dict['assignee_presence'] = target.presence_status()
+        conv_dict['assignee_open_load'] = open_load
         return jsonify({'conversation': conv_dict}), 200
     except Exception as e:
         import traceback
@@ -172,7 +209,6 @@ def assign(conversation_id):
         current_app.logger.error(f"Error serializing conversation {conversation_id}: {e}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': f'Error serializing conversation: {str(e)}'}), 500
-
 
 @assignment_bp.route('/conversations/<int:conversation_id>/unassign', methods=['POST'])
 @jwt_required()
@@ -189,37 +225,14 @@ def unassign(conversation_id):
         return jsonify({'error': 'Conversation not found'}), 404
 
     previous = conv.assigned_to
+    prev_user = AuthUser.query.get(previous) if previous else None
+
     conv.assigned_to = None
     conv.assigned_at = None
     conv.assigned_by = None
     conv.updated_at = datetime.utcnow()
 
-    if previous is not None:
-        handle = conv.user.handle if conv.user else 'a customer'
-        create_notification(
-            user_id=previous,
-            type_='unassigned',
-            title="Conversation unassigned",
-            body=f"{handle} is no longer assigned to you",
-            resource_type='conversation',
-            resource_id=conv.id,
-        )
-        
-        # Also notify all admins and supervisors
-        admin_supervisors = AuthUser.query.filter(
-            AuthUser.role.in_(['admin', 'supervisor']),
-            AuthUser.id != previous
-        ).all()
-        for admin in admin_supervisors:
-            create_notification(
-                user_id=admin.id,
-                type_='unassigned',
-                title="Conversation unassigned",
-                body=f"{handle} is no longer assigned to anyone",
-                resource_type='conversation',
-                resource_id=conv.id,
-            )
-
+    # Commit the unassignment FIRST — notifications must never roll it back.
     db.session.commit()
 
     log_audit(
@@ -240,9 +253,36 @@ def unassign(conversation_id):
               },
               conversation_id=conv.id)
 
+    # Best-effort notifications — a failure here must not 500 the request.
+    if previous is not None:
+        try:
+            handle = conv.user.handle if conv.user else 'a customer'
+            create_notification(
+                user_id=previous,
+                type_='unassigned',
+                title="Conversation unassigned",
+                body=f"{handle} is no longer assigned to you",
+                resource_type='conversation', resource_id=conv.id,
+            )
+            for admin in AuthUser.query.filter(
+                AuthUser.role.in_(['admin', 'supervisor']),
+                AuthUser.id != previous,
+            ).all():
+                create_notification(
+                    user_id=admin.id,
+                    type_='unassigned',
+                    title="Conversation unassigned",
+                    body=f"{handle} is no longer assigned to anyone",
+                    resource_type='conversation', resource_id=conv.id,
+                )
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            log_event("error", "assignment.notify_fail",
+                      f"Unassign notifications failed: {e}", conversation_id=conv.id)
+
     try:
-        conv_dict = conv.to_dict(include_messages=False)
-        return jsonify({'conversation': conv_dict}), 200
+        return jsonify({'conversation': conv.to_dict(include_messages=False)}), 200
     except Exception as e:
         import traceback
         from flask import current_app

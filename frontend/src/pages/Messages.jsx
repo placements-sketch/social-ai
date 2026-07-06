@@ -100,6 +100,12 @@ export default function Messages() {
   const [postContext, setPostContext] = useState(null)
   const [loadingPost, setLoadingPost] = useState(false)
 
+  const [toast, setToast] = useState(null)
+  const showToast = (text, type = 'info') => {
+    setToast({ text, type })
+    setTimeout(() => setToast(t => (t && t.text === text ? null : t)), 5000)
+  }
+
   const { confirm } = useContext(ConfirmationContext)
 
   // Channels available for the filter row (derived from what we loaded).
@@ -395,8 +401,7 @@ const handleSend = async () => {
   // ── Assign conversation to agent ───────────────────────────────────────────
   const handleAssign = async (agentId) => {
     if (!activeConv) return
-    
-    // Check if AI is enabled - if so, show warning
+
     if (activeConv.ai_enabled) {
       const confirmed = await confirm({
         title: 'Cannot Assign - AI Enabled',
@@ -410,7 +415,7 @@ const handleSend = async () => {
       }
       return
     }
-    
+
     setAssigningConvId(activeConv.id)
     try {
       const data = await assignConversation(activeConv.id, agentId)
@@ -419,6 +424,14 @@ const handleSend = async () => {
         c.id === activeConv.id ? { ...c, ...data.conversation } : c
       ))
       setShowAssignDropdown(false)
+
+      const conv = data.conversation
+      const name = conv.assignee?.full_name || 'That agent'
+      if (conv.assignee_presence === 'offline') {
+        showToast(`Assigned, but ${name} is offline — they may not see it right away.`, 'warning')
+      } else if (typeof conv.assignee_open_load === 'number' && conv.assignee_open_load >= 10) {
+        showToast(`Assigned — ${name} now has ${conv.assignee_open_load} open chats. Consider spreading the load.`, 'warning')
+      }
     } catch (err) {
       setConvError(err.message)
     } finally {
@@ -1051,6 +1064,22 @@ const handleSend = async () => {
         <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Messages</h1>
         <p className="text-xs lg:text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-[60] max-w-xs">
+          <div className={clsx(
+            'flex items-start gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm',
+            toast.type === 'warning'
+              ? 'bg-amber-50 border-amber-200 text-amber-800'
+              : 'bg-white border-gray-200 text-gray-800'
+          )}>
+            <span className="flex-1 leading-snug">{toast.text}</span>
+            <button onClick={() => setToast(null)} className="text-current opacity-40 hover:opacity-70 shrink-0">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main content area with border - fills remaining space */}
       <div className="flex-1 flex flex-col gap-0 overflow-hidden px-4 md:px-6 lg:px-8 pb-3 lg:pb-4 min-h-0">

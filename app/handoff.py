@@ -43,22 +43,21 @@ BRIDGING_REPLY = (
 )
 
 
-def check_handoff(message: str, intents: list[str], conversation: Conversation) -> dict | None:
+def check_handoff(message: str, intents: list[str], conversation: Conversation,
+                  llm_handoff: dict | None = None) -> dict | None:
     """
     Decide whether this message should hand the conversation off to a human.
 
-    Returns:
-        - dict with {'reason': 'keyword'|'intent'|'rule', 'detail': str,
-                     'bridging_reply': str} if handoff triggered
-        - None if AI should continue handling
+    Order: fast deterministic checks first (keyword, complaint intent,
+    automation rule), then the LLM's semantic signal for anything phrased
+    outside the keyword vocabulary (explicit human request, abuse, strong
+    frustration). Returns a handoff dict or None.
     """
     text = (message or "").lower()
 
-    # 1. Keyword trigger (word-boundary match so "broken link" doesn't match
-    # "broken", and "return policy" doesn't match "turn" etc.)
+    # 1. Keyword trigger (deterministic, instant — critical words always win)
     import re
     for kw in HANDOFF_KEYWORDS:
-        # \b is word boundary; escape kw in case it contains regex chars
         if re.search(rf'\b{re.escape(kw)}\b', text):
             return _trigger(conversation, reason="keyword", detail=kw)
 
@@ -72,8 +71,13 @@ def check_handoff(message: str, intents: list[str], conversation: Conversation) 
     if rule_match:
         return _trigger(conversation, reason="rule", detail=rule_match.name)
 
-    return None
+    # 4. LLM semantic signal — catches what keywords miss ("get me a human",
+    #    "you're stupid"). Only fires when the classifier is confident.
+    if llm_handoff and llm_handoff.get("should"):
+        return _trigger(conversation, reason="ai_detected",
+                        detail=llm_handoff.get("reason") or "smart_detection")
 
+    return None
 
 def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     """Flip the conversation into human_override and record the handoff."""
@@ -91,37 +95,35 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
         if agent is not None:
             conversation.assigned_to = agent.id
             conversation.assigned_at = datetime.utcnow()
-            conversation.assigned_by = None  # system-assigned, no human actor
-
-            log_event("info", "handoff.auto_assign",
-                      f"Auto-assigned conversation {conversation.id} to {agent.email}",
+            conversation.assigned_by = None
+            # ... keep your existing log_event + create_notification block ...
+        else:
+            # Nobody eligible — leave it in the unassigned human_override queue
+            # and alert supervisors so someone can step in / rebalance.
+            log_event("warn", "handoff.auto_assign_deferred",
+                      f"No available agent for conversation {conversation.id} — queued",
                       payload={
-                          "agent_id": agent.id,
-                          "agent_email": agent.email,
-                          "agent_name": agent.full_name,
+                          "channel": conversation.channel,
                           "reason": reason,
                           "detail": detail,
-                          "channel": conversation.channel,
-                          "handle": (conversation.user.external_id if conversation.user else None),
                       },
                       conversation_id=conversation.id)
-
-            # Notify the auto-assigned agent
             try:
-                create_notification(
-                    user_id=agent.id,
-                    type_='assigned',
-                    title="New escalation assigned to you",
-                    body=f"Reason: {reason} ({detail})",
+                from app.notifications import notify_admins
+                notify_admins(
+                    type_='assignment_deferred',
+                    title="Escalation waiting — no available agent",
+                    body=f"A {conversation.channel.replace('_',' ')} chat needs a human but all agents are offline or at capacity.",
+                    severity='warning',
                     resource_type='conversation',
                     resource_id=conversation.id,
+                    actor_id=None,
+                    coalesce=True,
                 )
             except Exception as e:
-                log_event("error", "handoff.notify_fail",
-                          f"create_notification failed: {e}",
-                          payload={"agent_id": agent.id, "error": str(e)},
-                          conversation_id=conversation.id)
-
+                log_event("error", "handoff.notify_supervisors_fail",
+                          f"notify_admins failed: {e}", conversation_id=conversation.id)
+                
     # Notify supervisors and admins of the escalation.
     # No actor_id — this is system-triggered, not user-triggered.
     # Skip the auto-assigned agent (if any) since they already got their own notification.
