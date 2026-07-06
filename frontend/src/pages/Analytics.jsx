@@ -3,7 +3,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { useState, useEffect } from 'react'
-import { TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File, ExternalLink } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
 import { useCountAnimation } from '../hooks/useCountAnimation'
@@ -317,9 +317,21 @@ export default function Analytics() {
                   )}>
                     {i + 1}
                   </span>
-                  <span className="relative z-10 flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">
-                    {product.name}
-                  </span>
+                  {product.handle ? (
+                    <a
+                      href={`https://www.shopzetu.com/products/${product.handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="relative z-10 flex-1 min-w-0 truncate text-sm font-semibold text-gray-800 hover:text-brand-600 hover:underline inline-flex items-center gap-1.5 group/link"
+                    >
+                      <span className="truncate">{product.name}</span>
+                      <ExternalLink size={12} className="shrink-0 text-gray-300 group-hover/link:text-brand-500 transition-colors" />
+                    </a>
+                  ) : (
+                    <span className="relative z-10 flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">
+                      {product.name}
+                    </span>
+                  )}
                   {isTop && (
                     <span className="relative z-10 shrink-0 text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">
                       Most asked

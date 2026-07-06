@@ -400,7 +400,7 @@ def summary():
         name_by_handle = {h: n for h, n in name_rows}
 
     top_products = [
-        {'name': name_by_handle.get(h, h), 'mentions': cnt}
+        {'name': name_by_handle.get(h, h), 'mentions': cnt, 'handle': h}
         for h, cnt in top_handles
     ]
 
