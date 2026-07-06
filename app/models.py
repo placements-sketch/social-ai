@@ -39,6 +39,8 @@ class AuthUser(db.Model):
     updated_at      = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login      = db.Column(db.DateTime, nullable=True)
     last_seen_at    = db.Column(db.DateTime, nullable=True)
+    reset_token_hash    = db.Column(db.String(64), nullable=True)
+    reset_token_expires = db.Column(db.DateTime, nullable=True)
 
     audit_logs      = db.relationship("AuditLog", backref="user", lazy=True)
 

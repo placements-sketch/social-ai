@@ -466,3 +466,165 @@ def get_audit_logs():
         'limit': limit,
         'offset': offset
     }), 200
+
+@auth_bp.route('/me', methods=['GET'])
+@jwt_required()
+def get_me():
+    """Return the current user's own profile."""
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    return jsonify(user.to_dict()), 200
+
+
+@auth_bp.route('/me', methods=['PATCH'])
+@jwt_required()
+def update_me():
+    """
+    Update the current user's OWN name/email. Deliberately cannot change role
+    or status — those are admin-only via /auth/users/<id>.
+    """
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.get_json() or {}
+    changes = {}
+
+    if 'full_name' in data:
+        name = (data.get('full_name') or '').strip()
+        if len(name) < 2:
+            return jsonify({'error': 'Full name must be at least 2 characters'}), 400
+        user.full_name = name
+        changes['full_name'] = name
+
+    if 'email' in data:
+        new_email = (data.get('email') or '').lower().strip()
+        if not new_email or not is_valid_email(new_email):
+            return jsonify({'error': 'Invalid email address format'}), 400
+        if new_email != user.email:
+            existing = AuthUser.query.filter_by(email=new_email).first()
+            if existing and existing.id != user.id:
+                return jsonify({'error': 'Email already in use by another account'}), 409
+            user.email = new_email
+            changes['email'] = new_email
+
+    if not changes:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    user.updated_at = datetime.utcnow()
+    db.session.commit()
+    log_audit(user.id, 'update_profile', resource_type='user',
+              resource_id=str(user.id), changes=changes)
+    return jsonify(user.to_dict()), 200
+
+
+@auth_bp.route('/me/password', methods=['POST'])
+@jwt_required()
+def change_my_password():
+    """
+    Change the current user's OWN password. Requires the current password
+    (so a stolen session can't silently rotate the password).
+    """
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.get_json() or {}
+    current = (data.get('current_password') or '').strip()
+    new = (data.get('new_password') or '').strip()
+
+    if not current or not new:
+        return jsonify({'error': 'Current and new password are required'}), 400
+    if not user.check_password(current):
+        return jsonify({'error': 'Current password is incorrect'}), 401
+    if len(new) < 8:
+        return jsonify({'error': 'New password must be at least 8 characters'}), 400
+    if user.check_password(new):
+        return jsonify({'error': 'New password must be different from the current one'}), 400
+
+    user.set_password(new)
+    user.updated_at = datetime.utcnow()
+    db.session.commit()
+    log_audit(user.id, 'change_password', resource_type='user', resource_id=str(user.id))
+    return jsonify({'message': 'Password updated'}), 200
+
+def _reset_email_html(name, url):
+    return (
+        '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">'
+        '<h2 style="color:#1a1a2e;margin:0 0 8px">Reset your password</h2>'
+        f'<p style="color:#555;font-size:14px;line-height:1.6">Hi {name or "there"}, we got a request to '
+        'reset your Shop Zetu password. Click below to set a new one. This link expires in 1 hour.</p>'
+        f'<p style="margin:24px 0"><a href="{url}" style="background:#ff5900;color:#fff;text-decoration:none;'
+        'font-weight:bold;font-size:14px;padding:12px 22px;border-radius:8px;display:inline-block">Reset password</a></p>'
+        '<p style="color:#999;font-size:12px;line-height:1.6">If you didn\'t request this, ignore this email — '
+        'your password won\'t change.</p>'
+        '<p style="color:#bbb;font-size:11px;margin-top:24px">Shop Zetu · Social AI Assistant</p></div>'
+    )
+
+
+def _reset_email_text(name, url):
+    return (f"Hi {name or 'there'},\n\nWe got a request to reset your Shop Zetu password. "
+            f"Open this link to set a new one (expires in 1 hour):\n\n{url}\n\n"
+            f"If you didn't request this, ignore this email.\n\n— Shop Zetu")
+
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    """Issue a reset token + email it. Enumeration-safe: always the same response."""
+    import os, secrets, hashlib
+    from app.utils.email import send_email
+
+    data = request.get_json() or {}
+    email = (data.get('email') or '').lower().strip()
+
+    # Same response whether or not the account exists — no email enumeration.
+    generic = jsonify({'message': 'If an account exists for that email, a reset link has been sent.'}), 200
+
+    if not email or not is_valid_email(email):
+        return generic
+
+    user = AuthUser.query.filter_by(email=email).first()
+    if user and user.status == 'active':
+        token = secrets.token_urlsafe(32)
+        user.reset_token_hash = hashlib.sha256(token.encode()).hexdigest()
+        user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+        db.session.commit()
+
+        frontend = os.getenv('FRONTEND_URL', '').rstrip('/')
+        reset_url = f"{frontend}/reset-password?token={token}"
+        send_email(user.email, 'Reset your Shop Zetu password',
+                   _reset_email_html(user.full_name, reset_url),
+                   _reset_email_text(user.full_name, reset_url))
+        log_audit(user.id, 'request_password_reset', resource_type='user', resource_id=str(user.id))
+
+    return generic
+
+
+@auth_bp.route('/reset-password', methods=['POST'])
+def reset_password():
+    """Consume a reset token and set the new password."""
+    import hashlib
+
+    data = request.get_json() or {}
+    token = (data.get('token') or '').strip()
+    new_password = (data.get('new_password') or '').strip()
+
+    if not token or not new_password:
+        return jsonify({'error': 'Token and new password are required'}), 400
+    if len(new_password) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    user = AuthUser.query.filter_by(reset_token_hash=token_hash).first()
+
+    if not user or not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
+        return jsonify({'error': 'This reset link is invalid or has expired.'}), 400
+
+    user.set_password(new_password)
+    user.reset_token_hash = None          # single-use — burn the token
+    user.reset_token_expires = None
+    user.updated_at = datetime.utcnow()
+    db.session.commit()
+    log_audit(user.id, 'reset_password', resource_type='user', resource_id=str(user.id))
+    return jsonify({'message': 'Password reset. You can now log in.'}), 200

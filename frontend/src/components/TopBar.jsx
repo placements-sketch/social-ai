@@ -159,6 +159,36 @@ export default function TopBar({ onMenuClick }) {
     hour: '2-digit', minute: '2-digit',
   })
 
+  const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+  const [health, setHealth] = useState({ status: 'operational' })
+
+  useEffect(() => {
+    let active = true
+    const loadHealth = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
+        })
+        if (!res.ok) throw new Error('bad status')
+        const data = await res.json()
+        if (active) setHealth(data)
+      } catch {
+        if (active) setHealth({ status: 'unreachable' })
+      }
+    }
+    loadHealth()
+    const id = setInterval(loadHealth, 60000)   // re-check every minute
+    return () => { active = false; clearInterval(id) }
+  }, [])
+
+  const HEALTH = {
+    operational: { dot: 'bg-green-500', label: 'All systems operational' },
+    degraded:    { dot: 'bg-amber-500', label: 'Running with warnings' },
+    critical:    { dot: 'bg-red-500',   label: 'System issues detected' },
+    unreachable: { dot: 'bg-gray-400',  label: "Can't reach the server" },
+  }
+  const hStatus = HEALTH[health.status] || HEALTH.operational
+
   // Load notifications on mount + poll every 10 seconds
   const { showToast } = useToast()
   const seenIdsRef = useRef(new Set())
@@ -312,10 +342,15 @@ export default function TopBar({ onMenuClick }) {
           <Menu size={18} />
         </button>
 
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
+        <div
+          className="flex items-center gap-2"
+          title={health.status && health.status !== 'operational'
+            ? `${health.errors || 0} errors, ${health.warnings || 0} warnings, ${health.failed_jobs || 0} failed jobs (last hour)`
+            : 'No errors or failed jobs in the last hour'}
+        >
+          <span className={clsx('w-1.5 h-1.5 rounded-full', hStatus.dot)} style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
           <span className="hidden sm:block text-xs text-gray-400 font-normal tracking-wide">
-            All systems operational
+            {hStatus.label}
           </span>
         </div>
       </div>
@@ -324,7 +359,11 @@ export default function TopBar({ onMenuClick }) {
         {/* Date */}
         <span className="hidden md:block text-xs text-gray-400 font-normal mr-2">{now}</span>
 
-        <button className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors" title="Refresh">
+        <button
+          onClick={() => window.location.reload()}
+          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors active:rotate-180 active:duration-300"
+          title="Refresh"
+        >
           <RefreshCw size={16} />
         </button>
 
@@ -427,7 +466,7 @@ export default function TopBar({ onMenuClick }) {
                   <span className="inline-block mt-1.5 text-[10px] font-semibold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
                 </div>
                 <div className="py-1">
-                  <button onClick={() => { setShowUserMenu(false); navigate('/settings') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors">
+                  <button onClick={() => { setShowUserMenu(false); navigate('/profile') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors">
                     <User size={14} />
                     Profile Settings
                   </button>

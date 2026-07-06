@@ -77,6 +77,17 @@ export function AuthProvider({ children }) {
     }
   }
 
+  const refreshUser = async () => {
+    const token = localStorage.getItem('authToken')
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/api/auth/verify`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setUser(await res.json())
+    } catch { /* silent */ }
+  }
+
   const login = async (email, password) => {
     setLoading(true)
     setError(null)
@@ -121,7 +132,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

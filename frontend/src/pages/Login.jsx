@@ -153,6 +153,13 @@ export default function Login() {
             </button>
           </form>
 
+          {/* Forgot password */}
+          <div className="mt-4 text-center">
+            <button type="button" onClick={() => navigate('/forgot-password')} className="text-xs text-brand-500 hover:text-brand-400 underline underline-offset-2 transition-colors">
+              Forgot password?
+            </button>
+          </div>
+
           {/* Security notice */}
           <div className="mt-6 pt-5 border-t border-white/10 text-center">
             <p className="text-xs text-white/30" style={{ letterSpacing: '0.03em', lineHeight: '1.6' }}>Authorized personnel only</p>

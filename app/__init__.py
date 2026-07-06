@@ -71,6 +71,7 @@ def create_app():
         from app.store_info_routes import store_info_bp
         from app.auth_meta import auth_meta_bp
         from app.cron_routes import cron_bp
+        from app.health import health_bp
 
         app.register_blueprint(bp)
         app.register_blueprint(auth_bp)
@@ -88,6 +89,7 @@ def create_app():
         app.register_blueprint(store_info_bp)
         app.register_blueprint(auth_meta_bp)
         app.register_blueprint(cron_bp)
+        app.register_blueprint(health_bp)
         
         print("[APP] All blueprints registered successfully")
     except Exception as e:

@@ -19,6 +19,9 @@ import Users from './pages/Users'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
 import Notifications from './pages/Notifications'
+import Profile from './pages/Profile'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
   return (
@@ -29,7 +32,10 @@ export default function App() {
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
-
+            <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            
             {/* Protected routes */}
             <Route
               path="/"
@@ -55,6 +61,7 @@ export default function App() {
               <Route path="analytics" element={<Analytics />} />
               <Route path="logs" element={<Logs />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="profile" element={<Profile />} />
 
               {/* Admin + Supervisor */}
               <Route
