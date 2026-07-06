@@ -8,6 +8,7 @@ import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import clsx from 'clsx'
+import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -150,60 +151,17 @@ export default function Analytics() {
     return 'Company-wide AI support analytics'
   }
 
-  // Export functions
-  const exportToCSV = () => {
-    const headers = ['Metric', 'Value']
-    const rows = [
-      ['Avg Response Time (ms)', kpis.avg_response_time_ms],
-      ['AI Success Rate', `${(kpis.ai_success_rate * 100).toFixed(1)}%`],
-      ['Total Messages', kpis.messages_total],
-      ['Inbound Messages', kpis.inbound_total],
-      ['AI Replied', kpis.ai_replies_total],
-      ['Human Replies', kpis.human_replies_total],
-      ['Failed Responses', kpis.failed_responses],
-      ['Human Overrides', kpis.human_override_total],
-      ['Escalated', kpis.escalated_total],
-      ...weekly.map(w => [`${w.day} - Inbound`, w.inbound]),
-      ...weekly.map(w => [`${w.day} - AI Replied`, w.ai_replied]),
-    ]
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `analytics-export-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-  }
+  // Export handlers → shared professional report builder
+  const exportMeta = () => ({
+    periodLabel: DATE_RANGES.find(r => r.days === days)?.label || `Last ${days} days`,
+    generatedAt: new Date().toLocaleString(),
+    periodSlug: `${days}d`,
+    dateSlug: new Date().toISOString().split('T')[0],
+  })
+  const reportData = () => ({ ...data, agents: agentData?.agents || [] })
 
-  const exportToPDF = async () => {
-    const { jsPDF } = await import('jspdf')
-    const { autoTable } = await import('jspdf-autotable')
-    
-    const doc = new jsPDF()
-    const headers = ['Metric', 'Value']
-    const rows = [
-      ['Avg Response Time (ms)', kpis.avg_response_time_ms],
-      ['AI Success Rate', `${(kpis.ai_success_rate * 100).toFixed(1)}%`],
-      ['Total Messages', kpis.messages_total],
-      ['Inbound Messages', kpis.inbound_total],
-      ['AI Replied', kpis.ai_replies_total],
-      ['Human Replies', kpis.human_replies_total],
-      ['Failed Responses', kpis.failed_responses],
-      ['Human Overrides', kpis.human_override_total],
-      ['Escalated', kpis.escalated_total],
-    ]
-    
-    autoTable(doc, {
-      head: [headers],
-      body: rows,
-      startY: 20,
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
-    })
-    
-    doc.save(`analytics-export-${new Date().toISOString().split('T')[0]}.pdf`)
-  }
+  const exportToCSV = () => exportAnalyticsCSV(reportData(), exportMeta())
+  const exportToPDF = () => exportAnalyticsPDF(reportData(), exportMeta())
 
   return (
     <div className="space-y-6 w-full px-0 lg:px-8">

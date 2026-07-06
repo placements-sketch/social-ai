@@ -10,6 +10,7 @@ import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
 import { SkeletonCard } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { useTimeAgo } from '../hooks/useTimeAgo'
+import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 import { parseBackendTime } from '../utils/time'
 
 // Custom tooltip to ensure text is visible
@@ -310,51 +311,14 @@ export default function Dashboard() {
     tiktok_human: w.tiktok_human || 0,
   }))
 
-  const exportToCSV = () => {
-    const headers = ['Metric', 'Value']
-    const kpis = analyticsData?.kpis || {}
-    const rows = [
-      ['Total Messages', kpis.messages_total || 0],
-      ['AI Replies', kpis.ai_replies_total || 0],
-      ['Human Overrides', kpis.human_override_total || 0],
-      ['Success Rate', `${((kpis.ai_success_rate || 0) * 100).toFixed(1)}%`],
-      ['Conversations', kpis.conversations_total || 0],
-    ]
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `dashboard-export-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-  }
-
-  const exportToPDF = async () => {
-    const { jsPDF } = await import('jspdf')
-    const { autoTable } = await import('jspdf-autotable')
-    
-    const doc = new jsPDF()
-    const headers = ['Metric', 'Value']
-    const kpis = analyticsData?.kpis || {}
-    const rows = [
-      ['Total Messages', kpis.messages_total || 0],
-      ['AI Replies', kpis.ai_replies_total || 0],
-      ['Human Overrides', kpis.human_override_total || 0],
-      ['Success Rate', `${((kpis.ai_success_rate || 0) * 100).toFixed(1)}%`],
-      ['Conversations', kpis.conversations_total || 0],
-    ]
-    
-    autoTable(doc, {
-      head: [headers],
-      body: rows,
-      startY: 20,
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
-    })
-    
-    doc.save(`dashboard-export-${new Date().toISOString().split('T')[0]}.pdf`)
-  }
+  const exportMeta = () => ({
+    periodLabel: PERIOD_LABELS[period],
+    generatedAt: new Date().toLocaleString(),
+    periodSlug: period,
+    dateSlug: new Date().toISOString().split('T')[0],
+  })
+  const exportToCSV = () => exportAnalyticsCSV(analyticsData || {}, exportMeta())
+  const exportToPDF = () => exportAnalyticsPDF(analyticsData || {}, exportMeta())
 
   return (
     <div className="space-y-6 w-full">
