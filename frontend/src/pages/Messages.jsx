@@ -278,17 +278,11 @@ export default function Messages() {
     }
   }, [user?.role])
 
-  // Auto-select first conversation on desktop only (initial load only)
+  // Never auto-open a conversation — the agent chooses. Auto-opening the top
+  // one silently marked it read and killed its unread/attention signal.
   useEffect(() => {
-    const isDesktop = window.innerWidth >= 768 // md breakpoint
-    if (conversations.length > 0 && !selected && isInitialLoad && isDesktop) {
-      openConversation(conversations[0])
-      setIsInitialLoad(false)
-    } else if (isInitialLoad && !isDesktop) {
-      // On mobile, just mark initial load as complete without auto-selecting
-      setIsInitialLoad(false)
-    }
-  }, [conversations, selected, isInitialLoad])
+    if (isInitialLoad) setIsInitialLoad(false)
+  }, [isInitialLoad])
 
   // ── Load a single conversation's full thread ──────────────────────────────
   const openConversation = useCallback(async (conv) => {

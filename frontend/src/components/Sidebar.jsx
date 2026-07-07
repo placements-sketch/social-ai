@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, MessageSquare, Package, Bot,
   Zap, Radio, BarChart2, ScrollText, Settings, Sparkles,
@@ -11,8 +12,6 @@ import szLogo from '../images/sz.png'
 
 const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
-  { to: '/messages',   icon: MessageSquare,   label: 'Messages',            roles: ['admin', 'agent', 'supervisor'], badge: 4, group: 'Core' },
-
   { to: '/customers',  icon: UserCircle,      label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/products',   icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics',  icon: BarChart2,       label: 'Analytics',           roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
@@ -30,6 +29,24 @@ const allNav = [
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
   const { user } = useAuth()
   const nav = allNav.filter(item => item.roles.includes(user?.role))
+
+  // Live unread badge for Messages — number of conversations needing attention.
+  const [messagesBadge, setMessagesBadge] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const { listConversations } = await import('../api/messages')
+        const data = await listConversations({ channel: 'all', page: 1, per_page: 100 })
+        if (cancelled) return
+        const count = (data.conversations || []).filter(c => (c.unread_count || 0) > 0).length
+        setMessagesBadge(count)
+      } catch { /* silent — a badge should never crash the sidebar */ }
+    }
+    load()
+    const timer = setInterval(load, 15000)   // refresh every 15s
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
 
   return (
     <aside
@@ -108,7 +125,9 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
               )}
 
               <div className="space-y-0.5 lg:space-y-1">
-                {groupItems.map(({ to, icon: Icon, label, badge }) => (
+                {groupItems.map(({ to, icon: Icon, label, badge }) => {
+                  const liveBadge = to === '/messages' ? messagesBadge : badge
+                  return (
                   <NavLink
                     key={to}
                     to={to}
@@ -133,18 +152,19 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                       {label}
                     </span>
 
-                    {badge && (
+                    {liveBadge > 0 && (
                       <span
                         className={clsx(
                           'w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
                           isMobile ? 'ml-auto' : (collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[8px] hidden md:flex' : 'ml-auto')
                         )}
                       >
-                        {badge}
+                        {liveBadge > 99 ? '99+' : liveBadge}
                       </span>
                     )}
                   </NavLink>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )
