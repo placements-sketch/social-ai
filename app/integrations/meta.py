@@ -133,54 +133,57 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
                   })
         return None
 
-def send_instagram_image(recipient_id: str, image_url: str) -> dict | None:
+def send_instagram_card(recipient_id: str, title: str, subtitle: str | None,
+                        image_url: str, button_url: str,
+                        button_title: str = "View product") -> dict | None:
     """
-    Send an image attachment on Instagram via Meta Graph API — used to show a
-    product photo before the recommendation text, since IG DMs don't reliably
-    unfurl link previews for API-sent messages. Never raises; the image is a
-    nice-to-have and the text still goes out if this fails.
+    Send a generic-template product card on Instagram — image + title +
+    subtitle + a web_url button — as one tap-through card. Best-effort:
+    the text reply has already been sent, so failures just mean no card.
     """
     _, token = _get_meta_credentials()
     url = _send_url()
-    if not token or not url:
-        log_event("error", "integrations.meta.send_image",
-                  "FB_ACCESS_TOKEN or FB_PAGE_ID not set — cannot send image",
-                  payload={"recipient_id": recipient_id})
+    if not token or not url or not image_url or not button_url:
         return None
-    if not image_url:
-        return None
+
+    element = {
+        "title": (title or "View product")[:80],
+        "image_url": image_url,
+        "buttons": [{
+            "type": "web_url",
+            "url": button_url,
+            "title": (button_title or "View product")[:20],   # IG button cap = 20 chars
+        }],
+    }
+    if subtitle:
+        element["subtitle"] = subtitle[:80]
 
     payload = {
         "recipient": {"id": recipient_id},
         "message": {
             "attachment": {
-                "type": "image",
-                "payload": {"url": image_url, "is_reusable": True},
+                "type": "template",
+                "payload": {"template_type": "generic", "elements": [element]},
             }
         },
     }
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
         r = requests.post(url, json=payload, headers=headers, timeout=10)
         if r.status_code >= 400:
-            log_event("warning", "integrations.meta.send_image",
-                      f"Instagram image send failed ({r.status_code}): {(r.text or '')[:200]}",
-                      payload={"recipient_id": recipient_id, "image_url": image_url[:200]})
+            log_event("warning", "integrations.meta.send_card",
+                      f"IG card send failed ({r.status_code}): {(r.text or '')[:200]}",
+                      payload={"recipient_id": recipient_id})
             return None
-        data = r.json() if r.text else {}
-        log_event("info", "integrations.meta.send_image",
-                  f"Instagram product image sent to {recipient_id}",
+        log_event("info", "integrations.meta.send_card",
+                  f"IG product card sent to {recipient_id}",
                   payload={"recipient_id": recipient_id})
-        return data
+        return r.json() if r.text else {}
     except requests.RequestException as e:
-        log_event("warning", "integrations.meta.send_image",
-                  f"Instagram image send exception: {e}",
-                  payload={"recipient_id": recipient_id})
+        log_event("warning", "integrations.meta.send_card",
+                  f"IG card send exception: {e}", payload={"recipient_id": recipient_id})
         return None
-    
+       
 def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
     """
     Reply to an Instagram comment via Meta Graph API.

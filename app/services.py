@@ -643,8 +643,8 @@ def _extract_location(message: str) -> str | None:
             return loc.title()
     return None
 
-def _product_image_for_url(product_url: str | None) -> str | None:
-    """Given a storefront product URL, return the product's first cached image URL (or None)."""
+def _product_card_for_url(product_url: str | None) -> dict | None:
+    """Resolve a storefront product URL to card fields (title/subtitle/image/url), or None."""
     if not product_url:
         return None
     try:
@@ -656,11 +656,27 @@ def _product_image_for_url(product_url: str | None) -> str | None:
             return None
         from app.models import ProductCache
         row = ProductCache.query.filter_by(handle=handle).first()
-        if row and row.images:
-            first = row.images[0]
-            return first if isinstance(first, str) and first.startswith('http') else None
+        if not row or not row.images:
+            return None
+        first = row.images[0]
+        image = first if isinstance(first, str) and first.startswith('http') else None
+        if not image:
+            return None
+
+        subtitle = None
+        p = row.price
+        if p is not None:
+            if isinstance(p, str):
+                subtitle = p.strip() or None                 # already formatted e.g. "KES 2500"
+            else:
+                try:
+                    subtitle = f"KES {int(round(float(p))):,}"
+                except Exception:
+                    subtitle = None
+
+        return {"title": row.name or "Shop Zetu", "subtitle": subtitle, "image": image, "url": product_url}
     except Exception as e:
-        log_event("warn", "services.product_image_lookup_failed", str(e)[:200])
+        log_event("warn", "services.product_card_lookup_failed", str(e)[:200])
     return None
 
 def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | None = None, **kwargs) -> str | None:
@@ -687,16 +703,22 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | N
         return None
 
     if channel == "instagram_dm":
-        from app.integrations.meta import send_instagram_reply, send_instagram_image
-        # Send the product image first (best-effort) so it appears above the
-        # recommendation text — IG DMs don't reliably unfurl link previews for
-        # messages sent via the API. Falls through to text-only if no image.
-        img = _product_image_for_url(product_url)
-        if img:
-            send_instagram_image(recipient_id=user_id, image_url=img)
+        from app.integrations.meta import send_instagram_reply, send_instagram_card
+        # Text reply first (Claude's natural wording), then a product card
+        # beneath it. Card is best-effort — no cached image → text-only.
         resp = send_instagram_reply(recipient_id=user_id, text=reply)
-        return (resp or {}).get("message_id")
-
+        msg_id = (resp or {}).get("message_id")
+        card = _product_card_for_url(product_url)
+        if card:
+            send_instagram_card(
+                recipient_id=user_id,
+                title=card["title"],
+                subtitle=card["subtitle"],
+                image_url=card["image"],
+                button_url=card["url"],
+            )
+        return msg_id
+    
     if channel == "facebook_dm":
         # TODO: facebook send API — same shape but different endpoint
         log_event("warning", "services.dispatch",
