@@ -55,6 +55,21 @@ const statusBadge = (s) => {
   if (s === 'pending')        return <span className={`${baseClass} bg-red-100 text-red-600`}>Pending</span>
 }
 
+// Flags a conversation needing human intervention, and how urgent.
+// Fires on: AI off / human_override (handed off), unassigned (sitting in queue),
+// or a smart-handoff escalation (handoff_reason 'ai_detected' = the abuse/
+// frustration/explicit-human cases the classifier caught). Null = all good.
+function attentionInfo(conv) {
+  if (!conv || conv.status === 'resolved') return null
+  const needsHuman = conv.ai_enabled === false || conv.status === 'human_override'
+  if (!needsHuman) return null
+  const escalated = conv.handoff_reason === 'ai_detected'
+  const queued = !conv.assigned_to
+  if (escalated) return { urgent: true, badge: 'Escalated' }   // AI flagged abuse/frustration
+  if (queued)    return { urgent: true, badge: 'In queue' }    // nobody on it yet
+  return { urgent: false, badge: null }                        // handed off but assigned — border only
+}
+
 const handlerBadge = (conv) => {
   const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
   if (conv.status === 'resolved') {
@@ -318,10 +333,10 @@ export default function Messages() {
     setActiveConv(null)
   }
 
-  // Filter conversations based on attention flag
+  // Attention filter uses the exact same flag shown on the rows.
   const filteredConversations = attentionFilter
-    ? conversations.filter(c => !c.ai_enabled && c.user_id !== 17841436602363779)
-    : conversations.filter(c => c.user_id !== 17841436602363779)
+    ? conversations.filter(c => attentionInfo(c) !== null)
+    : conversations
 
   // ── Toggle AI for the active conversation ─────────────────────────────────
   const handleToggleAI = async () => {
@@ -530,13 +545,18 @@ const handleSend = async () => {
             {attentionFilter ? 'No conversations needing attention.' : 'No conversations yet.'}
           </p>
         )}
-        {!loadingList && !listError && filteredConversations.map((conv) => (
+        {!loadingList && !listError && filteredConversations.map((conv) => {
+          const attn = attentionInfo(conv)
+          const isActive = activeConv?.id === conv.id
+          return (
           <button
             key={conv.id}
             onClick={() => openConversation(conv)}
             className={clsx(
-              'w-full text-left px-2 sm:px-3 py-1.5 sm:py-2 border-b border-gray-100 hover:bg-gray-50 transition-all relative group',
-              activeConv?.id === conv.id && 'bg-blue-50 border-l-3 border-l-black'
+              'w-full text-left px-2 sm:px-3 py-1.5 sm:py-2 border-b border-gray-100 hover:bg-gray-50 transition-all relative group border-l-4',
+              attn ? (attn.urgent ? 'border-l-red-500' : 'border-l-amber-400')
+                   : (isActive ? 'border-l-black' : 'border-l-transparent'),
+              isActive && 'bg-blue-50'
             )}
           >
             <div className="flex items-start justify-between gap-1.5 mb-1">
@@ -564,10 +584,19 @@ const handleSend = async () => {
             </div>
             <p className="text-xs text-gray-600 truncate mb-1.5 line-clamp-1">{conv.lastMessage}</p>
             <div className="flex items-center gap-1 flex-wrap">
+              {attn?.badge && (
+                <span className={clsx(
+                  'text-[10px] font-bold px-1.5 py-0.5 rounded-md',
+                  attn.urgent ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                )}>
+                  {attn.badge}
+                </span>
+              )}
               {handlerBadge(conv)}
             </div>
           </button>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
