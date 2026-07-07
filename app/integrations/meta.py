@@ -133,7 +133,54 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
                   })
         return None
 
+def send_instagram_image(recipient_id: str, image_url: str) -> dict | None:
+    """
+    Send an image attachment on Instagram via Meta Graph API — used to show a
+    product photo before the recommendation text, since IG DMs don't reliably
+    unfurl link previews for API-sent messages. Never raises; the image is a
+    nice-to-have and the text still goes out if this fails.
+    """
+    _, token = _get_meta_credentials()
+    url = _send_url()
+    if not token or not url:
+        log_event("error", "integrations.meta.send_image",
+                  "FB_ACCESS_TOKEN or FB_PAGE_ID not set — cannot send image",
+                  payload={"recipient_id": recipient_id})
+        return None
+    if not image_url:
+        return None
 
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "image",
+                "payload": {"url": image_url, "is_reusable": True},
+            }
+        },
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        if r.status_code >= 400:
+            log_event("warning", "integrations.meta.send_image",
+                      f"Instagram image send failed ({r.status_code}): {(r.text or '')[:200]}",
+                      payload={"recipient_id": recipient_id, "image_url": image_url[:200]})
+            return None
+        data = r.json() if r.text else {}
+        log_event("info", "integrations.meta.send_image",
+                  f"Instagram product image sent to {recipient_id}",
+                  payload={"recipient_id": recipient_id})
+        return data
+    except requests.RequestException as e:
+        log_event("warning", "integrations.meta.send_image",
+                  f"Instagram image send exception: {e}",
+                  payload={"recipient_id": recipient_id})
+        return None
+    
 def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
     """
     Reply to an Instagram comment via Meta Graph API.

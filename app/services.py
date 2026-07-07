@@ -415,7 +415,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,
-                                 comment_external_id=external_id)
+                                 comment_external_id=external_id, product_url=product_url)
 
     log_event("info", "services.ai_reply",
               f"AI replied via {channel} to {user_id}",
@@ -643,8 +643,27 @@ def _extract_location(message: str) -> str | None:
             return loc.title()
     return None
 
+def _product_image_for_url(product_url: str | None) -> str | None:
+    """Given a storefront product URL, return the product's first cached image URL (or None)."""
+    if not product_url:
+        return None
+    try:
+        after = product_url.split('/products/', 1)
+        if len(after) < 2:
+            return None
+        handle = after[1].split('?', 1)[0].strip('/').strip()
+        if not handle:
+            return None
+        from app.models import ProductCache
+        row = ProductCache.query.filter_by(handle=handle).first()
+        if row and row.images:
+            first = row.images[0]
+            return first if isinstance(first, str) and first.startswith('http') else None
+    except Exception as e:
+        log_event("warn", "services.product_image_lookup_failed", str(e)[:200])
+    return None
 
-def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> str | None:
+def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | None = None, **kwargs) -> str | None:
     """
     Send the reply back to the customer through the right channel API.
     Returns Meta's new message/comment ID on success, None on failure.
@@ -668,7 +687,13 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, **kwargs) -> str | N
         return None
 
     if channel == "instagram_dm":
-        from app.integrations.meta import send_instagram_reply
+        from app.integrations.meta import send_instagram_reply, send_instagram_image
+        # Send the product image first (best-effort) so it appears above the
+        # recommendation text — IG DMs don't reliably unfurl link previews for
+        # messages sent via the API. Falls through to text-only if no image.
+        img = _product_image_for_url(product_url)
+        if img:
+            send_instagram_image(recipient_id=user_id, image_url=img)
         resp = send_instagram_reply(recipient_id=user_id, text=reply)
         return (resp or {}).get("message_id")
 
