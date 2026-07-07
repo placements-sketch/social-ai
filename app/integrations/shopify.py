@@ -556,6 +556,7 @@ def _real_list_all_products() -> list[dict]:
                     "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
                     "variants": [v.get('title', '') for v in variants],
                     "variants_detail": variants_detail,
+                    "images": [img.get('src') for img in (product.get('images') or []) if img.get('src')],
                     "stock_quantity": stock_quantity,
                     "inventory_tracked": inventory_tracked,
                 })
@@ -662,6 +663,7 @@ def _real_iter_all_products(start_url=None):
                     "price": f"KES {variants[0].get('price', 'N/A')}" if variants else "N/A",
                     "variants": [v.get('title', '') for v in variants],
                     "variants_detail": variants_detail,
+                    "images": [img.get('src') for img in (product.get('images') or []) if img.get('src')],
                     "stock_quantity": stock_quantity,
                     "inventory_tracked": inventory_tracked,
                 }, next_url)
