@@ -55,19 +55,19 @@ const statusBadge = (s) => {
   if (s === 'pending')        return <span className={`${baseClass} bg-red-100 text-red-600`}>Pending</span>
 }
 
-// Flags a conversation needing human intervention, and how urgent.
-// Fires on: AI off / human_override (handed off), unassigned (sitting in queue),
-// or a smart-handoff escalation (handoff_reason 'ai_detected' = the abuse/
-// frustration/explicit-human cases the classifier caught). Null = all good.
+// Flags a conversation that needs human intervention, and how urgent.
+// The ONLY signal that a human is needed is the AI being off on this
+// conversation — same thing the handler badge shows as "Human Agent".
+// (A manual human reply flips status to 'human_override' but leaves the AI
+// on; that's still Claude-handled, so it must never be flagged.)
 function attentionInfo(conv) {
   if (!conv || conv.status === 'resolved') return null
-  const needsHuman = conv.ai_enabled === false || conv.status === 'human_override'
-  if (!needsHuman) return null
+  if (conv.ai_enabled) return null        // AI still handling it → no flag
   const escalated = conv.handoff_reason === 'ai_detected'
   const queued = !conv.assigned_to
-  if (escalated) return { urgent: true, badge: 'Escalated' }   // AI flagged abuse/frustration
-  if (queued)    return { urgent: true, badge: 'In queue' }    // nobody on it yet
-  return { urgent: false, badge: null }                        // handed off but assigned — border only
+  if (escalated) return { urgent: true, badge: 'Escalated' }
+  if (queued)    return { urgent: true, badge: 'In queue' }
+  return { urgent: false, badge: null }   // handed off but assigned — border only
 }
 
 const handlerBadge = (conv) => {

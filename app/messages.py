@@ -239,6 +239,11 @@ def send_reply(conversation_id):
     conv.last_message_at = now
     if sender == 'human':
         conv.status = 'human_override'
+        conv.ai_enabled = False                      # human takes over → pause Claude
+        if conv.assigned_to is None:                 # and claim it, so it's not falsely "In queue"
+            conv.assigned_to = current_user.id
+            conv.assigned_at = now
+            conv.assigned_by = current_user.id
     conv.unread_count = 0
     conv.updated_at = now
 

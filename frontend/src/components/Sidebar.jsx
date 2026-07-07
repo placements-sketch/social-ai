@@ -35,19 +35,25 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
   const [messagesBadge, setMessagesBadge] = useState(0)
   useEffect(() => {
     let cancelled = false
+    const isAgent = user?.role === 'agent'
     const load = async () => {
       try {
         const { listConversations } = await import('../api/messages')
         const data = await listConversations({ channel: 'all', page: 1, per_page: 100 })
         if (cancelled) return
-        const count = (data.conversations || []).filter(c => (c.unread_count || 0) > 0).length
+        const convos = data.conversations || []
+        const count = isAgent
+          // Agents: only conversations escalated to a human — the AI handles the rest.
+          ? convos.filter(c => c.status !== 'resolved' && !c.ai_enabled).length
+          // Admins / supervisors: all unread conversations.
+          : convos.filter(c => (c.unread_count || 0) > 0).length
         setMessagesBadge(count)
       } catch { /* silent — a badge should never crash the sidebar */ }
     }
     load()
-    const timer = setInterval(load, 15000)   // refresh every 15s
+    const timer = setInterval(load, 15000)
     return () => { cancelled = true; clearInterval(timer) }
-  }, [])
+  }, [user?.role])
 
   return (
     <aside
