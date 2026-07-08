@@ -105,7 +105,7 @@ def _writeback_products(snaps):
         log_event("warn", "services.product_writeback_failed",
                   f"Live product write-back failed: {str(e)[:200]}")
         
-def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None) -> str:
+def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None, image_urls: list | None = None) -> str:
     """
     Main pipeline entry point. Called by every webhook route.
 
@@ -149,6 +149,11 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                   "channel": channel,
                   "preview": message[:160],
               })
+
+    # A caption-less photo has no text — give it a placeholder so it saves,
+    # classifies, and displays cleanly. The real content rides in image_urls.
+    if not (message or "").strip() and image_urls:
+        message = "[Sent a photo]"
 
     # ── Step 1: Persist inbound IMMEDIATELY ────────────────────────────────
     # Done first so the human inbox shows the new message even when AI is
@@ -262,13 +267,24 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     product_keyword = None
     keyword_source = None
 
-    if product_intents.intersection(intents):
-        product_keyword = _extract_product_keyword(message)
-        keyword_source = "current_message"
-    elif inbound_record is not None and set(intents) <= ambient_intents:
-        product_keyword = _find_recent_product_keyword(inbound_record.conversation_id)
-        if product_keyword:
-            keyword_source = "history"
+    # Stage 2 vision: when the customer sends a photo, identify the product in
+    # it and use that as the search phrase. Strongest signal — it handles
+    # "is this available?" + a photo, where the text names no product.
+    if image_urls:
+        from app.ai.generator import describe_product_in_image
+        vision_desc = describe_product_in_image(image_urls)
+        if vision_desc:
+            product_keyword = vision_desc
+            keyword_source = "image"
+
+    if product_keyword is None:
+        if product_intents.intersection(intents):
+            product_keyword = _extract_product_keyword(message)
+            keyword_source = "current_message"
+        elif inbound_record is not None and set(intents) <= ambient_intents:
+            product_keyword = _find_recent_product_keyword(inbound_record.conversation_id)
+            if product_keyword:
+                keyword_source = "history"
 
     if product_keyword:
         # Multi-term search: extract additional terms from the current message
@@ -276,6 +292,8 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         # On history-source follows, we only have the carried keyword.
         if keyword_source == "current_message":
             search_terms = _extract_product_keywords(message)
+        elif keyword_source == "image":
+            search_terms = _extract_product_keywords(product_keyword)
         else:
             search_terms = [product_keyword]
 
@@ -405,7 +423,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     context_data['_utm_conversation_id'] = conversation_id
     context_data['_utm_message_id'] = placeholder.id if placeholder else None
 
-    ai_result = generate_reply(message, intents, context_data, channel, history=history)
+    ai_result = generate_reply(message, intents, context_data, channel, history=history, image_urls=image_urls)
     reply           = ai_result['reply']
     ai_elapsed_ms   = ai_result['elapsed_ms']
     ai_tokens_used  = ai_result['tokens_used']
@@ -996,25 +1014,7 @@ def _find_recent_product_keyword(conversation_id: int, max_lookback: int = 5) ->
     except Exception as e:
         log_event("warn", "services._find_recent_product_keyword", str(e))
         return None
-
-
-def _check_handoff_for_inbound(message, intents, inbound_record):
-    """
-    Resolve the conversation from the freshly-persisted inbound message
-    and run the handoff check against it. Returns the handoff dict, or None.
-    """
-    if inbound_record is None:
-        return None
-    try:
-        from app.models import Conversation
-        conv = Conversation.query.get(inbound_record.conversation_id)
-        if conv is None:
-            return None
-        return check_handoff(message, intents, conv)
-    except Exception as e:
-        log_event("error", "services._check_handoff_for_inbound", str(e))
-        return None 
-    
+   
 def _check_template_rule(message, intents, channel):
     """
     Look for an enabled AutomationRule whose action_config.type is

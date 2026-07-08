@@ -189,9 +189,14 @@ def instagram_webhook():
                 if sender_id in our_ids:
                     continue
 
+                image_urls = [
+                    a["payload"]["url"]
+                    for a in (msg.get("attachments") or [])
+                    if a.get("type") == "image" and (a.get("payload") or {}).get("url")
+                ]
                 mid = msg.get("mid")
-                if sender_id and text:
-                    events.append((sender_id, text, mid))
+                if sender_id and (text or image_urls):
+                    events.append((sender_id, text or "", mid, image_urls))
 
             # Shape 2: changes[] with field=messages
             for change in (entry.get("changes") or []):
@@ -205,9 +210,14 @@ def instagram_webhook():
                 sender_id = (value.get("sender") or {}).get("id")
                 if sender_id in our_ids:
                     continue
+                image_urls = [
+                    a["payload"]["url"]
+                    for a in (msg.get("attachments") or [])
+                    if a.get("type") == "image" and (a.get("payload") or {}).get("url")
+                ]
                 mid = msg.get("mid")
-                if sender_id and text:
-                    events.append((sender_id, text, mid))
+                if sender_id and (text or image_urls):
+                    events.append((sender_id, text or "", mid, image_urls))
 
             # Shape 3: changes[] with field=comments  →  IG comment events
             for change in (entry.get("changes") or []):
@@ -245,13 +255,14 @@ def instagram_webhook():
     def process_in_background():
         with app_obj.app_context():
             # Process DM events
-            for sender_id, message_text, mid in events:
+            for sender_id, message_text, mid, image_urls in events:
                 try:
                     process_message(
                         message=message_text,
                         user_id=sender_id,
                         channel="instagram_dm",
                         external_id=mid,
+                        image_urls=image_urls,
                     )
                 except Exception as e:
                     app_obj.logger.error(f"[IG webhook bg] DM process error for {sender_id}: {e}")

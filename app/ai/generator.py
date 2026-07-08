@@ -146,7 +146,7 @@ def _load_ai_settings():
         return None
 
 def generate_reply(message: str, intents: list[str], context_data: dict, channel: str,
-                   history: list[dict] | None = None) -> dict:
+                   history: list[dict] | None = None, image_urls: list | None = None) -> dict:
     """
     Generates a customer support reply that addresses ALL detected intents.
     
@@ -172,7 +172,7 @@ def generate_reply(message: str, intents: list[str], context_data: dict, channel
             'model':       'mock',
         }
     else:
-        result = _claude_reply(message, intents, context_data, channel, history=history)
+        result = _claude_reply(message, intents, context_data, channel, history=history, image_urls=image_urls)
     result['elapsed_ms'] = int((time.perf_counter() - start) * 1000)
     return result
 
@@ -240,8 +240,76 @@ def _mock_reply(intents: list[str], context_data: dict) -> str:
 # Real Claude reply
 # ─────────────────────────────────────────────
 
+def _fetch_image_b64(url: str):
+    """Fetch an image (e.g. an IG attachment) → (base64, media_type), or (None, None)."""
+    import base64, requests
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 403:                     # some IG CDN URLs need the token
+            from app.integrations.meta import _get_meta_credentials
+            _, token = _get_meta_credentials()
+            if token:
+                r = requests.get(url, params={"access_token": token}, timeout=10)
+        if r.status_code >= 400:
+            return None, None
+        media_type = (r.headers.get("Content-Type", "image/jpeg").split(";")[0]).strip()
+        if media_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+            media_type = "image/jpeg"
+        return base64.b64encode(r.content).decode("utf-8"), media_type
+    except Exception as e:
+        log_event("warn", "ai.generator.image_fetch_failed", str(e)[:200])
+        return None, None
+
+
+def describe_product_in_image(image_urls: list) -> str | None:
+    """
+    Stage 2 vision: look at the customer's photo and return a short product
+    search phrase (type, colour, style) to feed the catalog lookup — e.g.
+    "tan leather mules". Returns None on any failure (pipeline continues
+    text-only). Uses the same Claude client/model as replies.
+    """
+    if not image_urls:
+        return None
+    try:
+        import anthropic
+        from flask import current_app
+
+        blocks = []
+        for u in image_urls[:2]:
+            b64, media_type = _fetch_image_b64(u)
+            if b64:
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": b64},
+                })
+        if not blocks:
+            return None
+        blocks.append({
+            "type": "text",
+            "text": ("Identify the main fashion or beauty product in this image. "
+                     "Reply with ONLY 2-5 search keywords describing it (type, colour, "
+                     "style) — no sentences, no punctuation. Example: tan leather mules"),
+        })
+
+        client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
+        model = current_app.config.get("CLASSIFIER_MODEL") or current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
+        resp = client.messages.create(
+            model=model,
+            max_tokens=30,
+            messages=[{"role": "user", "content": blocks}],
+        )
+        text = resp.content[0].text.strip().replace("\n", " ")[:80].strip()
+        log_event("info", "ai.vision.describe",
+                  f"Vision product description: {text!r}",
+                  payload={"description": text})
+        return text or None
+    except Exception as e:
+        log_event("warn", "ai.vision.describe_failed", str(e)[:200])
+        return None
+
+
 def _claude_reply(message: str, intents: list[str], context_data: dict, channel: str,
-                  history: list[dict] | None = None) -> dict:
+                  history: list[dict] | None = None, image_urls: list | None = None) -> dict:
     """
     Calls Anthropic Claude with a system prompt composed from the live AISettings row.
     Returns a dict with reply text, tokens used, and the model that responded.
@@ -468,6 +536,31 @@ Customer's detected intents: {intents_str}
 - If you don't know something, say so and offer to find out.
 - Stay in character as a human shop assistant. Do not mention being an AI."""
 
+        # Vision directive — only when the customer actually sent a photo
+        if image_urls:
+            system_prompt += (
+                "\n\n--- Image from the customer ---\n"
+                "The customer sent a photo. Look at it carefully. If it shows a product, identify it "
+                "(type, colour, style) and match it to the product data above when possible, then answer "
+                "their question (availability, price, etc.). If it isn't one of the listed products, describe "
+                "what you see and offer to help find it. Never claim stock or price you don't have data for."
+            )
+
+        # ── Build the current user turn (attach image blocks if present) ─
+        user_content = message
+        if image_urls:
+            blocks = []
+            for u in image_urls[:3]:
+                b64, media_type = _fetch_image_b64(u)
+                if b64:
+                    blocks.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": b64},
+                    })
+            if blocks:
+                blocks.append({"type": "text", "text": message or "(image sent with no caption)"})
+                user_content = blocks
+
         # ── Build messages: prior conversation history + current message ─
         messages = []
         if history:
@@ -476,7 +569,7 @@ Customer's detected intents: {intents_str}
                 content = h.get('content')
                 if role in ('user', 'assistant') and content:
                     messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
+        messages.append({"role": "user", "content": user_content})
 
         import time
         _start = time.time()
