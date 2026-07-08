@@ -452,6 +452,62 @@ function BusinessPanel({ settings, setSettings }) {
   )
 }
 
+function WebhookRegister() {
+  const [hooks, setHooks] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [registering, setRegistering] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/settings/webhooks`, { headers: authHeaders() })
+      const d = await res.json()
+      if (res.ok) setHooks(d.webhooks || [])
+    } catch { /* silent */ } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  const register = async () => {
+    setMsg(null); setRegistering(true)
+    try {
+      const res = await fetch(`${API_BASE}/settings/webhooks/register`, { method: 'POST', headers: authHeaders() })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed to register')
+      const created = (d.created || []).length
+      const already = (d.already_registered || []).length
+      const errs = (d.errors || []).length
+      setMsg({
+        type: errs ? 'error' : 'success',
+        text: `${created} registered, ${already} already set${errs ? `, ${errs} failed — check Logs` : ''}.`,
+      })
+      await load()
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message })
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-gray-800">Real-time webhooks</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            {loading ? 'Checking…' : `${hooks?.length || 0} topic${hooks?.length === 1 ? '' : 's'} registered with Shopify.`}
+          </p>
+        </div>
+        <button onClick={register} disabled={registering}
+          className="text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 shrink-0">
+          {registering ? 'Registering…' : 'Register webhooks'}
+        </button>
+      </div>
+      {msg && <p className={`text-[11px] mt-2 font-medium ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
+    </div>
+  )
+}
+
 function DeliveryPanel({ settings, setSettings }) {
   const d = settings?.delivery || {}
   const [zones, setZones] = useState(Array.isArray(d.zones) ? d.zones : [])
@@ -731,6 +787,7 @@ function IntegrationsPanel() {
                 <Row label="Orders synced" value={fmtAgo(s.last_sync?.orders)} />
                 <Row label="Customers synced" value={fmtAgo(s.last_sync?.customers)} />
                 {s.recent_failed && <p className="text-[11px] text-amber-600 mt-1.5">The most recent sync job failed — check Logs.</p>}
+                <WebhookRegister />
               </>
             ) : (
               <p className="text-xs text-gray-500 py-1">No successful sync yet. Trigger a products sync to verify the connection.</p>
