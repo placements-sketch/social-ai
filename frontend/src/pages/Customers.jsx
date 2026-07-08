@@ -517,7 +517,7 @@ export default function Customers() {
                 <Loader2 size={18} className="animate-spin text-gray-400" />
               </div>
             )}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-sm min-w-[700px]">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
@@ -560,6 +560,56 @@ export default function Customers() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile: stacked cards — same data + tap target as the table rows */}
+            <div className="md:hidden space-y-2.5">
+              {customers.map(c => {
+                const meta = SEGMENT_META[c.segment] || SEGMENT_META.regular
+                const SegIcon = meta.icon
+                const initial = (c.name || '?').charAt(0).toUpperCase()
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => navigate(`/customers/${c.id}`)}
+                    className="bg-white border border-gray-200 rounded-2xl p-3.5 cursor-pointer hover:border-gray-300 active:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-brand-500 text-white flex items-center justify-center text-sm font-semibold shrink-0">
+                          {initial}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{c.email || c.phone || '—'}</p>
+                        </div>
+                      </div>
+                      <span className={clsx('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md shrink-0', meta.bg, meta.color)}>
+                        <SegIcon size={10} />
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 border-t border-gray-100 pt-3">
+                      <div>
+                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">Spent</p>
+                        <p className="text-sm font-bold text-gray-900 truncate">KES {formatKES(c.total_spent)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">Orders</p>
+                        <p className="text-sm font-bold text-gray-900">{formatKES(c.total_orders)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">AOV</p>
+                        <p className="text-sm font-bold text-gray-900 truncate">KES {formatKES(c.aov)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">Last order</p>
+                        <p className="text-sm font-bold text-gray-900">{c.days_since_last_order != null ? `${c.days_since_last_order}d ago` : '—'}</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

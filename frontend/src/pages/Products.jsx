@@ -296,7 +296,8 @@ export default function Products() {
             <p className="text-sm text-gray-400 mt-1">Try syncing from Shopify to populate the catalog</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
@@ -349,6 +350,49 @@ export default function Products() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile: stacked cards — same product data as the table */}
+          <div className="md:hidden p-3 space-y-2.5">
+            {products.map((p) => {
+              const stock = p.stock_quantity
+              const stockBadge =
+                stock === 0
+                  ? { label: 'Out of stock', cls: 'bg-red-50 text-red-600' }
+                  : stock == null
+                    ? { label: 'Untracked', cls: 'bg-gray-100 text-gray-500' }
+                    : { label: `${stock} in stock`, cls: 'bg-green-50 text-green-600' }
+              const img = (p.images && p.images[0]) || null
+              return (
+                <div key={p.id} className="bg-white border border-gray-200 rounded-2xl p-3 flex items-start gap-3">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center shrink-0 overflow-hidden">
+                    {img
+                      ? <img src={img} alt="" className="w-full h-full object-cover" />
+                      : <Package size={18} className="text-brand-600" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
+                        <p className="text-xs font-semibold text-gray-700 truncate">{p.price || '—'}</p>
+                      </div>
+                      <span className={clsx('text-[10px] font-bold px-2 py-1 rounded-md shrink-0 whitespace-nowrap', stockBadge.cls)}>
+                        {stockBadge.label}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {(p.variants || []).slice(0, 3).map((v, i) => (
+                        <span key={i} className="text-[11px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{v}</span>
+                      ))}
+                      {(p.variants || []).length > 3 && (
+                        <span className="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded">+{(p.variants || []).length - 3}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          </>
         )}
       </div>
 
