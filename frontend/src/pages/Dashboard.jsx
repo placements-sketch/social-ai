@@ -81,6 +81,8 @@ export default function Dashboard() {
   const [loadingAlerts, setLoadingAlerts] = useState(true)
   const [loadingActivity, setLoadingActivity] = useState(true)
   const [showChannelModal, setShowChannelModal] = useState(false)
+  const [periodOpen, setPeriodOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month'
 
@@ -354,21 +356,24 @@ export default function Dashboard() {
           </div>
 
           {/* Mobile: Dropdown */}
-          <div className="sm:hidden relative group">
-            <button className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
+          <div className="sm:hidden relative">
+            <button onClick={() => setPeriodOpen(o => !o)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
               <Clock size={14} />
               <span>{PERIOD_LABELS[period]}</span>
-              <ChevronDown size={14} className="transition-transform group-hover:rotate-180" />
+              <ChevronDown size={14} className={clsx('transition-transform', periodOpen && 'rotate-180')} />
             </button>
-            <div className="absolute left-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-              {[
-                { key: 'today', label: 'Today', icon: Clock },
-                { key: 'week', label: 'This week', icon: Calendar },
-                { key: 'month', label: 'This month', icon: ChartTrendingUp },
-              ].map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setPeriod(key)}
+            {periodOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPeriodOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+                  {[
+                    { key: 'today', label: 'Today', icon: Clock },
+                    { key: 'week', label: 'This week', icon: Calendar },
+                    { key: 'month', label: 'This month', icon: ChartTrendingUp },
+                  ].map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => { setPeriod(key); setPeriodOpen(false) }}
                   className={clsx(
                     'w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center gap-2 transition-colors',
                     period === key
@@ -382,25 +387,32 @@ export default function Dashboard() {
                   {label}
                 </button>
               ))}
-            </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Export dropdown */}
-          <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
+          <div className="relative">
+            <button onClick={() => setExportOpen(o => !o)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
               <Download size={14} />
               <span>Export</span>
             </button>
-            <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-              <button onClick={exportToCSV} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
-                <FileText size={13} />
-                Export as CSV
-              </button>
-              <button onClick={exportToPDF} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
-                <File size={13} />
-                Export as PDF
-              </button>
-            </div>
+            {exportOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setExportOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+                  <button onClick={() => { exportToCSV(); setExportOpen(false) }} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
+                    <FileText size={13} />
+                    Export as CSV
+                  </button>
+                  <button onClick={() => { exportToPDF(); setExportOpen(false) }} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
+                    <File size={13} />
+                    Export as PDF
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -3,8 +3,9 @@ app/integrations/shopify.py
 Shopify Admin API integration — product metadata AND stock levels.
 Shopify is now the single source of truth for all product and inventory data.
 
-Current state: MOCK — returns hardcoded data.
-To activate: implement the _real_* functions and flip USE_MOCK = False.
+Current state: LIVE — USE_MOCK is False; all data comes from the Shopify Admin
+API via the _real_* functions. The _mock_* helpers below are inactive, kept
+only as a local-dev fallback.
 
 Authentication:
   - Uses OAuth flow: exchange SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET for access token
@@ -130,8 +131,6 @@ def get_product_info(keyword: str) -> dict:
     Fetches product metadata from Shopify by keyword search.
     Returns name, description, price, variants, stock quantity.
     """
-    if USE_MOCK:
-        return _mock_get_product_info(keyword)
     return _real_get_product_info(keyword)
 
 
@@ -140,13 +139,6 @@ def get_stock_level(keyword: str) -> dict:
     Returns stock level for a product from Shopify inventory.
     Shopify is the single source of truth for all inventory data.
     """
-    if USE_MOCK:
-        product = _mock_get_product_info(keyword)
-        return {
-            "product_name": product.get("name", keyword),
-            "quantity": product.get("stock_quantity", 0),
-            "unit": "pcs",
-        }
     return _real_get_stock_level(keyword)
 
 def list_all_products() -> list[dict]:
@@ -154,8 +146,6 @@ def list_all_products() -> list[dict]:
     Returns the FULL catalog from Shopify — used by the Products page sync.
     Each dict has the same shape as get_product_info() returns.
     """
-    if USE_MOCK:
-        return _mock_list_all_products()
     return _real_list_all_products()
 
 def search_products(keyword, limit: int = 3) -> list[dict]:
@@ -173,8 +163,6 @@ def search_products(keyword, limit: int = 3) -> list[dict]:
     if not terms:
         return []
 
-    if USE_MOCK:
-        return _mock_search_products(terms, limit=limit)
     return _cache_search_products(terms, limit=limit)
 
 
@@ -230,109 +218,7 @@ def iter_all_customer_ids():
 
 
 # ─────────────────────────────────────────────
-# Mock implementation
-# ─────────────────────────────────────────────
-
-_MOCK_PRODUCTS = [
-    {
-        "shopify_id": "001",
-        "name": "Floral Wrap Dress",
-        "description": "A lightweight floral wrap dress perfect for any occasion.",
-        "price": "KES 3,500",
-        "variants": ["XS", "S", "M", "L", "XL"],
-        "stock_quantity": 14,
-    },
-    {
-        "shopify_id": "002",
-        "name": "Matte Lipstick",
-        "description": "Long-lasting matte lipstick available in 12 shades.",
-        "price": "KES 850",
-        "variants": ["Red", "Nude", "Berry", "Coral"],
-        "stock_quantity": 52,
-    },
-    {
-        "shopify_id": "003",
-        "name": "Vitamin C Serum",
-        "description": "Brightening serum with 20% Vitamin C for glowing skin.",
-        "price": "KES 2,200",
-        "variants": ["30ml", "50ml"],
-        "stock_quantity": 0,
-    },
-    {
-        "shopify_id": "004",
-        "name": "Black Wrap Dress",
-        "description": "An elegant black wrap dress for evening occasions.",
-        "price": "KES 4,200",
-        "variants": ["XS", "S", "M", "L", "XL"],
-        "stock_quantity": 8,
-    },
-    {
-        "shopify_id": "005",
-        "name": "Hydrating Moisturizer",
-        "description": "Deep hydration moisturizer for all skin types.",
-        "price": "KES 1,800",
-        "variants": ["50ml", "100ml"],
-        "stock_quantity": 23,
-    },
-]
-
-def _mock_list_all_products() -> list[dict]:
-    """Returns the entire mock catalog."""
-    log_event("info", "integrations.shopify", f"Mock catalog: {len(_MOCK_PRODUCTS)} products")
-    return list(_MOCK_PRODUCTS)
-
-
-def _mock_get_product_info(keyword: str) -> dict:
-    keyword_lower = keyword.lower()
-    for product in _MOCK_PRODUCTS:
-        if keyword_lower in product["name"].lower():
-            log_event("info", "integrations.shopify", f"Mock product found for '{keyword}'")
-            return product
-
-    log_event("info", "integrations.shopify", f"No mock product matched '{keyword}', using fallback")
-    return {
-        "shopify_id": "000",
-        "name": keyword.title(),
-        "description": "A beautiful piece from our latest collection.",
-        "price": "KES 1,800",
-        "variants": [],
-        "stock_quantity": 0,
-    }
-
-def _mock_search_products(terms: list[str], limit: int = 3) -> list[dict]:
-    """Multi-term search over the in-memory mock catalog."""
-    if not terms:
-        return []
-
-    expanded = []
-    for t in terms:
-        t = t.lower().strip()
-        if not t:
-            continue
-        expanded.append(t)
-        if len(t) > 3 and t.endswith('s'):
-            expanded.append(t.rstrip('s'))
-
-    matches = []
-    for product in _MOCK_PRODUCTS:
-        name_lc = product["name"].lower()
-        desc_lc = (product.get("description") or "").lower()
-        variants_lc = " ".join(str(v).lower() for v in product.get("variants", []))
-
-        score = 0
-        for term in expanded:
-            if term in name_lc:        score += 10
-            elif term in variants_lc:  score += 5
-            elif term in desc_lc:      score += 2
-
-        if score > 0:
-            matches.append((score, product))
-
-    matches.sort(key=lambda x: -x[0])
-    return [p for _, p in matches[:limit]]
-
-# ─────────────────────────────────────────────
-# Real Shopify implementation (TODO)
+# Real Shopify implementation (LIVE)
 # ─────────────────────────────────────────────
 
 def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
