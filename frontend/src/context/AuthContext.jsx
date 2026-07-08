@@ -22,6 +22,31 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  // Auto-logout the moment the JWT expires — decode `exp` and schedule it.
+  // Clearing the user makes ProtectedRoute redirect to /login automatically.
+  useEffect(() => {
+    if (!user) return
+    const token = localStorage.getItem('authToken')
+    if (!token) return
+    let timer
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const msLeft = payload?.exp ? payload.exp * 1000 - Date.now() : null
+      if (msLeft !== null) {
+        if (msLeft <= 0) {
+          localStorage.removeItem('authToken')
+          setUser(null)
+          return
+        }
+        timer = setTimeout(() => {
+          localStorage.removeItem('authToken')
+          setUser(null)
+        }, msLeft)
+      }
+    } catch { /* malformed token — verifyToken already handles the 401 path */ }
+    return () => clearTimeout(timer)
+  }, [user])
+
   // Heartbeat: while authenticated, ping the backend every 30s so other
   // staff see this user as "online". Only runs when a tab is visible —
   // background tabs go idle naturally.

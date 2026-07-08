@@ -253,10 +253,15 @@ export default function Messages() {
   // Auto-scroll to latest message when active conversation updates.
   const messagesEndRef = useRef(null)
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
-  }, [activeConv?.messages?.length, aiTyping])
+    const el = messagesEndRef.current
+    if (!el) return
+    // Double rAF so it runs after layout settles — on mobile the thread view
+    // mounts a frame later than desktop's two-pane, so a bare call fires too early.
+    const id = requestAnimationFrame(() =>
+      requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'end' }))
+    )
+    return () => cancelAnimationFrame(id)
+  }, [activeConv?.id, activeConv?.messages?.length, aiTyping])
 
   // Load all channels on mount
   useEffect(() => {
@@ -604,7 +609,7 @@ const handleSend = async () => {
   // ── Chat thread panel ────────────────────────────────────────────────────
   const ChatPanel = (
     <div className={clsx(
-      'flex-1 flex flex-col min-w-0 bg-[#FAFAFA]',
+      'flex-1 flex flex-col min-w-0 min-h-0 bg-[#FAFAFA]',
       !selected ? 'hidden lg:flex' : 'flex',
     )}>
       {!selected && (

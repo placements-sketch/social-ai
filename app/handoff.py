@@ -79,6 +79,21 @@ def check_handoff(message: str, intents: list[str], conversation: Conversation,
 
     return None
 
+def _bridging_reply_for(reason: str, detail: str) -> str:
+    """
+    Short, human handoff line based on WHY we're escalating. Defaults to the
+    standard BRIDGING_REPLY; only overrides where that tone doesn't fit —
+    e.g. abuse, where a warm "we appreciate your patience" can read as tone-deaf.
+    """
+    key = (detail or "").lower()
+    if key == "abuse":
+        return ("I hear you, and I want to get this sorted properly. "
+                "Let me bring in someone from our team to help you directly — one moment.")
+    if key in ("frustration", "complaint"):
+        return ("I'm really sorry about this. Let me get a team member to look into it "
+                "for you right away — one moment.")
+    return BRIDGING_REPLY
+
 def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     """Flip the conversation into human_override and record the handoff."""
     from app.assignment import pick_next_agent
@@ -170,7 +185,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     return {
         "reason": reason,
         "detail": detail,
-        "bridging_reply": BRIDGING_REPLY,
+        "bridging_reply": _bridging_reply_for(reason, detail),
     }
 
 
