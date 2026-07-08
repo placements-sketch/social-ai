@@ -87,11 +87,6 @@ def _poll_once():
     page_id, token = _get_meta_credentials()
     url = _conversations_url()
 
-    # TEMP DEBUG
-    print(f"[POLL DEBUG] token first 30 chars: {(token or '')[:30]}")
-    print(f"[POLL DEBUG] page id: {page_id}")
-    print(f"[POLL DEBUG] url: {url}")
-    
     if not token or not url:
         return
 

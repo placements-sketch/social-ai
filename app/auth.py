@@ -102,10 +102,9 @@ def login():
         }), 200
 
     except Exception as e:
-        print(f"Login error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Login failed: {str(e)}'}), 500
+        from app.utils.logger import log_event
+        log_event("error", "auth.login", f"Login failed: {str(e)[:200]}")
+        return jsonify({'error': 'Login failed. Please try again.'}), 500
 
 
 @auth_bp.route('/signup', methods=['POST'])

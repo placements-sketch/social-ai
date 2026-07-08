@@ -72,29 +72,19 @@ export function AuthProvider({ children }) {
     return () => clearInterval(timer)
   }, [user])
 
-  const verifyToken = async (token) => {
+const verifyToken = async (token) => {
     try {
-      console.log('[AUTH] Verifying token:', token.substring(0, 20) + '...')
       const response = await fetch(`${API_URL}/api/auth/verify`, {
         method: 'GET',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       })
-      console.log('[AUTH] Verify response status:', response.status)
       if (response.ok) {
-        const userData = await response.json()
-        console.log('[AUTH] Token verified, user:', userData.email)
-        setUser(userData)
+        setUser(await response.json())
       } else {
-        const errorData = await response.json()
-        console.error('[AUTH] Token verification failed:', response.status, errorData)
         localStorage.removeItem('authToken')
         setUser(null)
       }
-    } catch (err) {
-      console.error('[AUTH] Token verification error:', err)
+    } catch {
       localStorage.removeItem('authToken')
       setUser(null)
     } finally {

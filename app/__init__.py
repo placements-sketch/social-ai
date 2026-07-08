@@ -29,7 +29,10 @@ def create_app():
 
     # Enable CORS for frontend
     import os
-    cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+    _cors_raw = os.getenv("CORS_ORIGINS", "").strip()
+    if not _cors_raw:
+        app.logger.warning("CORS_ORIGINS not set — cross-origin requests will be blocked. Set it to your frontend URL.")
+    cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
     CORS(
         app,
         resources={r"/api/*": {"origins": cors_origins}},
@@ -40,17 +43,14 @@ def create_app():
     # JWT error handlers
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_data):
-        print("[JWT] Token expired")
         return jsonify({'error': 'Token has expired'}), 401
 
     @jwt.invalid_token_loader
     def invalid_token_callback(error):
-        print(f"[JWT] Invalid token: {error}")
         return jsonify({'error': 'Invalid token'}), 401
 
     @jwt.unauthorized_loader
     def missing_token_callback(error):
-        print(f"[JWT] Missing token: {error}")
         return jsonify({'error': 'Missing authorization token'}), 401
 
     # Register blueprints

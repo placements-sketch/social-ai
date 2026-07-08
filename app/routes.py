@@ -230,12 +230,7 @@ def instagram_webhook():
     if not ok:
         return _reject_bad_signature('instagram_dm', err)
 
-    import json
     data = request.get_json(silent=True) or {}
-    current_app.logger.warning(
-    f"[IG WEBHOOK HIT] headers={dict(request.headers)}"
-    )
-    current_app.logger.info(f"[IG webhook RAW] {json.dumps(data, indent=2)}")
 
     events = []          # DM events
     comment_events = []  # IG comment events

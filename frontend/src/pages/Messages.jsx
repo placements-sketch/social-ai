@@ -127,18 +127,6 @@ export default function Messages() {
   // Keep all channels even when filtering, so filters don't disappear
   const channels = allChannels
 
-  // Debug: log active conversation state
-  useEffect(() => {
-    if (activeConv) {
-      console.log('Active conversation updated:', {
-        id: activeConv.id,
-        ai_enabled: activeConv.ai_enabled,
-        status: activeConv.status,
-        handle: activeConv.handle
-      })
-    }
-  }, [activeConv])
-
   // ── Load the conversation list (re-runs on filter / search change) ────────
   const loadList = useCallback(async () => {
     setLoadingList(true)
@@ -288,7 +276,6 @@ export default function Messages() {
       const loadAgentsList = async () => {
         try {
           const data = await listAgents()
-          console.log('[DEBUG] Agents loaded:', data)
           setAgents(data.agents || [])
         } catch (err) {
           console.error('Failed to load agents:', err)
