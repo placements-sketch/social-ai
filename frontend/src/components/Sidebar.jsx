@@ -191,9 +191,11 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
               <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
                 {user?.full_name?.charAt(0).toUpperCase() || 'U'}
               </div>
-              <span className="absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-[#0d0d0d]">
-                <PresenceDot status={user?.presence || 'online'} size="md" />
-              </span>
+              <PresenceDot
+                status={user?.presence || 'online'}
+                size="md"
+                className="absolute bottom-0 right-0 ring-2 ring-[#0d0d0d]"
+              />
             </div>
             <button
               onClick={onToggle}
