@@ -80,9 +80,7 @@ export default function Settings() {
         {/* Panel */}
         <div className="flex-1 min-w-0">
           {loading ? (
-            <div className="bg-white rounded-2xl border border-gray-200 p-10 flex items-center justify-center text-gray-400">
-              <Loader2 size={18} className="animate-spin mr-2" /> Loading settings…
-            </div>
+            <PanelSkeleton />
           ) : error ? (
             <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">{error}</div>
           ) : tab === 'handoff' ? (
@@ -189,6 +187,35 @@ function DangerPanel({ settings, setSettings }) {
       <p className="text-[11px] text-gray-400 px-1">
         Deleting conversations, customers, or products isn't exposed here by design — those are irreversible on a live store and shouldn't sit behind a single click.
       </p>
+    </div>
+  )
+}
+
+function PanelSkeleton() {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6 animate-pulse">
+      <div className="flex items-start gap-3 pb-4 mb-5 border-b border-gray-100">
+        <div className="w-10 h-10 rounded-xl bg-gray-200 shrink-0" />
+        <div className="flex-1 space-y-2 pt-1">
+          <div className="h-3.5 w-40 bg-gray-200 rounded" />
+          <div className="h-2.5 w-64 max-w-full bg-gray-100 rounded" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+        {[0, 1].map(i => (
+          <div key={i} className="space-y-2">
+            <div className="h-2.5 w-24 bg-gray-100 rounded" />
+            <div className="h-10 w-full bg-gray-100 rounded-xl" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2 mb-5">
+        <div className="h-2.5 w-28 bg-gray-100 rounded" />
+        <div className="h-20 w-full bg-gray-100 rounded-xl" />
+      </div>
+      <div className="flex justify-end">
+        <div className="h-8 w-28 bg-gray-200 rounded-lg" />
+      </div>
     </div>
   )
 }
@@ -681,9 +708,7 @@ function IntegrationsPanel() {
       {error ? (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">{error}</div>
       ) : loading && !data ? (
-        <div className="bg-white rounded-2xl border border-gray-200 p-10 flex items-center justify-center text-gray-400">
-          <Loader2 size={18} className="animate-spin mr-2" /> Checking connections…
-        </div>
+        <PanelSkeleton />
       ) : (
         <>
           <IntegrationCard icon={Instagram} name="Meta · Instagram" ok={m?.connected}>
