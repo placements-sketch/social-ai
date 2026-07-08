@@ -42,7 +42,11 @@ def pick_next_agent():
          least-recently-assigned so it rotates fairly.
     Returns an AuthUser, or None if nobody is eligible (→ caller queues it).
     """
-    present_cutoff = datetime.utcnow() - timedelta(seconds=PRESENCE_WINDOW_SECONDS)
+    from app.settings import get_section
+    _hs = get_section("handoff")
+    max_load = int(_hs.get("max_agent_load", MAX_AGENT_LOAD))
+    presence_window = int(_hs.get("presence_window_seconds", PRESENCE_WINDOW_SECONDS))
+    present_cutoff = datetime.utcnow() - timedelta(seconds=presence_window)
 
     # Open-conversation load per assignee (unresolved = real workload).
     open_counts = dict(
@@ -68,7 +72,7 @@ def pick_next_agent():
               .all())
 
     # Only agents with headroom under the cap.
-    eligible = [a for a in agents if open_counts.get(a.id, 0) < MAX_AGENT_LOAD]
+    eligible = [a for a in agents if open_counts.get(a.id, 0) < max_load]
     if not eligible:
         return None  # everyone present is saturated (or nobody present) → queue it
 

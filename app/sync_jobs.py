@@ -136,9 +136,10 @@ def start_background_job(kind: str,
 
 def _notify_discord_failure(kind: str, job_id: int, error: str):
     """Best-effort Discord ping when a sync job fails. Never raises."""
-    webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+    from app.settings import discord_webhook_for
+    webhook_url = discord_webhook_for('failure')
     if not webhook_url:
-        return  # not configured; silent no-op
+        return  # not configured / disabled; silent no-op
 
     payload = {
         "username": "Sync Alerts",
@@ -214,7 +215,8 @@ def notify_discord_warning(title: str, message: str, fields: list = None):
     Used for things like 'cursor expired, restarted from scratch' where
     the sync will still complete — we just want visibility.
     """
-    webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+    from app.settings import discord_webhook_for
+    webhook_url = discord_webhook_for('warning')
     if not webhook_url:
         return
     

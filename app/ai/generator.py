@@ -414,12 +414,26 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
 
         if context_data.get("delivery_asked"):
             loc = context_data.get("delivery_location", "their location")
-            context_lines.append(
-                f"Customer asked about delivery to: {loc}. "
-                f"NOTE: No specific delivery details have been configured. "
-                f"Tell the customer you'll check exact pricing and timing with the team "
-                f"and confirm shortly — do not invent specifics."
-            )
+            delivery_block = ""
+            try:
+                from app.settings import format_delivery_for_prompt
+                delivery_block = format_delivery_for_prompt()
+            except Exception as e:
+                log_event("warn", "ai.generator.delivery_inject_failed", str(e))
+            if delivery_block:
+                context_lines.append(
+                    f"Customer asked about delivery to: {loc}.\n"
+                    f"Delivery information (use ONLY what's below — never invent rates or timings):\n"
+                    f"{delivery_block}\n"
+                    f"If their location isn't listed, tell them you'll confirm exact pricing and timing with the team."
+                )
+            else:
+                context_lines.append(
+                    f"Customer asked about delivery to: {loc}. "
+                    f"NOTE: No specific delivery details have been configured. "
+                    f"Tell the customer you'll check exact pricing and timing with the team "
+                    f"and confirm shortly — do not invent specifics."
+                )
 
         # ── Order status (live Shopify lookup, verified by name + email) ──
         os_data = context_data.get("order_status")
@@ -507,9 +521,17 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         except Exception as e:
             log_event("warn", "ai.generator.store_info_inject_failed", str(e))
 
+        business_block = ""
+        try:
+            from app.settings import format_business_for_prompt
+            business_block = format_business_for_prompt()
+        except Exception as e:
+            log_event("warn", "ai.generator.business_info_inject_failed", str(e))
+
+        _si_parts = [p for p in (business_block, locations_block) if p]
         store_info_section = (
-            f"\n\n--- Store info ---\n{locations_block}"
-            if locations_block else ""
+            "\n\n--- Store info ---\n" + "\n".join(_si_parts)
+            if _si_parts else ""
         )
 
         system_prompt = f"""{base_prompt}

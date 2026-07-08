@@ -92,7 +92,8 @@ def _bridging_reply_for(reason: str, detail: str) -> str:
     if key in ("frustration", "complaint"):
         return ("I'm really sorry about this. Let me get a team member to look into it "
                 "for you right away — one moment.")
-    return BRIDGING_REPLY
+    from app.settings import get_section
+    return get_section("handoff").get("bridging_reply") or BRIDGING_REPLY
 
 def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     """Flip the conversation into human_override and record the handoff."""

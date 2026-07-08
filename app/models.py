@@ -801,3 +801,10 @@ class ConversionAttribution(db.Model):
 
     def __repr__(self):
         return f"<ConversionAttribution order={self.order_number} via msg={self.message_id}>"
+    
+class AppSettings(db.Model):
+    """Singleton (id=1) JSON-backed org settings. Edited via the Settings page."""
+    __tablename__ = 'app_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.JSON, nullable=False, default=dict)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

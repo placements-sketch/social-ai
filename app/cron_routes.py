@@ -971,7 +971,8 @@ def cron_watchdog():
             })
 
     if stuck:
-        webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+        from app.settings import discord_webhook_for
+        webhook_url = discord_webhook_for('warning')
         if webhook_url:
             try:
                 fields = []
