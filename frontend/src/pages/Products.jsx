@@ -313,8 +313,10 @@ export default function Products() {
                   <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center shrink-0">
-                          <Package size={16} className="text-brand-600" />
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center shrink-0 overflow-hidden">
+                          {(p.images && p.images[0])
+                            ? <img src={p.images[0]} alt="" className="w-full h-full object-cover" />
+                            : <Package size={16} className="text-brand-600" />}
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
