@@ -643,6 +643,7 @@ def _real_iter_all_products(start_url=None):
                 variants_detail = [
                     {
                         "shopify_variant_id": str(v.get('id')),
+                        "inventory_item_id": str(v.get('inventory_item_id')) if v.get('inventory_item_id') else None,
                         "title": v.get('title', ''),
                         "option1": v.get('option1'),
                         "option2": v.get('option2'),
@@ -1140,6 +1141,7 @@ def refresh_stock_for_products(shopify_product_ids: list[str]) -> dict:
             variants_detail = [
                 {
                     "shopify_variant_id": str(v.get('id')),
+                    "inventory_item_id": str(v.get('inventory_item_id')) if v.get('inventory_item_id') else None,
                     "title": v.get('title', ''),
                     "option1": v.get('option1'),
                     "option2": v.get('option2'),
@@ -1237,6 +1239,7 @@ def live_search_products(terms, window_days=1, limit=250, max_pages=2):
                 variants_detail = [
                     {
                         "shopify_variant_id": str(v.get('id')),
+                        "inventory_item_id": str(v.get('inventory_item_id')) if v.get('inventory_item_id') else None,
                         "title": v.get('title', ''),
                         "option1": v.get('option1'),
                         "option2": v.get('option2'),

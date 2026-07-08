@@ -16,6 +16,7 @@ Endpoints:
 
 import hmac
 import hashlib
+import base64
 import os
 from flask import Blueprint, request, jsonify, current_app
 from app.services import process_message
@@ -102,6 +103,79 @@ def _reject_bad_signature(channel_label: str, reason: str):
     db.session.commit()
     return jsonify({'error': 'Invalid signature'}), 403
 
+# ─────────────────────────────────────────────
+# Shopify webhooks — freshness layer over the cron delta+reconcile sync
+# ─────────────────────────────────────────────
+
+def _verify_shopify_hmac(request) -> tuple[bool, str | None]:
+    """
+    Verify X-Shopify-Hmac-Sha256: a BASE64 HMAC-SHA256 over the raw body,
+    keyed with the Shopify app secret. (Meta uses hex — Shopify uses base64.)
+    Honors the WEBHOOK_SIGNATURE_REQUIRED kill switch.
+    """
+    required = os.getenv('WEBHOOK_SIGNATURE_REQUIRED', 'true').lower() not in ('0', 'false', 'no')
+    if not required:
+        return True, None
+
+    secret = (os.getenv('SHOPIFY_WEBHOOK_SECRET')
+              or os.getenv('SHOPIFY_CLIENT_SECRET')
+              or current_app.config.get('SHOPIFY_CLIENT_SECRET'))
+    if not secret:
+        return False, 'SHOPIFY_CLIENT_SECRET not configured — cannot verify webhook'
+
+    received = request.headers.get('X-Shopify-Hmac-Sha256', '')
+    if not received:
+        return False, 'Missing X-Shopify-Hmac-Sha256 header'
+
+    raw_body = request.get_data(cache=True)  # cache=True so get_json() still works
+    digest = hmac.new(secret.encode('utf-8'), raw_body, hashlib.sha256).digest()
+    expected = base64.b64encode(digest).decode('utf-8')
+
+    if not hmac.compare_digest(received, expected):
+        current_app.logger.warning(
+            f"[SHOPIFY SIG MISMATCH] received={received[:12]}... expected={expected[:12]}... "
+            f"body_len={len(raw_body)}"
+        )
+        return False, 'Signature mismatch'
+
+    return True, None
+
+
+@bp.route("/webhook/shopify", methods=["POST"])
+def shopify_webhook():
+    """
+    Receives Shopify webhooks (products, orders, customers, inventory).
+    Verifies HMAC, then dispatches by X-Shopify-Topic in a background thread so
+    we return 200 fast (Shopify retries on non-2xx or >5s).
+
+    This is a FRESHNESS layer only — the cron delta+reconcile sync stays the
+    source of truth and backstops anything missed while the instance sleeps.
+    """
+    ok, err = _verify_shopify_hmac(request)
+    if not ok:
+        from app.utils.logger import log_event
+        log_event("warning", "routes.shopify.bad_signature",
+                  f"Rejected Shopify webhook: {err}",
+                  payload={"reason": err, "remote_addr": request.remote_addr,
+                           "topic": request.headers.get("X-Shopify-Topic")})
+        return jsonify({'error': 'Invalid signature'}), 401
+
+    topic = request.headers.get("X-Shopify-Topic", "")
+    data = request.get_json(silent=True) or {}
+
+    import threading
+    app_obj = current_app._get_current_object()
+
+    def _process():
+        with app_obj.app_context():
+            try:
+                from app.shopify_webhooks import dispatch_shopify_webhook
+                dispatch_shopify_webhook(topic, data)
+            except Exception as e:
+                app_obj.logger.error(f"[Shopify webhook bg] {topic} error: {e}")
+
+    threading.Thread(target=_process, daemon=True).start()
+    return jsonify({"status": "accepted", "topic": topic}), 200
 
 # ─────────────────────────────────────────────
 # Health check

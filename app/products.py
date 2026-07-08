@@ -378,3 +378,17 @@ def sync_products():
         }), 409
 
     return jsonify({'job_id': job.id, 'status': job.status}), 202
+
+@products_bp.route('/products/backfill-inventory-map', methods=['POST'])
+@jwt_required()
+def backfill_inventory_map():
+    current_user = AuthUser.query.get(current_user_id())
+    if not current_user or current_user.role != 'admin':
+        return jsonify({'error': 'Only admins can do this'}), 403
+    from app.shopify_webhooks import upsert_inventory_map
+    count = 0
+    for row in ProductCache.query.all():
+        if row.variants_detail:
+            upsert_inventory_map(row.shopify_product_id, row.variants_detail)
+            count += 1
+    return jsonify({'products_mapped': count}), 200

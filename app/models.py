@@ -808,3 +808,12 @@ class AppSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     data = db.Column(db.JSON, nullable=False, default=dict)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class InventoryMap(db.Model):
+    """inventory_item_id → product/variant, so inventory_levels/update webhooks
+    (which carry only inventory_item_id) resolve to a product in O(1)."""
+    __tablename__ = "inventory_map"
+    inventory_item_id  = db.Column(db.String(64), primary_key=True)
+    shopify_product_id = db.Column(db.String(64), nullable=False, index=True)
+    shopify_variant_id = db.Column(db.String(64), nullable=True)
+    updated_at         = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
