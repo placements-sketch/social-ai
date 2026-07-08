@@ -267,3 +267,38 @@ def reset_settings():
     row.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'settings': get_settings()}), 200
+
+@settings_bp.route('/settings/webhooks', methods=['GET'])
+@jwt_required()
+def list_webhooks():
+    if not _require_admin():
+        return jsonify({'error': 'Only admins can view settings'}), 403
+    from app.integrations.shopify import list_shopify_webhooks
+    try:
+        hooks = list_shopify_webhooks()
+        return jsonify({'webhooks': [
+            {'id': w.get('id'), 'topic': w.get('topic'),
+             'address': w.get('address'), 'created_at': w.get('created_at')}
+            for w in hooks
+        ]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 502
+
+
+@settings_bp.route('/settings/webhooks/register', methods=['POST'])
+@jwt_required()
+def register_webhooks():
+    if not _require_admin():
+        return jsonify({'error': 'Only admins can register webhooks'}), 403
+    import os
+    from flask import current_app
+    from app.integrations.shopify import register_shopify_webhooks
+    base_url = (os.getenv('PUBLIC_BASE_URL')
+                or current_app.config.get('PUBLIC_BASE_URL')
+                or request.host_url).rstrip('/')
+    if not base_url:
+        return jsonify({'error': 'PUBLIC_BASE_URL not configured'}), 400
+    try:
+        return jsonify(register_shopify_webhooks(base_url)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 502

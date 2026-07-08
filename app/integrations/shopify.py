@@ -125,7 +125,6 @@ def _get_shopify_access_token():
         log_event("error", "integrations.shopify", f"Failed to get access token: {str(e)}")
         raise
 
-
 def get_product_info(keyword: str) -> dict:
     """
     Fetches product metadata from Shopify by keyword search.
@@ -1366,3 +1365,59 @@ def iter_orders_for_attribution(updated_at_min=None):
                 if 'rel="next"' in part:
                     url = part.split(';')[0].strip().strip('<>')
                     break
+
+
+SHOPIFY_WEBHOOK_TOPICS = [
+    "products/create", "products/update", "products/delete",
+    "orders/create", "orders/updated",
+    "customers/create", "customers/update",
+    "inventory_levels/update",
+]
+
+
+def list_shopify_webhooks() -> list[dict]:
+    """GET the store's current webhook subscriptions."""
+    store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+    access_token = _get_shopify_access_token()
+    headers = {'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json'}
+    r = _get_shopify_session().get(f"{store_url}/admin/api/2024-01/webhooks.json?limit=250",
+                                   headers=headers, timeout=15)
+    r.raise_for_status()
+    return r.json().get('webhooks', [])
+
+
+def register_shopify_webhooks(base_url: str) -> dict:
+    """
+    Idempotently register every topic pointing at {base_url}/webhook/shopify.
+    Skips topics already registered for that address. Returns a summary.
+    """
+    address = f"{base_url.rstrip('/')}/webhook/shopify"
+    store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+    access_token = _get_shopify_access_token()
+    headers = {'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json'}
+
+    existing_set = {(w.get('topic'), w.get('address')) for w in list_shopify_webhooks()}
+
+    created, skipped, errors = [], [], []
+    for topic in SHOPIFY_WEBHOOK_TOPICS:
+        if (topic, address) in existing_set:
+            skipped.append(topic)
+            continue
+        try:
+            r = _get_shopify_session().post(
+                f"{store_url}/admin/api/2024-01/webhooks.json",
+                headers=headers,
+                json={"webhook": {"topic": topic, "address": address, "format": "json"}},
+                timeout=15,
+            )
+            if r.status_code in (200, 201):
+                created.append(topic)
+            else:
+                errors.append({"topic": topic, "status": r.status_code, "detail": (r.text or '')[:200]})
+        except Exception as e:
+            errors.append({"topic": topic, "error": str(e)[:200]})
+
+    log_event("info", "integrations.shopify.webhooks_register",
+              f"Registered {len(created)}, {len(skipped)} already present",
+              payload={"created": created, "skipped": skipped, "errors": errors, "address": address})
+    return {"address": address, "created": created, "already_registered": skipped, "errors": errors}
