@@ -8,11 +8,17 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Shared instances — imported by models and other modules
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
+# Per-route rate limiter (no global default). In-memory is fine for one Render
+# instance; point storage_uri at Redis if you ever run multiple instances.
+limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
 def create_app():
@@ -22,10 +28,20 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    # Render terminates TLS at its proxy and forwards the real client IP in
+    # X-Forwarded-For. Trust one hop so request.remote_addr — and the limiter's
+    # per-IP keying — reflect the actual client, not the shared proxy IP.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+    limiter.init_app(app)
+
+    @app.errorhandler(429)
+    def ratelimit_handler(e):
+        return jsonify({'error': 'Too many requests. Please slow down and try again shortly.'}), 429
 
     # Enable CORS for frontend
     import os

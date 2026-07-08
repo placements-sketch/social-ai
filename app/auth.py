@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from app import db
 from app.models import AuthUser, AuditLog
 import re
+from app import limiter
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -60,6 +61,7 @@ def log_audit(user_id, action, resource_type=None, resource_id=None, changes=Non
 
 
 @auth_bp.route('/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def login():
     """
     Login endpoint.
@@ -569,6 +571,7 @@ def _reset_email_text(name, url):
 
 
 @auth_bp.route('/forgot-password', methods=['POST'])
+@limiter.limit("5 per hour")
 def forgot_password():
     """Issue a reset token + email it. Enumeration-safe: always the same response."""
     import os, secrets, hashlib
