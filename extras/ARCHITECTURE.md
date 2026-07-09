@@ -264,3 +264,7 @@ Return policy — "Customers can return unworn items within X days of delivery."
 Signature collections — if Shop Zetu has named collections ("The Office Capsule," "Statement Saturdays," etc.) name them so the AI can recommend across the catalog
 Slogan or tagline — if Shop Zetu has one, include it so the assistant can echo it naturally
 Payment methods — M-Pesa, cards, etc.
+
+
+
+run this to test before deployment: python -m pytest
