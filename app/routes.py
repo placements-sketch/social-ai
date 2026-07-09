@@ -661,7 +661,3 @@ def tiktok_comments_webhook():
 
     # TODO: call send_tiktok_reply(sender_id, reply) here
     return jsonify({"reply": reply}), 200
-
-@bp.route("/debug-sentry")
-def debug_sentry():
-    1 / 0
