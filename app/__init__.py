@@ -22,9 +22,37 @@ limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
 def create_app():
-    # Import config here to ensure it's found at runtime
     from app.config import Config
-    
+    import os
+
+    # ── Error monitoring (Sentry) — active only when SENTRY_DSN is set, so
+    #    local/dev without the env var is a silent no-op. ──
+    _sentry_dsn = os.getenv("SENTRY_DSN")
+    if _sentry_dsn:
+        import sentry_sdk
+        from sentry_sdk.integrations.flask import FlaskIntegration
+
+        def _scrub_sensitive(event, hint):
+            # Never ship auth tokens to Sentry — strip the Authorization header.
+            try:
+                headers = (event.get("request") or {}).get("headers") or {}
+                for k in list(headers.keys()):
+                    if k.lower() == "authorization":
+                        headers[k] = "[Filtered]"
+            except Exception:
+                pass
+            return event
+
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            integrations=[FlaskIntegration()],
+            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+            release=os.getenv("RENDER_GIT_COMMIT") or None,   # ties errors to the deploy
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+            send_default_pii=False,
+            before_send=_scrub_sensitive,
+        )
+
     app = Flask(__name__)
     app.config.from_object(Config)
 
