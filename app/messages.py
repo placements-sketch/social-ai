@@ -401,9 +401,17 @@ def toggle_ai(conversation_id):
         return jsonify({'error': 'ai_enabled (boolean) is required'}), 400
 
     conv.ai_enabled = bool(data['ai_enabled'])
-    # Re-enabling AI clears the stale handoff reason
     if conv.ai_enabled:
+        # AI taking back over → clear the stale handoff state so the
+        # conversation returns to normal AI-handled, not half-escalated.
         conv.handoff_reason = None
+        if conv.status == 'human_override':
+            conv.status = 'active'
+    else:
+        # Human taking over manually via the toggle → mark it handed over,
+        # consistent with how a manual reply flips the conversation.
+        if conv.status == 'active':
+            conv.status = 'human_override'
     conv.updated_at = datetime.utcnow()
     db.session.commit()
 

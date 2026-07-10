@@ -35,12 +35,14 @@ PRESENCE_WINDOW_SECONDS = int(os.getenv('PRESENCE_WINDOW_SECONDS', '300'))
 
 def pick_next_agent():
     """
-    Choose the best agent for an auto-assignment, professional-balancer style:
-      1. Only agents who are PRESENT (seen within PRESENCE_WINDOW_SECONDS).
-      2. Skip anyone at/over MAX_AGENT_LOAD open conversations (no overloading).
-      3. Among the rest, fewest open conversations wins; ties broken by
-         least-recently-assigned so it rotates fairly.
-    Returns an AuthUser, or None if nobody is eligible (→ caller queues it).
+    Choose the best agent for an auto-assignment:
+      1. Any ACTIVE agent is eligible — we do NOT require them to be currently
+         online. (A chat that escalates before anyone clocks in should still get
+         an owner, waiting for them, rather than sitting unassigned.)
+      2. Skip anyone at/over the max open-conversation load (no overloading).
+      3. Fewest open conversations wins; ties broken by presence (someone online
+         now is preferred), then by least-recently-assigned for fair rotation.
+    Returns an AuthUser, or None only if there are NO active agents at all.
     """
     from app.settings import get_section
     _hs = get_section("handoff")
@@ -48,7 +50,6 @@ def pick_next_agent():
     presence_window = int(_hs.get("presence_window_seconds", PRESENCE_WINDOW_SECONDS))
     present_cutoff = datetime.utcnow() - timedelta(seconds=presence_window)
 
-    # Open-conversation load per assignee (unresolved = real workload).
     open_counts = dict(
         db.session.query(Conversation.assigned_to, func.count(Conversation.id))
         .filter(Conversation.assigned_to.isnot(None))
@@ -56,8 +57,6 @@ def pick_next_agent():
         .group_by(Conversation.assigned_to)
         .all()
     )
-
-    # Most-recent auto/any assignment time per agent, for fair tie-breaking.
     last_assigned = dict(
         db.session.query(Conversation.assigned_to, func.max(Conversation.assigned_at))
         .filter(Conversation.assigned_to.isnot(None))
@@ -65,22 +64,29 @@ def pick_next_agent():
         .all()
     )
 
+    # Any active agent — presence is NOT a hard filter anymore.
     agents = (AuthUser.query
               .filter(AuthUser.role == 'agent', AuthUser.status == 'active')
-              .filter(AuthUser.last_seen_at.isnot(None))
-              .filter(AuthUser.last_seen_at >= present_cutoff)
               .all())
 
-    # Only agents with headroom under the cap.
+    # Respect the load cap so we still don't pile onto a saturated agent.
     eligible = [a for a in agents if open_counts.get(a.id, 0) < max_load]
     if not eligible:
-        return None  # everyone present is saturated (or nobody present) → queue it
+        # Everyone's at capacity — fall back to ALL active agents rather than
+        # queue it (an owned-but-busy chat beats an orphaned one).
+        eligible = agents
+    if not eligible:
+        return None  # genuinely no active agents exist → queue it
 
-    # Fewest open convs first; tie-break by who was assigned longest ago
-    # (None/never-assigned sorts earliest, so fresh agents get work first).
+    def _is_present(a):
+        return bool(a.last_seen_at and a.last_seen_at >= present_cutoff)
+
+    # Fewest open convs first; then prefer someone present right now;
+    # then least-recently-assigned for fair rotation.
     def sort_key(a):
         return (
             open_counts.get(a.id, 0),
+            0 if _is_present(a) else 1,          # online-now wins ties
             last_assigned.get(a.id) or datetime.min,
         )
 

@@ -202,9 +202,13 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # meaning, so far fewer "unknown"s, and flags handoff for things no keyword
     # covers (e.g. "get me a human", abuse). Degrades to keywords on any failure.
     from app.ai.classifier import classify_message
-    _class_history = _conversation_history_for_ai(
-        inbound_record.conversation_id if inbound_record else None, limit=4)
-    classification = classify_message(message, history=_class_history)
+    # Classify the CURRENT message on its own — do NOT feed conversation history.
+    # History was poisoning the handoff decision: after a human handled a
+    # complaint and AI was re-enabled, the next (benign) message got re-read as a
+    # complaint because the old angry turns were still in view, re-escalating
+    # every time. The reply generator still gets full history (Step 5b) for
+    # context; only the intent/handoff classification is per-message.
+    classification = classify_message(message)
     intents = classification["intents"]
     _llm_handoff = classification["handoff"]
 
