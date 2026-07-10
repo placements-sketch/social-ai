@@ -250,8 +250,9 @@ def system_logs():
 # ─────────────────────────────────────────────
 # GET /api/logs/feed  — Dashboard live activity feed
 # Returns pipeline events from the `logs` table (not audit_logs).
-# All authenticated users see the same feed (system-wide activity).
-# Note: Message access control is separate (/api/messages endpoints).
+# Role-scoped (matches Messages / Analytics):
+#   - admin, supervisor : full system-wide activity
+#   - agent             : only activity for conversations they can access
 # ─────────────────────────────────────────────
 
 @logs_bp.route('/logs/feed', methods=['GET'])
@@ -268,8 +269,25 @@ def feed_logs():
 
     # Exclude poller cycles if requested (they're noise in the live feed)
     if exclude_pollers:
-        # Exclude logs where source contains '_poller' (ig_poller.cycle, tiktok_poller, etc.)
         query = query.filter(~Log.source.ilike('%_poller%'))
+
+    # Role-scoped visibility. Agents only see activity for conversations
+    # assigned to them (or unassigned in the human_override queue) — matching
+    # the Messages access model. Conversation-less system/sync events are
+    # hidden from agents. Admins/supervisors see everything.
+    if user.role == 'agent':
+        from sqlalchemy import or_, and_
+        from app.models import Conversation
+        accessible = Conversation.query.with_entities(Conversation.id).filter(
+            or_(
+                Conversation.assigned_to == user.id,
+                and_(
+                    Conversation.assigned_to.is_(None),
+                    Conversation.status == 'human_override',
+                ),
+            )
+        )
+        query = query.filter(Log.conversation_id.in_(accessible))
 
     rows = (query.order_by(Log.created_at.desc())
                  .limit(per_page).offset((page - 1) * per_page).all())
