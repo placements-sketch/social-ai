@@ -333,6 +333,25 @@ def instagram_webhook():
                         external_id=mid,
                         image_urls=image_urls,
                     )
+                    # DM webhooks carry only the numeric IGSID, so resolve the
+                    # username via the Graph API and cache it — once per customer.
+                    try:
+                        from app import db
+                        from app.models import User
+                        user_row = User.query.filter_by(
+                            external_id=sender_id, channel="instagram_dm").first()
+                        if user_row and (not user_row.name or user_row.name == sender_id):
+                            from app.integrations.meta import fetch_instagram_username
+                            profile = fetch_instagram_username(sender_id)
+                            if profile:
+                                uname = profile.get("username") or profile.get("name")
+                                if uname:
+                                    user_row.name = uname
+                                    if profile.get("profile_pic") and not user_row.avatar_url:
+                                        user_row.avatar_url = profile.get("profile_pic")
+                                    db.session.commit()
+                    except Exception:
+                        pass
                 except Exception as e:
                     app_obj.logger.error(f"[IG webhook bg] DM process error for {sender_id}: {e}")
 

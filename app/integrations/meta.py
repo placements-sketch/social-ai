@@ -59,6 +59,31 @@ def _send_url():
 # ─────────────────────────────────────────────
 # Instagram DM — implemented
 # ─────────────────────────────────────────────
+def fetch_instagram_username(igsid: str) -> dict | None:
+    """
+    Look up an Instagram user's profile (name / username / avatar) by their
+    IGSID via the Graph API. Returns the profile dict, or None on failure.
+    Works for users who've messaged the business (messaging context).
+    """
+    _, token = _get_meta_credentials()
+    if not token or not igsid:
+        return None
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{igsid}"
+    try:
+        r = requests.get(url, params={
+            "fields": "name,username,profile_pic",
+            "access_token": token,
+        }, timeout=8)
+        if r.status_code >= 400:
+            log_event("warning", "integrations.meta.username_lookup",
+                      f"Username lookup failed ({r.status_code}): {(r.text or '')[:200]}",
+                      payload={"igsid": igsid})
+            return None
+        return r.json() or None
+    except requests.RequestException as e:
+        log_event("warning", "integrations.meta.username_lookup",
+                  f"Username lookup exception: {e}", payload={"igsid": igsid})
+        return None
 
 def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
     """
