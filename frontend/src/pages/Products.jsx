@@ -12,9 +12,10 @@ function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
   const animatedTotal = useCountAnimation(status?.product_count || 0, 2000)
   const animatedInStock = useCountAnimation(status?.in_stock_count || 0, 2000)
   const animatedOutOfStock = useCountAnimation(status?.out_of_stock_count || 0, 2000)
+  const animatedUntracked = useCountAnimation(status?.untracked_count || 0, 2000)
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div className="card p-4">
         <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Products</p>
         <p className="text-3xl font-bold text-gray-900 mt-1">{animatedTotal}</p>
@@ -29,6 +30,11 @@ function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
       <div className="card p-4">
         <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Out of Stock</p>
         <p className="text-3xl font-bold text-red-600 mt-1">{animatedOutOfStock}</p>
+      </div>
+      <div className="card p-4">
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Untracked</p>
+        <p className="text-3xl font-bold text-gray-500 mt-1">{animatedUntracked}</p>
+        <p className="text-xs text-gray-400 mt-2">Not tracked in Shopify</p>
       </div>
     </div>
   )

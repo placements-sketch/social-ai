@@ -208,6 +208,7 @@ def sync_status():
     count = ProductCache.query.count()
     in_stock = ProductCache.query.filter(ProductCache.stock_quantity > 0).count()
     out_of_stock = ProductCache.query.filter(ProductCache.stock_quantity == 0).count()
+    untracked = ProductCache.query.filter(ProductCache.stock_quantity.is_(None)).count()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
 
     latest_job = get_latest_job('products')
@@ -217,6 +218,7 @@ def sync_status():
         'product_count': count,
         'in_stock_count': in_stock,
         'out_of_stock_count': out_of_stock,
+        'untracked_count': untracked,
         'stale': stale,
         'stale_threshold_hours': int(STALE_AFTER.total_seconds() // 3600),
         'current_job': latest_job.to_dict() if latest_job else None,
