@@ -203,10 +203,31 @@ export default function TopBar({ onMenuClick }) {
         setNotifications(newList)
         setUnreadCount(data.unread_count || 0)
 
-        // Only on ACTUAL login (first load after component mount), mark all as seen so they don't pop in
+        // On login: don't pop the whole backlog, but DO surface URGENT unread
+        // items (e.g. escalations assigned while the agent was away) as a single
+        // catch-up toast. General unread stays silent — toasting it would fire on
+        // every refresh and be noisy (you can sit on 20+ unread).
         if (isFirstLoadRef.current) {
           newList.forEach(n => seenIdsRef.current.add(n.id))
           isFirstLoadRef.current = false
+
+          const unreadUrgent = newList.filter(
+            n => !n.read && n.severity === 'urgent' &&
+                 !(n.actor_id && user?.id && n.actor_id === user.id)
+          )
+          if (unreadUrgent.length === 1) {
+            showToast({
+              title: unreadUrgent[0].title,
+              body: unreadUrgent[0].body,
+              severity: 'urgent',
+            })
+          } else if (unreadUrgent.length > 1) {
+            showToast({
+              title: `${unreadUrgent.length} items need your attention`,
+              body: 'Open notifications to review escalations assigned to you.',
+              severity: 'urgent',
+            })
+          }
           return
         }
 

@@ -112,6 +112,33 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
             conversation.assigned_to = agent.id
             conversation.assigned_at = datetime.utcnow()
             conversation.assigned_by = None
+
+            log_event("info", "handoff.auto_assigned",
+                      f"Conversation {conversation.id} auto-assigned to {agent.full_name}",
+                      payload={"agent_id": agent.id, "reason": reason, "detail": detail},
+                      conversation_id=conversation.id)
+
+            # Notify the assigned agent — this is what was missing, so agents
+            # got escalations dropped on them silently (nothing in the modal,
+            # no toast on login).
+            try:
+                from app.notifications import create_notification
+                handle = conversation.user.external_id if conversation.user else 'a customer'
+                channel_label = conversation.channel.replace('_', ' ')
+                create_notification(
+                    user_id=agent.id,
+                    type_='escalation_assigned',
+                    title="New escalation assigned to you",
+                    body=f"{handle} on {channel_label} — reason: {detail or reason}",
+                    severity='urgent',
+                    resource_type='conversation',
+                    resource_id=conversation.id,
+                    actor_id=None,   # system-triggered
+                )
+            except Exception as e:
+                log_event("error", "handoff.auto_assign_notify_fail",
+                          f"create_notification failed: {e}",
+                          conversation_id=conversation.id)
             # ... keep your existing log_event + create_notification block ...
         else:
             # Nobody eligible — leave it in the unassigned human_override queue
