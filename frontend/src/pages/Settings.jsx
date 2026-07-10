@@ -65,7 +65,7 @@ export default function Settings() {
                   className={clsx(
                     'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all text-left shrink-0',
                     active
-                      ? (isDanger ? 'bg-red-500 text-white shadow-sm' : 'bg-gray-900 text-white shadow-sm')
+                      ? (isDanger ? 'bg-red-500 text-white shadow-sm' : 'bg-black text-white shadow-sm')
                       : (isDanger ? 'text-red-600 hover:bg-red-50' : 'text-gray-600 hover:bg-gray-100')
                   )}
                 >
