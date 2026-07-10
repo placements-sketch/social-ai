@@ -819,3 +819,15 @@ class InventoryMap(db.Model):
     shopify_product_id = db.Column(db.String(64), nullable=False, index=True)
     shopify_variant_id = db.Column(db.String(64), nullable=True)
     updated_at         = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ConversationRead(db.Model):
+    """Per-user read state — tracks how far each staff member has read in each
+    conversation, so unread is personal (an admin opening a chat doesn't clear
+    an agent's unread)."""
+    __tablename__ = "conversation_reads"
+    id                   = db.Column(db.Integer, primary_key=True)
+    user_id              = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=False)
+    conversation_id      = db.Column(db.Integer, db.ForeignKey("conversations.id"), nullable=False)
+    last_read_message_id = db.Column(db.Integer, nullable=True)
+    updated_at           = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('user_id', 'conversation_id', name='uq_conv_read_user_conv'),)

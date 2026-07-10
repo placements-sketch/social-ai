@@ -41,6 +41,33 @@ def _current_user():
     except (TypeError, ValueError):
         return None
 
+def _unread_counts_for_user(user_id, conversations):
+    """
+    Per-user unread: for each conversation, how many INBOUND messages exist
+    after this user's last-read position. Returns {conversation_id: count}.
+    One query, counted DB-side.
+    """
+    if not conversations:
+        return {}
+    from sqlalchemy import func
+    from app.models import Message, ConversationRead
+
+    conv_ids = [c.id for c in conversations]
+    reads_sq = (db.session.query(
+                    ConversationRead.conversation_id.label('cid'),
+                    ConversationRead.last_read_message_id.label('lr'))
+                .filter(ConversationRead.user_id == user_id)
+                .subquery())
+
+    rows = (db.session.query(Message.conversation_id, func.count(Message.id))
+            .outerjoin(reads_sq, reads_sq.c.cid == Message.conversation_id)
+            .filter(Message.conversation_id.in_(conv_ids),
+                    Message.direction == 'inbound',
+                    Message.id > func.coalesce(reads_sq.c.lr, 0))
+            .group_by(Message.conversation_id)
+            .all())
+    return dict(rows)
+
 
 def _agent_can_access_conversation(agent_user: AuthUser, conversation: Conversation) -> bool:
     """
@@ -136,8 +163,17 @@ def list_conversations():
         .all()
     )
 
+    # Per-user unread: override the shared counter with THIS user's own count,
+    # so an admin opening a chat doesn't clear an agent's unread and vice versa.
+    unread_map = _unread_counts_for_user(current_user.id, conversations) if current_user else {}
+    conv_dicts = []
+    for c in conversations:
+        d = c.to_dict(include_messages=False)
+        d['unread_count'] = unread_map.get(c.id, 0)
+        conv_dicts.append(d)
+
     return jsonify({
-        'conversations': [c.to_dict(include_messages=False) for c in conversations],
+        'conversations': conv_dicts,
         'total': total,
         'page': page,
         'per_page': per_page,
@@ -442,7 +478,19 @@ def mark_read(conversation_id):
     if not _agent_can_access_conversation(current_user, conv):
         return jsonify({'error': 'Forbidden'}), 403
 
-    conv.unread_count = 0
+    # Record THIS user's read position instead of zeroing a shared counter —
+    # so one person opening the chat doesn't clear everyone else's unread.
+    from sqlalchemy import func
+    from app.models import Message, ConversationRead
+    latest_id = db.session.query(func.max(Message.id)).filter(
+        Message.conversation_id == conv.id).scalar() or 0
+    read = ConversationRead.query.filter_by(
+        user_id=current_user.id, conversation_id=conv.id).first()
+    if read is None:
+        read = ConversationRead(user_id=current_user.id, conversation_id=conv.id)
+        db.session.add(read)
+    read.last_read_message_id = latest_id
+    read.updated_at = datetime.utcnow()
     conv.updated_at = datetime.utcnow()
     db.session.commit()
 
