@@ -104,7 +104,92 @@ def _writeback_products(snaps):
         db.session.rollback()
         log_event("warn", "services.product_writeback_failed",
                   f"Live product write-back failed: {str(e)[:200]}")
-        
+
+import threading
+
+# ── Inbound debounce: coalesce a customer's rapid-fire messages into one turn ──
+# Customers send a photo, then a caption (or several quick texts) as SEPARATE
+# messages. Without this each fires its own reply — contradictory and doubled
+# ("I can't see the photo" + a correct answer). We buffer per-conversation and
+# reply once after a short quiet period.
+_DEBOUNCE_SECONDS = 6.0
+_debounce_buffers = {}            # conv_key -> {"items":[...], "timer":Timer, "seen":set()}
+_debounce_lock = threading.Lock()
+
+
+def process_inbound(message, user_id, channel, external_id=None, media_id=None, image_urls=None):
+    """
+    Debounced entry point for inbound DMs.
+      - AI handling the chat  → buffer rapid messages, reply ONCE after 6s quiet.
+      - Human handling (AI off) → process immediately (inbox stays real-time).
+    """
+    from flask import current_app
+    app_obj = current_app._get_current_object()
+
+    # Human-handled / channel disabled → no debounce; handle immediately.
+    try:
+        ai_on = _ai_should_respond(channel=channel, user_id=user_id, message=message)
+    except Exception:
+        ai_on = True
+    if not ai_on:
+        process_message(message, user_id, channel,
+                        external_id=external_id, media_id=media_id, image_urls=image_urls)
+        return
+
+    conv_key = f"{channel}:{user_id}"
+    with _debounce_lock:
+        buf = _debounce_buffers.get(conv_key)
+        if buf is None:
+            buf = {"items": [], "timer": None, "seen": set()}
+            _debounce_buffers[conv_key] = buf
+
+        # Idempotency: ignore a redelivered event we've already buffered.
+        if external_id and external_id in buf["seen"]:
+            return
+        if external_id:
+            buf["seen"].add(external_id)
+
+        buf["items"].append({
+            "message": message, "external_id": external_id,
+            "media_id": media_id, "image_urls": image_urls,
+        })
+
+        if buf["timer"] is not None:
+            buf["timer"].cancel()
+        timer = threading.Timer(_DEBOUNCE_SECONDS, _flush_debounce,
+                                args=(app_obj, conv_key, user_id, channel))
+        timer.daemon = True
+        buf["timer"] = timer
+        timer.start()
+
+
+def _flush_debounce(app_obj, conv_key, user_id, channel):
+    """After the quiet window: combine the buffered messages into one reply."""
+    with app_obj.app_context():
+        with _debounce_lock:
+            buf = _debounce_buffers.pop(conv_key, None)
+        if not buf or not buf["items"]:
+            return
+
+        items = buf["items"]
+        texts = [i["message"].strip() for i in items if (i["message"] or "").strip()]
+        combined_message = "\n".join(texts).strip()
+        combined_images = [url for i in items for url in (i["image_urls"] or [])]
+        first_external = next((i["external_id"] for i in items if i["external_id"]), None)
+        first_media = next((i["media_id"] for i in items if i["media_id"]), None)
+
+        try:
+            process_message(
+                combined_message or "[Sent a photo]",
+                user_id, channel,
+                external_id=first_external,
+                media_id=first_media,
+                image_urls=(combined_images or None),
+            )
+        except Exception as e:
+            log_event("error", "services._flush_debounce", str(e))
+            
+              
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None, image_urls: list | None = None) -> str:
     """
     Main pipeline entry point. Called by every webhook route.

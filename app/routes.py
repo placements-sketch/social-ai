@@ -19,7 +19,7 @@ import hashlib
 import base64
 import os
 from flask import Blueprint, request, jsonify, current_app
-from app.services import process_message
+from app.services import process_message, process_inbound
 
 bp = Blueprint("main", __name__)
 
@@ -326,7 +326,7 @@ def instagram_webhook():
             # Process DM events
             for sender_id, message_text, mid, image_urls in events:
                 try:
-                    process_message(
+                    process_inbound(
                         message=message_text,
                         user_id=sender_id,
                         channel="instagram_dm",
