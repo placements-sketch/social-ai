@@ -265,6 +265,7 @@ class Message(db.Model):
     ai_model            = db.Column(db.String(64), nullable=True)
     platform_message_id = db.Column(db.String(256), nullable=True, unique=True)
     product_url = db.Column(db.String(1024), nullable=True)
+    image_urls = db.Column(db.JSON, nullable=True)
     utm_token = db.Column(db.String(128), nullable=True, index=True)
     external_id = db.Column(db.String(255), nullable=True, index=True)
     media_id = db.Column(db.String(128), nullable=True, index=True)
@@ -304,6 +305,7 @@ class Message(db.Model):
             'meta': meta,
             'external_id': self.external_id,
             'media_id': self.media_id,
+            'image_urls': self.image_urls or [],
         }
 
     def __repr__(self):

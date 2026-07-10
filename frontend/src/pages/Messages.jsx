@@ -887,7 +887,20 @@ const handleSend = async () => {
                       msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
                       msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
                     )}>
-                      {msg.text}
+                      {msg.image_urls && msg.image_urls.length > 0 && (
+                        <div className="flex flex-col gap-1.5 mb-1.5">
+                          {msg.image_urls.map((url, i) => (
+                            <img
+                              key={i}
+                              src={url}
+                              alt="attachment"
+                              className="rounded-xl max-w-[220px] w-full object-cover"
+                              loading="lazy"
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {msg.text && msg.text !== '[Sent a photo]' && <div>{msg.text}</div>}
                     </div>
                   )}
                   

@@ -803,7 +803,7 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | N
 def _save_message(user_id, channel, content, intent, direction,
                   external_id=None, media_id=None,
                   ai_response_time_ms=None,
-                  ai_tokens_used=None, ai_model=None):
+                  ai_tokens_used=None, ai_model=None, image_urls=None):
     """
     Persist a message and return the Message row (or None on failure).
     Creates the User and Conversation if they don't exist yet.
@@ -860,6 +860,7 @@ def _save_message(user_id, channel, content, intent, direction,
             ai_response_time_ms=ai_response_time_ms,
             ai_tokens_used=ai_tokens_used,
             ai_model=ai_model,
+            image_urls=(image_urls or None),
         )
         db.session.add(msg)
         db.session.commit()
@@ -957,6 +958,16 @@ def _finalize_outbound_message(placeholder, content, ai_response_time_ms=None,
         placeholder.ai_model = ai_model
         placeholder.utm_token = utm_token
         placeholder.product_url = product_url
+
+        # If this reply recommended a product, store its card image so the
+        # dashboard thread shows the same picture the customer saw on Instagram.
+        if product_url:
+            try:
+                card = _product_card_for_url(product_url)
+                if card and card.get("image"):
+                    placeholder.image_urls = [card["image"]]
+            except Exception:
+                pass
 
         # Update conversation preview fields
         conv = Conversation.query.get(placeholder.conversation_id)
