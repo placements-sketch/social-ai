@@ -105,91 +105,71 @@ def _writeback_products(snaps):
         log_event("warn", "services.product_writeback_failed",
                   f"Live product write-back failed: {str(e)[:200]}")
 
-import threading
-
-# ── Inbound debounce: coalesce a customer's rapid-fire messages into one turn ──
-# Customers send a photo, then a caption (or several quick texts) as SEPARATE
-# messages. Without this each fires its own reply — contradictory and doubled
-# ("I can't see the photo" + a correct answer). We buffer per-conversation and
-# reply once after a short quiet period.
+# ── Inbound debounce (worker-safe, DB-backed) ─────────────────────────────
+# Customers send a photo then a caption (or several quick texts) as SEPARATE
+# webhook events; each would otherwise trigger its own reply. We coalesce using
+# the messages TABLE as shared state — this works across gunicorn worker
+# processes, unlike an in-process buffer (two events can land on different
+# workers, which don't share memory).
 _DEBOUNCE_SECONDS = 6.0
-_debounce_buffers = {}            # conv_key -> {"items":[...], "timer":Timer, "seen":set()}
-_debounce_lock = threading.Lock()
 
 
 def process_inbound(message, user_id, channel, external_id=None, media_id=None, image_urls=None):
-    """
-    Debounced entry point for inbound DMs.
-      - AI handling the chat  → buffer rapid messages, reply ONCE after 6s quiet.
-      - Human handling (AI off) → process immediately (inbox stays real-time).
-    """
-    from flask import current_app
-    app_obj = current_app._get_current_object()
+    """Entry point for inbound DMs. Debounce now lives inside process_message."""
+    return process_message(message, user_id, channel,
+                           external_id=external_id, media_id=media_id, image_urls=image_urls)
 
-    # Human-handled / channel disabled → no debounce; handle immediately.
+
+def _has_newer_inbound(inbound_record) -> bool:
+    """True if a newer inbound message exists in this conversation (customer kept typing)."""
     try:
-        ai_on = _ai_should_respond(channel=channel, user_id=user_id, message=message)
-    except Exception:
-        ai_on = True
-    if not ai_on:
-        process_message(message, user_id, channel,
-                        external_id=external_id, media_id=media_id, image_urls=image_urls)
-        return
-
-    conv_key = f"{channel}:{user_id}"
-    with _debounce_lock:
-        buf = _debounce_buffers.get(conv_key)
-        if buf is None:
-            buf = {"items": [], "timer": None, "seen": set()}
-            _debounce_buffers[conv_key] = buf
-
-        # Idempotency: ignore a redelivered event we've already buffered.
-        if external_id and external_id in buf["seen"]:
-            return
-        if external_id:
-            buf["seen"].add(external_id)
-
-        buf["items"].append({
-            "message": message, "external_id": external_id,
-            "media_id": media_id, "image_urls": image_urls,
-        })
-
-        if buf["timer"] is not None:
-            buf["timer"].cancel()
-        timer = threading.Timer(_DEBOUNCE_SECONDS, _flush_debounce,
-                                args=(app_obj, conv_key, user_id, channel))
-        timer.daemon = True
-        buf["timer"] = timer
-        timer.start()
+        from app.models import Message
+        return Message.query.filter(
+            Message.conversation_id == inbound_record.conversation_id,
+            Message.direction == 'inbound',
+            Message.id > inbound_record.id,
+        ).first() is not None
+    except Exception as e:
+        log_event("warn", "services._has_newer_inbound", str(e))
+        return False
 
 
-def _flush_debounce(app_obj, conv_key, user_id, channel):
-    """After the quiet window: combine the buffered messages into one reply."""
-    with app_obj.app_context():
-        with _debounce_lock:
-            buf = _debounce_buffers.pop(conv_key, None)
-        if not buf or not buf["items"]:
-            return
+def _coalesce_recent_inbound(inbound_record):
+    """
+    Merge every inbound message since the last outbound reply (the current
+    unanswered burst) into one (text, image_urls) turn.
+    """
+    try:
+        from app.models import Message
+        last_out = (Message.query.filter(
+                        Message.conversation_id == inbound_record.conversation_id,
+                        Message.direction == 'outbound',
+                        Message.sender != 'ai_pending')
+                    .order_by(Message.id.desc())
+                    .first())
+        q = Message.query.filter(
+            Message.conversation_id == inbound_record.conversation_id,
+            Message.direction == 'inbound',
+            Message.id <= inbound_record.id,
+        )
+        if last_out is not None:
+            q = q.filter(Message.id > last_out.id)
+        rows = q.order_by(Message.id.asc()).all()
 
-        items = buf["items"]
-        texts = [i["message"].strip() for i in items if (i["message"] or "").strip()]
-        combined_message = "\n".join(texts).strip()
-        combined_images = [url for i in items for url in (i["image_urls"] or [])]
-        first_external = next((i["external_id"] for i in items if i["external_id"]), None)
-        first_media = next((i["media_id"] for i in items if i["media_id"]), None)
+        texts, images = [], []
+        for m in rows:
+            c = (m.content or '').strip()
+            if c and c != '[Sent a photo]':
+                texts.append(c)
+            for u in (m.image_urls or []):
+                if u not in images:
+                    images.append(u)
+        return ("\n".join(texts).strip() or "[Sent a photo]"), (images or None)
+    except Exception as e:
+        log_event("warn", "services._coalesce_recent_inbound", str(e))
+        return (inbound_record.content, None)
 
-        try:
-            process_message(
-                combined_message or "[Sent a photo]",
-                user_id, channel,
-                external_id=first_external,
-                media_id=first_media,
-                image_urls=(combined_images or None),
-            )
-        except Exception as e:
-            log_event("error", "services._flush_debounce", str(e))
-            
-              
+
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None, image_urls: list | None = None) -> str:
     """
     Main pipeline entry point. Called by every webhook route.
@@ -247,7 +227,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     inbound_record = _save_message(
         user_id=user_id, channel=channel, content=message,
         intent=None, direction="inbound", external_id=external_id,
-        media_id=media_id,
+        media_id=media_id, image_urls=image_urls,
     )
 
     # ── Step 1.5: Notify the assigned agent of new inbound (if any) ────────
@@ -286,6 +266,21 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # Semantic classification replaces brittle keyword matching — understands
     # meaning, so far fewer "unknown"s, and flags handoff for things no keyword
     # covers (e.g. "get me a human", abuse). Degrades to keywords on any failure.
+    # ── Step 2.5: Debounce — coalesce a customer's rapid messages (worker-safe) ─
+    # Wait a short quiet window; if a NEWER inbound arrived meanwhile, bow out and
+    # let that later event answer the whole burst. Otherwise gather the burst
+    # (photo + caption + any quick texts) into one turn. DB-backed → survives
+    # across gunicorn workers, unlike an in-memory buffer.
+    if inbound_record is not None and not channel.endswith('_comment'):
+        import time
+        time.sleep(_DEBOUNCE_SECONDS)
+        if _has_newer_inbound(inbound_record):
+            log_event("info", "services.debounce_superseded",
+                      "Newer message arrived during quiet window — deferring to it",
+                      conversation_id=inbound_record.conversation_id)
+            return AI_SUPPRESSED
+        message, image_urls = _coalesce_recent_inbound(inbound_record)
+
     from app.ai.classifier import classify_message
     # Classify the CURRENT message on its own — do NOT feed conversation history.
     # History was poisoning the handoff decision: after a human handled a
