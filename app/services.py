@@ -293,7 +293,15 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         if keyword_source == "current_message":
             search_terms = _extract_product_keywords(message)
         elif keyword_source == "image":
+            # Use BOTH the photo (vision keywords) AND the caption the customer
+            # sent with it ("...in orange"), so the search reflects the style in
+            # the image and the qualifier in their text.
             search_terms = _extract_product_keywords(product_keyword)
+            caption = (message or "").strip()
+            if caption and caption != "[Sent a photo]":
+                search_terms = search_terms + [
+                    t for t in _extract_product_keywords(caption) if t not in search_terms
+                ]
         else:
             search_terms = [product_keyword]
 

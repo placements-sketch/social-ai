@@ -621,11 +621,13 @@ Customer's detected intents: {intents_str}
             from app.utm import build_utm_token
             utm_token = build_utm_token(utm_conv_id, utm_msg_id)
 
-        # Post-hoc: which product URL did the AI actually mention?
-        # Falls back to the first in-stock product's URL if none matched.
-        product_url = context_data.get('_first_product_url')
-        if reply_text and product_url:
-            # Look for any UTM'd URL in the reply
+        # Only surface a product card when the reply ACTUALLY recommends a
+        # product — i.e. it includes a product URL. Previously this fell back to
+        # the first in-stock product whenever ANY product was fetched into
+        # context, which is why generic answers ("how do I buy?", "what's my
+        # size?") wrongly got a product card attached.
+        product_url = None
+        if reply_text:
             import re
             match = re.search(r'https://www\.shopzetu\.com/products/[^\s<>\)"]+', reply_text)
             if match:
