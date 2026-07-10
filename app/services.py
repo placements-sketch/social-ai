@@ -111,7 +111,7 @@ def _writeback_products(snaps):
 # the messages TABLE as shared state — this works across gunicorn worker
 # processes, unlike an in-process buffer (two events can land on different
 # workers, which don't share memory).
-_DEBOUNCE_SECONDS = 6.0
+_DEBOUNCE_SECONDS = 4.0
 
 
 def process_inbound(message, user_id, channel, external_id=None, media_id=None, image_urls=None):
