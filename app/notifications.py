@@ -16,6 +16,7 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models import AuthUser, Notification, Conversation
 from app.auth import current_user_id
+import os
 
 def _notify_role(roles, type_, title, body=None, severity='info',
                  resource_type=None, resource_id=None, actor_id=None,
@@ -70,6 +71,49 @@ VALID_SEVERITIES = {'info', 'warning', 'urgent'}
 
 # How recent an existing notification must be to coalesce a new one into it.
 COALESCE_WINDOW_MINUTES = 5
+
+from app.utils.email import send_email
+from app.utils.logger import log_event
+
+
+def _email_urgent_notification(user_id, title, body):
+    """Send an urgent notification to the recipient's email via Brevo."""
+    user = AuthUser.query.get(user_id)
+    if not user or not user.email or user.status != 'active':
+        return
+    send_email(
+        user.email,
+        f"[Urgent] {title}",
+        _urgent_email_html(user.full_name, title, body),
+        _urgent_email_text(user.full_name, title, body),
+    )
+
+
+def _urgent_email_html(name, title, body):
+    return (
+        '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">'
+        '<div style="background:#fff4ed;border-left:4px solid #ff5900;padding:12px 16px;border-radius:6px;margin-bottom:16px">'
+        '<span style="color:#ff5900;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:.05em">Urgent</span>'
+        '</div>'
+        f'<h2 style="color:#1a1a2e;margin:0 0 8px;font-size:18px">{title}</h2>'
+        + (f'<p style="color:#555;font-size:14px;line-height:1.6">{body}</p>' if body else '') +
+        '<p style="margin:24px 0"><a href="' + (os.getenv('FRONTEND_URL', '').rstrip('/') or '#') +
+        '" style="background:#ff5900;color:#fff;text-decoration:none;font-weight:bold;font-size:14px;'
+        'padding:12px 22px;border-radius:8px;display:inline-block">Open dashboard</a></p>'
+        f'<p style="color:#bbb;font-size:11px;margin-top:24px">Hi {name or "there"} — you\'re getting this because '
+        'it needs prompt attention. Shop Zetu · Social AI Assistant</p></div>'
+    )
+
+
+def _urgent_email_text(name, title, body):
+    lines = [f"[URGENT] {title}"]
+    if body:
+        lines.append("")
+        lines.append(body)
+    lines.append("")
+    lines.append("Open your dashboard to respond.")
+    lines.append("— Shop Zetu · Social AI Assistant")
+    return "\n".join(lines)
 
 
 def create_notification(
@@ -136,6 +180,15 @@ def create_notification(
         actor_id=actor_id,
     )
     db.session.add(notif)
+
+    # Urgent notifications also go out by email (best-effort — a mail failure
+    # must never break the in-app notification, which is the source of truth).
+    if sev == 'urgent':
+        try:
+            _email_urgent_notification(user_id, title, body)
+        except Exception as e:
+            log_event('warning', 'notifications.email_failed', str(e))
+
     return notif
 
 
