@@ -307,6 +307,31 @@ def describe_product_in_image(image_urls: list) -> str | None:
         log_event("warn", "ai.vision.describe_failed", str(e)[:200])
         return None
 
+def _classify_failure(exc) -> tuple[str, str]:
+    """
+    Map an exception from the Claude call to a stable (reason, detail) pair, so
+    failures can be grouped by cause (rate limits vs timeouts vs bad output…).
+    """
+    name = type(exc).__name__
+    msg = str(exc)
+    low = msg.lower()
+
+    # Anthropic SDK error types (matched by class name to avoid a hard import)
+    if name in ('RateLimitError',) or '429' in low or 'rate limit' in low:
+        return 'rate_limit', msg[:200]
+    if name in ('APITimeoutError',) or 'timeout' in low or 'timed out' in low:
+        return 'timeout', msg[:200]
+    if name in ('AuthenticationError', 'PermissionDeniedError') or '401' in low or '403' in low:
+        return 'auth', msg[:200]
+    if name in ('BadRequestError',) or '400' in low:
+        return 'bad_request', msg[:200]
+    if name in ('InternalServerError', 'APIStatusError', 'APIError') or '500' in low or 'overloaded' in low or '529' in low:
+        return 'api_error', msg[:200]
+    if name in ('APIConnectionError', 'ConnectionError') or 'connection' in low:
+        return 'network', msg[:200]
+    if name in ('JSONDecodeError', 'KeyError', 'IndexError', 'AttributeError'):
+        return 'bad_output', msg[:200]   # response came back but wasn't shaped as expected
+    return 'unknown', f"{name}: {msg[:180]}"
 
 def _claude_reply(message: str, intents: list[str], context_data: dict, channel: str,
                   history: list[dict] | None = None, image_urls: list | None = None) -> dict:
@@ -643,18 +668,22 @@ Customer's detected intents: {intents_str}
         }
 
     except Exception as e:
+        reason, detail = _classify_failure(e)
         log_event("error", "ai.generator.failure",
-                  f"Claude API call failed — falling back to mock reply",
+                  f"Claude reply failed ({reason}) — fell back to mock reply",
                   payload={
-                      "error": str(e),
+                      "reason": reason,            # rate_limit | timeout | auth | bad_request | api_error | network | bad_output | unknown
+                      "detail": detail,
+                      "error_type": type(e).__name__,
                       "channel": channel,
                       "intents": intents,
                   })
         return {
-            'reply':       _mock_reply(intents, context_data),
-            'tokens_used': 0,
-            'model':       'mock',
-            'elapsed_ms': 0,
-            'utm_token':   None,
-            'product_url': None,
+            'reply':          _mock_reply(intents, context_data),
+            'tokens_used':    0,
+            'model':          'mock',
+            'elapsed_ms':     0,
+            'utm_token':      None,
+            'product_url':    None,
+            'failure_reason': reason,   # surfaced to the caller too, for the message record
         }

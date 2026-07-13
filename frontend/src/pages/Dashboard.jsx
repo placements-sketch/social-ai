@@ -142,9 +142,12 @@ export default function Dashboard() {
 // Stat card definitions — same for empty + populated; the render block
   // reads kpiKey from analyticsData.kpis directly.
   const getStatCards = () => [
-    { label: 'Messages',        kpiKey: 'messages_total',       icon: MessageSquare, color: 'text-blue-500',   bg: 'bg-blue-50'   },
+    // Inbound
+    { label: 'Inbound',         kpiKey: 'inbound_total',        icon: MessageSquare, color: 'text-blue-500',   bg: 'bg-blue-50'   },
+    // Outbound — split by who replied
     { label: 'AI Replies',      kpiKey: 'ai_replies_total',     icon: Bot,           color: 'text-brand-500',  bg: 'bg-brand-50'  },
-    { label: 'Human Overrides', kpiKey: 'human_override_total', icon: UserCheck,     color: 'text-amber-500',  bg: 'bg-amber-50'  },
+    { label: 'Human Replies',   kpiKey: 'human_replies_total',  icon: UserCheck,     color: 'text-indigo-500', bg: 'bg-indigo-50' },
+    // Quality
     { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50'    },
     { label: 'Escalated',       kpiKey: 'escalated_total',      icon: TrendingUp,    color: 'text-purple-500', bg: 'bg-purple-50' },
     { label: 'AI Success Rate', kpiKey: 'ai_success_rate',      icon: PackageX,      color: 'text-green-500',  bg: 'bg-green-50', isPercentage: true },
@@ -240,7 +243,13 @@ export default function Dashboard() {
 
     // ── AI failure
     if (src === 'ai.generator.failure') {
-      return `Claude API call failed — fell back to mock reply`
+      const reasonLabels = {
+        rate_limit: 'rate limit hit', timeout: 'timed out', auth: 'auth error',
+        bad_request: 'bad request', api_error: 'Claude API error',
+        network: 'network error', bad_output: 'malformed response', unknown: 'unknown error',
+      }
+      const r = reasonLabels[p.reason] || p.reason || 'unknown error'
+      return `AI reply failed — ${r} (fell back to mock)`
     }
 
     // Fallback to the raw message (cleaned up)
