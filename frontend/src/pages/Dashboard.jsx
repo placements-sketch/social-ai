@@ -13,6 +13,31 @@ import { useTimeAgo } from '../hooks/useTimeAgo'
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 import { parseBackendTime } from '../utils/time'
 
+// Fully-rounded ("pill") bar — all four corners, unlike default bars whose
+// bottom sits flat on the axis. Radius auto-caps at half the width/height so
+// short bars stay lozenge-shaped instead of over-rounding.
+const RoundedBar = (props) => {
+  const { x, y, width, height, fill } = props
+  if (height <= 0 || width <= 0) return null
+  const r = Math.min(width / 2, height / 2, 14)
+  return (
+    <path
+      d={`
+        M${x + r},${y}
+        h${width - 2 * r}
+        a${r},${r} 0 0 1 ${r},${r}
+        v${height - 2 * r}
+        a${r},${r} 0 0 1 ${-r},${r}
+        h${-(width - 2 * r)}
+        a${r},${r} 0 0 1 ${-r},${-r}
+        v${-(height - 2 * r)}
+        a${r},${r} 0 0 1 ${r},${-r}
+        z`}
+      fill={fill}
+    />
+  )
+}
+
 // Custom tooltip to ensure text is visible
 const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
@@ -499,7 +524,7 @@ export default function Dashboard() {
             </button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }} barCategoryGap="20%" barGap={2}>
+            <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }} barCategoryGap="18%" barGap={6}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
               <XAxis
                 dataKey="time"
@@ -513,22 +538,26 @@ export default function Dashboard() {
                 tickLine={false}
               />
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-              {/* Instagram */}
-              <Bar dataKey="instagram"       name="Instagram (Inbound)" fill="#ec4899" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="instagram_ai"    name="Instagram (AI)"      fill="#f9a8d4" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="instagram_human" name="Instagram (Human)"   fill="#fbcfe8" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              {/* WhatsApp */}
-              <Bar dataKey="whatsapp"        name="WhatsApp (Inbound)"  fill="#22c55e" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="whatsapp_ai"     name="WhatsApp (AI)"       fill="#86efac" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="whatsapp_human"  name="WhatsApp (Human)"    fill="#bbf7d0" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              {/* Facebook */}
-              <Bar dataKey="facebook"        name="Facebook (Inbound)"  fill="#3b82f6" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="facebook_ai"     name="Facebook (AI)"       fill="#93c5fd" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="facebook_human"  name="Facebook (Human)"    fill="#bfdbfe" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              {/* TikTok */}
-              <Bar dataKey="tiktok"          name="TikTok (Inbound)"    fill="#111111" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="tiktok_ai"       name="TikTok (AI)"         fill="#6b7280" radius={[6, 6, 6, 6]} maxBarSize={14} />
-              <Bar dataKey="tiktok_human"    name="TikTok (Human)"      fill="#d1d5db" radius={[6, 6, 6, 6]} maxBarSize={14} />
+
+              {/* Instagram stack (inbound → AI → human), rounded on the top segment only */}
+              <Bar stackId="instagram" dataKey="instagram"       name="Instagram (Inbound)" fill="#ec4899" maxBarSize={26} />
+              <Bar stackId="instagram" dataKey="instagram_ai"    name="Instagram (AI)"      fill="#f472b6" maxBarSize={26} />
+              <Bar stackId="instagram" dataKey="instagram_human" name="Instagram (Human)"   fill="#f9a8d4" maxBarSize={26} radius={[6, 6, 0, 0]} />
+
+              {/* WhatsApp stack */}
+              <Bar stackId="whatsapp" dataKey="whatsapp"        name="WhatsApp (Inbound)"  fill="#22c55e" maxBarSize={26} />
+              <Bar stackId="whatsapp" dataKey="whatsapp_ai"     name="WhatsApp (AI)"       fill="#4ade80" maxBarSize={26} />
+              <Bar stackId="whatsapp" dataKey="whatsapp_human"  name="WhatsApp (Human)"    fill="#86efac" maxBarSize={26} radius={[6, 6, 0, 0]} />
+
+              {/* Facebook stack */}
+              <Bar stackId="facebook" dataKey="facebook"        name="Facebook (Inbound)"  fill="#3b82f6" maxBarSize={26} />
+              <Bar stackId="facebook" dataKey="facebook_ai"     name="Facebook (AI)"       fill="#60a5fa" maxBarSize={26} />
+              <Bar stackId="facebook" dataKey="facebook_human"  name="Facebook (Human)"    fill="#93c5fd" maxBarSize={26} radius={[6, 6, 0, 0]} />
+
+              {/* TikTok stack */}
+              <Bar stackId="tiktok" dataKey="tiktok"          name="TikTok (Inbound)"    fill="#111111" maxBarSize={26} />
+              <Bar stackId="tiktok" dataKey="tiktok_ai"       name="TikTok (AI)"         fill="#4b5563" maxBarSize={26} />
+              <Bar stackId="tiktok" dataKey="tiktok_human"    name="TikTok (Human)"      fill="#9ca3af" maxBarSize={26} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           
