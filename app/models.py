@@ -783,6 +783,8 @@ class ConversionAttribution(db.Model):
     minutes_to_convert = db.Column(db.Integer, nullable=True)
     attributed_at      = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    product_handle     = db.Column(db.String(255), nullable=True)
+
     conversation = db.relationship("Conversation", foreign_keys=[conversation_id])
     message      = db.relationship("Message", foreign_keys=[message_id])
 
@@ -799,6 +801,7 @@ class ConversionAttribution(db.Model):
             'utm_token': self.utm_token,
             'minutes_to_convert': self.minutes_to_convert,
             'attributed_at': self.attributed_at.isoformat() if self.attributed_at else None,
+            'product_handle': self.product_handle,
         }
 
     def __repr__(self):

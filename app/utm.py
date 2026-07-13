@@ -26,12 +26,14 @@ UTM_SOURCE = 'Social-ai-assistant'
 UTM_MEDIUM = 'Instagram'
 
 
-def build_utm_token(conversation_id: int, message_id: int) -> str:
+def build_utm_token(conversation_id: int, message_id: int, handle: str = None) -> str:
     """
     Compact token stored on messages.utm_token, for cheap attribution lookups.
-    Format: 'conv_{conv_id}_msg_{msg_id}'
+    Format: 'conv_{conv_id}_msg_{msg_id}'  (+ '__p__{handle}' when a specific
+    product is known). Handle is optional so existing callers keep working.
     """
-    return f"conv_{conversation_id}_msg_{message_id}"
+    base = f"conv_{conversation_id}_msg_{message_id}"
+    return f"{base}__p__{handle}" if handle else base
 
 
 def parse_utm_token(token: str) -> dict | None:
@@ -41,12 +43,13 @@ def parse_utm_token(token: str) -> dict | None:
     """
     if not token:
         return None
-    match = re.match(r'^conv_(\d+)_msg_(\d+)$', token.strip())
+    match = re.match(r'^conv_(\d+)_msg_(\d+)(?:__p__(.+))?$', token.strip())
     if not match:
         return None
     return {
         'conversation_id': int(match.group(1)),
         'message_id': int(match.group(2)),
+        'product_handle': match.group(3),   # None for old tokens
     }
 
 
@@ -85,7 +88,10 @@ def build_product_url(
     params['utm_source'] = UTM_SOURCE
     params['utm_medium'] = UTM_MEDIUM
     params['utm_campaign'] = f"conv_{conversation_id}"
-    params['utm_content'] = f"msg_{message_id}"
+    # Embed the product handle so multi-link messages attribute to the RIGHT
+    # product (each link in the message is uniquely identifiable), not just the
+    # message. Double-underscore separator survives the handle's own hyphens.
+    params['utm_content'] = f"msg_{message_id}__p__{handle}"
     
     return f"{base_url}?{urlencode(params)}"
 
@@ -120,10 +126,15 @@ def extract_utm_token_from_url(url: str) -> str | None:
     campaign = (params.get('utm_campaign', [''])[0] or '').strip()
     content = (params.get('utm_content', [''])[0] or '').strip()
     
-    # Both must exist and match our conv_/msg_ format
+    # campaign: conv_{id}
     conv_match = re.match(r'^conv_(\d+)$', campaign)
-    msg_match = re.match(r'^msg_(\d+)$', content)
+    # content: msg_{id}  OR  msg_{id}__p__{handle}  (handle optional, backward-compatible)
+    msg_match = re.match(r'^msg_(\d+)(?:__p__(.+))?$', content)
     if not conv_match or not msg_match:
         return None
     
-    return f"conv_{conv_match.group(1)}_msg_{msg_match.group(1)}"
+    conv_id = conv_match.group(1)
+    msg_id = msg_match.group(1)
+    handle = msg_match.group(2)  # None for old links
+    token = f"conv_{conv_id}_msg_{msg_id}"
+    return f"{token}__p__{handle}" if handle else token

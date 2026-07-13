@@ -883,6 +883,7 @@ def cron_attribute():
                 message_id=msg_id,
                 utm_token=token,
                 minutes_to_convert=minutes,
+                product_handle=parsed.get('product_handle'),
             ))
             existing.add(o['id'])
             attributed += 1
