@@ -3,7 +3,7 @@ import {
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
   Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
 } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
 import { useState, useEffect } from 'react'
 import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
@@ -499,37 +499,37 @@ export default function Dashboard() {
             </button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
+            <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }} barCategoryGap="20%" barGap={2}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
-              <XAxis 
-                dataKey="time" 
+              <XAxis
+                dataKey="time"
                 tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
                 axisLine={false}
                 tickLine={false}
               />
-              <YAxis 
+              <YAxis
                 tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
               {/* Instagram */}
-              <Line type="natural" dataKey="instagram"       name="Instagram (Inbound)"   stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="instagram_ai"    name="Instagram (AI)"        stroke="#ec4899" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="instagram_human" name="Instagram (Human)"     stroke="#ec4899" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              <Bar dataKey="instagram"       name="Instagram (Inbound)" fill="#ec4899" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="instagram_ai"    name="Instagram (AI)"      fill="#f9a8d4" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="instagram_human" name="Instagram (Human)"   fill="#fbcfe8" radius={[6, 6, 6, 6]} maxBarSize={14} />
               {/* WhatsApp */}
-              <Line type="natural" dataKey="whatsapp"        name="WhatsApp (Inbound)"    stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="whatsapp_ai"     name="WhatsApp (AI)"         stroke="#22c55e" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="whatsapp_human"  name="WhatsApp (Human)"      stroke="#22c55e" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              <Bar dataKey="whatsapp"        name="WhatsApp (Inbound)"  fill="#22c55e" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="whatsapp_ai"     name="WhatsApp (AI)"       fill="#86efac" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="whatsapp_human"  name="WhatsApp (Human)"    fill="#bbf7d0" radius={[6, 6, 6, 6]} maxBarSize={14} />
               {/* Facebook */}
-              <Line type="natural" dataKey="facebook"        name="Facebook (Inbound)"    stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="facebook_ai"     name="Facebook (AI)"         stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="facebook_human"  name="Facebook (Human)"      stroke="#3b82f6" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              <Bar dataKey="facebook"        name="Facebook (Inbound)"  fill="#3b82f6" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="facebook_ai"     name="Facebook (AI)"       fill="#93c5fd" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="facebook_human"  name="Facebook (Human)"    fill="#bfdbfe" radius={[6, 6, 6, 6]} maxBarSize={14} />
               {/* TikTok */}
-              <Line type="natural" dataKey="tiktok"          name="TikTok (Inbound)"      stroke="#111111" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="tiktok_ai"       name="TikTok (AI)"           stroke="#111111" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="tiktok_human"    name="TikTok (Human)"        stroke="#111111" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
-            </LineChart>
+              <Bar dataKey="tiktok"          name="TikTok (Inbound)"    fill="#111111" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="tiktok_ai"       name="TikTok (AI)"         fill="#6b7280" radius={[6, 6, 6, 6]} maxBarSize={14} />
+              <Bar dataKey="tiktok_human"    name="TikTok (Human)"      fill="#d1d5db" radius={[6, 6, 6, 6]} maxBarSize={14} />
+            </BarChart>
           </ResponsiveContainer>
           
           {/* Legend */}

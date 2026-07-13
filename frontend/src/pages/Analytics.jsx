@@ -134,7 +134,7 @@ export default function Analytics() {
 
   if (!data) return null
 
-  const { kpis, weekly, intent_breakdown, channel_split, top_products } = data
+  const { kpis, weekly, intent_breakdown, channel_split, top_products, failure_breakdown } = data
 
   // Format KPI values
   const formatTime = (ms) => {
@@ -392,7 +392,7 @@ export default function Analytics() {
             bad_output: 'Malformed response',
             unknown: 'Unknown error',
           }
-          const rows = analyticsData?.failure_breakdown || []
+          const rows = failure_breakdown || []
           const total = rows.reduce((s, r) => s + r.count, 0)
           if (total === 0) {
             return <p className="text-sm text-gray-400 py-2">No AI failures in this period. 🎉</p>
