@@ -375,6 +375,49 @@ export default function Analytics() {
         </div>
       </div>
 
+      {/* AI Failure Breakdown */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <XCircle size={18} className="text-red-500" />
+          <h2 className="text-sm font-bold text-gray-900">AI Failures by Reason</h2>
+        </div>
+        {(() => {
+          const REASON_LABELS = {
+            rate_limit: 'Rate limit hit',
+            timeout: 'Timed out',
+            auth: 'Auth error',
+            bad_request: 'Bad request',
+            api_error: 'Claude API error',
+            network: 'Network error',
+            bad_output: 'Malformed response',
+            unknown: 'Unknown error',
+          }
+          const rows = analyticsData?.failure_breakdown || []
+          const total = rows.reduce((s, r) => s + r.count, 0)
+          if (total === 0) {
+            return <p className="text-sm text-gray-400 py-2">No AI failures in this period. 🎉</p>
+          }
+          return (
+            <div className="space-y-2.5">
+              {rows.map(({ reason, count }) => {
+                const pct = total ? Math.round((count / total) * 100) : 0
+                return (
+                  <div key={reason}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-gray-700">{REASON_LABELS[reason] || reason}</span>
+                      <span className="text-xs font-bold text-gray-900">{count} <span className="text-gray-400 font-normal">({pct}%)</span></span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
+      </div>
+
       {/* Agent Performance — Supervisor & Admin only */}
       {(user?.role === 'supervisor' || user?.role === 'admin') && agentData && agentData.agents.length > 0 && (
         <div className="card p-5">

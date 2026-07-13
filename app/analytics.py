@@ -251,6 +251,37 @@ def summary():
             'attributed_revenue':        0.0,
         }
 
+    # ── AI failure breakdown (why replies failed) ────────────────────────
+    # Groups ai.generator.failure logs in the window by their structured
+    # `reason`. Wrapped so a query issue can't 500 the dashboard.
+    try:
+        from app.models import Log
+        rows = (db.session.query(
+                    Log.payload['reason'].astext.label('reason'),
+                    func.count(Log.id))
+                .filter(Log.source == 'ai.generator.failure')
+                .filter(Log.created_at >= cutoff)
+                .filter(Log.created_at < now)
+                .group_by(Log.payload['reason'].astext)
+                .all())
+        failure_breakdown = [
+            {'reason': (r or 'unknown'), 'count': int(c)}
+            for r, c in sorted(rows, key=lambda x: x[1], reverse=True)
+        ]
+    except Exception as e:
+        log_event("warn", "analytics.failure_breakdown_failed", str(e))
+        failure_breakdown = []
+        
+    except Exception as e:
+        log_event("warn", "analytics.conversion_failed", str(e))
+        conversion = {
+            'recommended_conversations': 0,
+            'converted_conversations':   0,
+            'conversion_rate':           0.0,
+            'attributed_orders':         0,
+            'attributed_revenue':        0.0,
+        }
+
     # Keep these in scope for the chart/intent/etc. blocks below
     inbound_total = current['inbound_total']
     ai_replies    = current['ai_replies_total']
@@ -413,6 +444,7 @@ def summary():
         'intent_breakdown': intent_breakdown,
         'channel_split': channel_split,
         'top_products': top_products,
+        'failure_breakdown': failure_breakdown,
     }), 200
 
 
