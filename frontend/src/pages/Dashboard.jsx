@@ -502,7 +502,7 @@ export default function Dashboard() {
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
-              <p className="text-xs text-gray-500 mt-1">Inbound messages (solid) vs AI replies (dotted) vs Human replies (dashed)</p>
+              <p className="text-xs text-gray-500 mt-1">Messages by channel — inbound vs AI vs human replies</p>
             </div>
             <button
               onClick={() => setShowChannelModal(true)}
@@ -532,36 +532,19 @@ export default function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
           
-          {/* Legend */}
-          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 mt-5 text-[11px]">
+          {/* Legend — bars are stacked by message type; channels are on the x-axis */}
+          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-5 text-[11px]">
             <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#ec4899" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">IG</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#22c55e" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">WA</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#3b82f6" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">FB</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#111111" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">TT</span>
-            </div>
-            <span className="text-gray-400 mx-2">|</span>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" /></svg>
+              <span className="w-3 h-3 rounded-[3px]" style={{ background: '#ff5900' }} />
               <span className="text-gray-600 font-medium">Inbound</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="4 2" /></svg>
-              <span className="text-gray-600 font-medium">AI</span>
+              <span className="w-3 h-3 rounded-[3px]" style={{ background: '#ff8c4d' }} />
+              <span className="text-gray-600 font-medium">AI replies</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="8 4" /></svg>
-              <span className="text-gray-600 font-medium">Human</span>
+              <span className="w-3 h-3 rounded-[3px]" style={{ background: '#ffc7a3' }} />
+              <span className="text-gray-600 font-medium">Human replies</span>
             </div>
           </div>
         </div>
