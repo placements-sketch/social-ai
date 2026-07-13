@@ -3,7 +3,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { useState, useEffect } from 'react'
-import { TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File, ExternalLink } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle2, MessageSquare, Download, FileText, File, ExternalLink, XCircle } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
 import { useCountAnimation } from '../hooks/useCountAnimation'
