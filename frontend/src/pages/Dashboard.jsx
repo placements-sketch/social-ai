@@ -325,27 +325,15 @@ export default function Dashboard() {
   )
   const trimmedWeekly = firstActiveIdx === -1 ? weekly : weekly.slice(firstActiveIdx)
 
-  const chartData = trimmedWeekly.map(w => ({
-    time: period === 'month'
-      ? (parseBackendTime(w.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || w.day)
-      : w.day,
-    // Instagram
-    instagram: w.instagram || 0,
-    instagram_ai: w.instagram_ai || 0,
-    instagram_human: w.instagram_human || 0,
-    // WhatsApp
-    whatsapp: w.whatsapp || 0,
-    whatsapp_ai: w.whatsapp_ai || 0,
-    whatsapp_human: w.whatsapp_human || 0,
-    // Facebook
-    facebook: w.facebook || 0,
-    facebook_ai: w.facebook_ai || 0,
-    facebook_human: w.facebook_human || 0,
-    // TikTok
-    tiktok: w.tiktok || 0,
-    tiktok_ai: w.tiktok_ai || 0,
-    tiktok_human: w.tiktok_human || 0,
-  }))
+  // Aggregate the whole period into ONE row per channel (Inbound / AI / Human),
+  // so the chart compares channels — not days — and never has empty-day gaps.
+  const _sum = (key) => trimmedWeekly.reduce((t, w) => t + (w[key] || 0), 0)
+  const chartData = [
+    { channel: 'Instagram', inbound: _sum('instagram'), ai: _sum('instagram_ai'), human: _sum('instagram_human') },
+    { channel: 'WhatsApp',  inbound: _sum('whatsapp'),  ai: _sum('whatsapp_ai'),  human: _sum('whatsapp_human')  },
+    { channel: 'Facebook',  inbound: _sum('facebook'),  ai: _sum('facebook_ai'),  human: _sum('facebook_human')  },
+    { channel: 'TikTok',    inbound: _sum('tiktok'),    ai: _sum('tiktok_ai'),    human: _sum('tiktok_human')    },
+  ]
 
   const exportMeta = () => ({
     periodLabel: PERIOD_LABELS[period],
@@ -524,11 +512,11 @@ export default function Dashboard() {
             </button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }} barCategoryGap="18%" barGap={6}>
+            <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }} barCategoryGap="30%">
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
               <XAxis
-                dataKey="time"
-                tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
+                dataKey="channel"
+                tick={{ fontSize: 12, fill: '#71717a', fontFamily: 'Quicksand', fontWeight: 600 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -538,26 +526,9 @@ export default function Dashboard() {
                 tickLine={false}
               />
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-
-              {/* Instagram stack (inbound → AI → human), rounded on the top segment only */}
-              <Bar stackId="instagram" dataKey="instagram"       name="Instagram (Inbound)" fill="#ec4899" maxBarSize={26} />
-              <Bar stackId="instagram" dataKey="instagram_ai"    name="Instagram (AI)"      fill="#f472b6" maxBarSize={26} />
-              <Bar stackId="instagram" dataKey="instagram_human" name="Instagram (Human)"   fill="#f9a8d4" maxBarSize={26} radius={[6, 6, 0, 0]} />
-
-              {/* WhatsApp stack */}
-              <Bar stackId="whatsapp" dataKey="whatsapp"        name="WhatsApp (Inbound)"  fill="#22c55e" maxBarSize={26} />
-              <Bar stackId="whatsapp" dataKey="whatsapp_ai"     name="WhatsApp (AI)"       fill="#4ade80" maxBarSize={26} />
-              <Bar stackId="whatsapp" dataKey="whatsapp_human"  name="WhatsApp (Human)"    fill="#86efac" maxBarSize={26} radius={[6, 6, 0, 0]} />
-
-              {/* Facebook stack */}
-              <Bar stackId="facebook" dataKey="facebook"        name="Facebook (Inbound)"  fill="#3b82f6" maxBarSize={26} />
-              <Bar stackId="facebook" dataKey="facebook_ai"     name="Facebook (AI)"       fill="#60a5fa" maxBarSize={26} />
-              <Bar stackId="facebook" dataKey="facebook_human"  name="Facebook (Human)"    fill="#93c5fd" maxBarSize={26} radius={[6, 6, 0, 0]} />
-
-              {/* TikTok stack */}
-              <Bar stackId="tiktok" dataKey="tiktok"          name="TikTok (Inbound)"    fill="#111111" maxBarSize={26} />
-              <Bar stackId="tiktok" dataKey="tiktok_ai"       name="TikTok (AI)"         fill="#4b5563" maxBarSize={26} />
-              <Bar stackId="tiktok" dataKey="tiktok_human"    name="TikTok (Human)"      fill="#9ca3af" maxBarSize={26} radius={[6, 6, 0, 0]} />
+              <Bar stackId="msgs" dataKey="inbound" name="Inbound" fill="#ff5900" maxBarSize={64} radius={[0, 0, 8, 8]} />
+              <Bar stackId="msgs" dataKey="ai"      name="AI"      fill="#ff8c4d" maxBarSize={64} />
+              <Bar stackId="msgs" dataKey="human"   name="Human"   fill="#ffc7a3" maxBarSize={64} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           
