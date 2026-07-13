@@ -3,7 +3,7 @@ import {
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
   Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
 } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
 import { useState, useEffect } from 'react'
 import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
@@ -325,15 +325,27 @@ export default function Dashboard() {
   )
   const trimmedWeekly = firstActiveIdx === -1 ? weekly : weekly.slice(firstActiveIdx)
 
-  // Aggregate the whole period into ONE row per channel (Inbound / AI / Human),
-  // so the chart compares channels — not days — and never has empty-day gaps.
-  const _sum = (key) => trimmedWeekly.reduce((t, w) => t + (w[key] || 0), 0)
-  const chartData = [
-    { channel: 'Instagram', inbound: _sum('instagram'), ai: _sum('instagram_ai'), human: _sum('instagram_human') },
-    { channel: 'WhatsApp',  inbound: _sum('whatsapp'),  ai: _sum('whatsapp_ai'),  human: _sum('whatsapp_human')  },
-    { channel: 'Facebook',  inbound: _sum('facebook'),  ai: _sum('facebook_ai'),  human: _sum('facebook_human')  },
-    { channel: 'TikTok',    inbound: _sum('tiktok'),    ai: _sum('tiktok_ai'),    human: _sum('tiktok_human')    },
-  ]
+  const chartData = trimmedWeekly.map(w => ({
+    time: period === 'month'
+      ? (parseBackendTime(w.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || w.day)
+      : w.day,
+    // Instagram
+    instagram: w.instagram || 0,
+    instagram_ai: w.instagram_ai || 0,
+    instagram_human: w.instagram_human || 0,
+    // WhatsApp
+    whatsapp: w.whatsapp || 0,
+    whatsapp_ai: w.whatsapp_ai || 0,
+    whatsapp_human: w.whatsapp_human || 0,
+    // Facebook
+    facebook: w.facebook || 0,
+    facebook_ai: w.facebook_ai || 0,
+    facebook_human: w.facebook_human || 0,
+    // TikTok
+    tiktok: w.tiktok || 0,
+    tiktok_ai: w.tiktok_ai || 0,
+    tiktok_human: w.tiktok_human || 0,
+  }))
 
   const exportMeta = () => ({
     periodLabel: PERIOD_LABELS[period],
@@ -502,7 +514,7 @@ export default function Dashboard() {
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
-              <p className="text-xs text-gray-500 mt-1">Messages by channel — inbound vs AI vs human replies</p>
+              <p className="text-xs text-gray-500 mt-1">Inbound messages (solid) vs AI replies (dotted) vs Human replies (dashed)</p>
             </div>
             <button
               onClick={() => setShowChannelModal(true)}
@@ -512,11 +524,11 @@ export default function Dashboard() {
             </button>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }} barCategoryGap="30%">
+            <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
               <XAxis
-                dataKey="channel"
-                tick={{ fontSize: 12, fill: '#71717a', fontFamily: 'Quicksand', fontWeight: 600 }}
+                dataKey="time"
+                tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -525,26 +537,56 @@ export default function Dashboard() {
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-              <Bar stackId="msgs" dataKey="inbound" name="Inbound" fill="#ff5900" maxBarSize={64} radius={[0, 0, 8, 8]} />
-              <Bar stackId="msgs" dataKey="ai"      name="AI"      fill="#ff8c4d" maxBarSize={64} />
-              <Bar stackId="msgs" dataKey="human"   name="Human"   fill="#ffc7a3" maxBarSize={64} radius={[8, 8, 0, 0]} />
-            </BarChart>
+              <Tooltip content={<CustomTooltip />} />
+              {/* Instagram */}
+              <Line type="natural" dataKey="instagram"       name="Instagram (Inbound)"   stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="instagram_ai"    name="Instagram (AI)"        stroke="#ec4899" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="instagram_human" name="Instagram (Human)"     stroke="#ec4899" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              {/* WhatsApp */}
+              <Line type="natural" dataKey="whatsapp"        name="WhatsApp (Inbound)"    stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="whatsapp_ai"     name="WhatsApp (AI)"         stroke="#22c55e" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="whatsapp_human"  name="WhatsApp (Human)"      stroke="#22c55e" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              {/* Facebook */}
+              <Line type="natural" dataKey="facebook"        name="Facebook (Inbound)"    stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="facebook_ai"     name="Facebook (AI)"         stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="facebook_human"  name="Facebook (Human)"      stroke="#3b82f6" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              {/* TikTok */}
+              <Line type="natural" dataKey="tiktok"          name="TikTok (Inbound)"      stroke="#111111" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="tiktok_ai"       name="TikTok (AI)"           stroke="#111111" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
+              <Line type="natural" dataKey="tiktok_human"    name="TikTok (Human)"        stroke="#111111" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+            </LineChart>
           </ResponsiveContainer>
           
-          {/* Legend — bars are stacked by message type; channels are on the x-axis */}
-          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-5 text-[11px]">
+          {/* Legend */}
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 mt-5 text-[11px]">
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-[3px]" style={{ background: '#ff5900' }} />
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#ec4899" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">IG</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#22c55e" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">WA</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#3b82f6" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">FB</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#111111" strokeWidth="2" /></svg>
+              <span className="text-gray-600 font-medium">TT</span>
+            </div>
+            <span className="text-gray-400 mx-2">|</span>
+            <div className="flex items-center gap-1.5">
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" /></svg>
               <span className="text-gray-600 font-medium">Inbound</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-[3px]" style={{ background: '#ff8c4d' }} />
-              <span className="text-gray-600 font-medium">AI replies</span>
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="4 2" /></svg>
+              <span className="text-gray-600 font-medium">AI</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-[3px]" style={{ background: '#ffc7a3' }} />
-              <span className="text-gray-600 font-medium">Human replies</span>
+              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="8 4" /></svg>
+              <span className="text-gray-600 font-medium">Human</span>
             </div>
           </div>
         </div>
