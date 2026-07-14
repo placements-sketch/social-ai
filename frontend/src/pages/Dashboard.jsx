@@ -175,7 +175,6 @@ export default function Dashboard() {
     // Quality
     { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50'    },
     { label: 'Escalated',       kpiKey: 'escalated_total',      icon: TrendingUp,    color: 'text-purple-500', bg: 'bg-purple-50' },
-    { label: 'Response Rate',   kpiKey: 'ai_response_rate',     icon: MessageSquare, color: 'text-teal-500',   bg: 'bg-teal-50',   isPercentage: true },
     { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: PackageX,      color: 'text-green-500',  bg: 'bg-green-50',  isPercentage: true },
   ]
 
@@ -688,6 +687,7 @@ export default function Dashboard() {
               const escalated = kpis.escalated_total || 0
               const failed = kpis.failed_responses || 0
               const overrideRate = aiReplies > 0 ? ((overrides / aiReplies) * 100).toFixed(1) : '0.0'
+              const responseRate = ((kpis.ai_response_rate || 0) * 100).toFixed(1)
 
               return (
                 <>
@@ -710,8 +710,9 @@ export default function Dashboard() {
                   {/* Metrics strip */}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-3 border-t border-gray-100">
                     {[
-                      { label: 'Avg response', value: avgResponseStr,       color: 'text-gray-900'  },
-                      { label: 'Override rate', value: `${overrideRate}%`,   color: 'text-amber-600' },
+                      { label: 'Response rate', value: `${responseRate}%`,   color: 'text-teal-600'  },
+                      { label: 'Avg response',  value: avgResponseStr,       color: 'text-gray-900'  },
+                      { label: 'Override rate', value: `${overrideRate}%`,    color: 'text-amber-600' },
                       { label: 'Escalated',     value: escalated,            color: 'text-purple-600'},
                       { label: 'Failed',        value: failed,               color: failed > 0 ? 'text-red-600' : 'text-gray-900' },
                     ].map(({ label, value, color }) => (
