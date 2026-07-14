@@ -143,6 +143,40 @@ function Donut({ rows, centerLabel = 'total', emptyText = 'No data yet' }) {
   )
 }
 
+// Ranked product cards — thumbnail, name, price, ask-count. Links to storefront.
+function TopProducts({ rows, emptyText = 'No product questions yet' }) {
+  if (!rows || rows.length === 0) return <p className="text-xs text-gray-400 py-6 text-center">{emptyText}</p>
+  return (
+    <div className="flex flex-col -my-1">
+      {rows.map((p, i) => {
+        const href = p.handle ? `https://www.shopzetu.com/products/${p.handle}` : null
+        const Row = href ? 'a' : 'div'
+        const rowProps = href ? { href, target: '_blank', rel: 'noopener noreferrer' } : {}
+        return (
+          <Row key={p.handle || p.name || i} {...rowProps}
+            className="group flex items-center gap-3.5 py-2.5 px-2 -mx-2 rounded-xl hover:bg-gray-50/80 transition-colors"
+            style={{ animation: 'an-rise .4s ease both', animationDelay: `${i * 50}ms` }}>
+            <span className={clsx('text-xs font-bold w-4 text-center shrink-0 tabular-nums', i === 0 ? 'text-[#ff5900]' : 'text-gray-400')}>{i + 1}</span>
+            <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center">
+              {p.image
+                ? <img src={p.image} alt="" className="w-full h-full object-cover" loading="lazy" />
+                : <Package size={18} className="text-brand-500" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-gray-900 truncate group-hover:text-black">{p.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{p.price ? `KES ${Number(p.price).toLocaleString()}` : '—'}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className={clsx('text-[15px] font-bold leading-none tabular-nums', i === 0 ? 'text-[#ff5900]' : 'text-gray-900')}>{p.mentions}</p>
+              <Eyebrow className="block mt-0.5">asks</Eyebrow>
+            </div>
+          </Row>
+        )
+      })}
+    </div>
+  )
+}
+
 // Ranked bars — for genuine rankings (products) and small categoricals (channels, failures).
 function RankedBars({ rows, emptyText = 'No data in this period' }) {
   if (!rows || rows.length === 0) return <p className="text-xs text-gray-400 py-6 text-center">{emptyText}</p>
@@ -427,12 +461,8 @@ export default function Analytics() {
 
       {/* Products (bars) + Failures (bars) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Panel title="Most asked-about products" right={<Package size={15} className="text-gray-300" />} lift>
-          <RankedBars rows={(top_products || []).map((p) => ({
-            label: p.name,
-            value: p.mentions,
-            href: p.handle ? `https://www.shopzetu.com/products/${p.handle}` : null,
-          }))} emptyText="No product questions yet" />
+        <Panel title="Most asked-about products" right={<Package size={15} className="text-gray-300" />} lift bodyClass="p-4">
+          <TopProducts rows={top_products || []} />
         </Panel>
         <Panel title="AI failures by reason" right={<AlertTriangle size={15} className="text-gray-300" />} lift>
           {failureRows.length === 0 ? <p className="text-xs text-gray-400 py-6 text-center">No AI failures in this period.</p> : <RankedBars rows={failureRows} />}

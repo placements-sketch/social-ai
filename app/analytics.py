@@ -465,18 +465,31 @@ def summary():
     handle_counts = {h: int(c) for h, c in prod_rows if h}
     top_handles = sorted(handle_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
 
-    name_by_handle = {}
+    info_by_handle = {}
     if top_handles:
-        name_rows = (
+        info_rows = (
             ProductCache.query
-            .with_entities(ProductCache.handle, ProductCache.name)
+            .with_entities(ProductCache.handle, ProductCache.name, ProductCache.price, ProductCache.images)
             .filter(ProductCache.handle.in_([h for h, _ in top_handles]))
             .all()
         )
-        name_by_handle = {h: n for h, n in name_rows}
+        info_by_handle = {
+            h: {
+                'name': n,
+                'price': str(p) if p is not None else None,
+                'image': (imgs[0] if imgs else None),
+            }
+            for h, n, p, imgs in info_rows
+        }
 
     top_products = [
-        {'name': name_by_handle.get(h, h), 'mentions': cnt, 'handle': h}
+        {
+            'name': (info_by_handle.get(h) or {}).get('name') or h,
+            'mentions': cnt,
+            'handle': h,
+            'price': (info_by_handle.get(h) or {}).get('price'),
+            'image': (info_by_handle.get(h) or {}).get('image'),
+        }
         for h, cnt in top_handles
     ]
 
