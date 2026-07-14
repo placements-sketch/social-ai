@@ -301,13 +301,13 @@ def summary():
     # `reason`. Wrapped so a query issue can't 500 the dashboard.
     try:
         from app.models import Log
-        rows = (db.session.query(
-                    Log.payload['reason'].astext.label('reason'),
-                    func.count(Log.id))
+        from sqlalchemy import text
+        reason_expr = text("payload ->> 'reason'")
+        rows = (db.session.query(reason_expr, func.count(Log.id))
                 .filter(Log.source == 'ai.generator.failure')
                 .filter(Log.created_at >= cutoff)
                 .filter(Log.created_at < now)
-                .group_by(Log.payload['reason'].astext)
+                .group_by(reason_expr)
                 .all())
         failure_breakdown = [
             {'reason': (r or 'unknown'), 'count': int(c)}
