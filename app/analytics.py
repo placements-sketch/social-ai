@@ -174,8 +174,50 @@ def summary():
         )
         eligible_ai_replies = eligible_ai_replies_q.count()
 
-        failed      = max(0, eligible_inbound - eligible_ai_replies)
-        ai_success  = (eligible_ai_replies / eligible_inbound) if eligible_inbound else 0.0
+        failed        = max(0, eligible_inbound - eligible_ai_replies)
+        # RESPONSE rate: of AI-eligible inbound, how much did the AI actually answer.
+        response_rate = (eligible_ai_replies / eligible_inbound) if eligible_inbound else 0.0
+
+        # ── SUCCESS rate ──────────────────────────────────────────────────
+        # A conversation "succeeds" when the AI handled it WITHOUT escalating
+        # to a human AND the customer engaged (multi-turn OR ordered).
+        #   denominator = AI-handled conversations active in the window
+        #                 (never escalated: handoff_reason IS NULL)
+        #   numerator   = those with >=2 inbound msgs (multi-turn) OR an
+        #                 attributed order.
+        from app.models import ConversionAttribution
+
+        handled_conv_ids_q = _scope_filter(
+            Conversation.query
+                .filter(Conversation.last_message_at >= start_dt)
+                .filter(Conversation.last_message_at < end_dt)
+                .filter(Conversation.handoff_reason.is_(None)),   # never escalated
+            Conversation, user,
+        )
+        handled_conv_ids = [c.id for c in handled_conv_ids_q.with_entities(Conversation.id).all()]
+        handled_total = len(handled_conv_ids)
+
+        engaged_total = 0
+        if handled_conv_ids:
+            # Multi-turn: conversations with >=2 inbound messages.
+            multiturn_ids = set(
+                cid for (cid,) in db.session.query(Message.conversation_id)
+                    .filter(Message.conversation_id.in_(handled_conv_ids))
+                    .filter(Message.direction == 'inbound')
+                    .group_by(Message.conversation_id)
+                    .having(func.count(Message.id) >= 2)
+                    .all()
+            )
+            # Ordered: conversations with an attributed order.
+            ordered_ids = set(
+                cid for (cid,) in db.session.query(ConversionAttribution.conversation_id)
+                    .filter(ConversionAttribution.conversation_id.in_(handled_conv_ids))
+                    .distinct()
+                    .all()
+            )
+            engaged_total = len(multiturn_ids | ordered_ids)
+
+        success_rate = (engaged_total / handled_total) if handled_total else 0.0
 
         return {
             'messages_total':      total_msgs,
@@ -184,7 +226,10 @@ def summary():
             'human_replies_total': human_repl,
             'failed_responses':    failed,
             'avg_response_time_ms': int(avg_ms) if avg_ms is not None else None,
-            'ai_success_rate':     round(ai_success, 4),
+            'ai_response_rate':    round(response_rate, 4),   # renamed from ai_success_rate
+            'ai_success_rate':     round(success_rate, 4),    # NEW — real success
+            'ai_handled_total':    handled_total,             # denominator, for context
+            'ai_engaged_total':    engaged_total,             # numerator, for context
             'human_override_total': human_override,
             'escalated_total':     escalated,
             'conversations_total': total_convs,

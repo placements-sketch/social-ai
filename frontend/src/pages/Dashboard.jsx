@@ -175,7 +175,8 @@ export default function Dashboard() {
     // Quality
     { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50'    },
     { label: 'Escalated',       kpiKey: 'escalated_total',      icon: TrendingUp,    color: 'text-purple-500', bg: 'bg-purple-50' },
-    { label: 'AI Success Rate', kpiKey: 'ai_success_rate',      icon: PackageX,      color: 'text-green-500',  bg: 'bg-green-50', isPercentage: true },
+    { label: 'Response Rate',   kpiKey: 'ai_response_rate',     icon: MessageSquare, color: 'text-teal-500',   bg: 'bg-teal-50',   isPercentage: true },
+    { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: PackageX,      color: 'text-green-500',  bg: 'bg-green-50',  isPercentage: true },
   ]
 
   // Map system logs to alert format
