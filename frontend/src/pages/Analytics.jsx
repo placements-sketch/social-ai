@@ -3,7 +3,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  Users, Download, FileText, File, ExternalLink, ArrowUpRight, ArrowDownRight, Minus,
+  Users, Download, FileText, File, Bolt, MessageSquare, ArrowUpRight, UserCheck,
+  TrendingUp, TrendingDown, Minus, Bot, ShoppingBag, AlertTriangle, Radio, Package,
 } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
@@ -20,11 +21,8 @@ const DATE_RANGES = [
   { label: '90 days', days: 90 },
 ]
 
-// ─────────────────────────────────────────────────────────────
-// Small primitives — the shared design language
-// ─────────────────────────────────────────────────────────────
+const SHADOW = '0 1px 2px rgba(16,24,40,0.04), 0 8px 24px -12px rgba(16,24,40,0.10)'
 
-// Uppercase micro-label used as an eyebrow everywhere.
 function Eyebrow({ children, className }) {
   return (
     <span className={clsx('text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400', className)}>
@@ -33,42 +31,30 @@ function Eyebrow({ children, className }) {
   )
 }
 
-// A ranked horizontal bar — the ONE breakdown treatment used across the page.
-// First row gets the accent; the rest are graded grayscale. No rainbow.
-function RankedBars({ rows, valueKey = 'value', labelKey = 'label', suffix = '', emptyText = 'No data in this period' }) {
-  if (!rows || rows.length === 0) {
-    return <p className="text-xs text-gray-400 py-6 text-center">{emptyText}</p>
-  }
-  const max = Math.max(...rows.map((r) => Number(r[valueKey]) || 0), 1)
-  const grays = ['#3f3f46', '#52525b', '#71717a', '#a1a1aa', '#c4c4cc', '#d4d4d8']
+function Delta({ current, previous, isPct = false }) {
+  const cur = Number(current) || 0
+  const prev = Number(previous) || 0
+  const diff = isPct ? (cur - prev) * 100 : cur - prev
+  const flat = Math.abs(diff) < (isPct ? 0.05 : 0.5)
+  const up = diff > 0
+  const Icon = flat ? Minus : up ? TrendingUp : TrendingDown
+  const val = isPct
+    ? `${Math.abs(diff).toFixed(1)} pts`
+    : `${up ? '↑' : diff < 0 ? '↓' : ''}${Math.abs(Math.round((diff / (prev || 1)) * 100))}%`
   return (
-    <div className="flex flex-col gap-3">
-      {rows.map((r, i) => {
-        const val = Number(r[valueKey]) || 0
-        const pct = Math.round((val / max) * 100)
-        const color = i === 0 ? ACCENT : grays[Math.min(i - 1, grays.length - 1)]
-        return (
-          <div key={r[labelKey] + i}>
-            <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-xs text-gray-600 truncate pr-3">{r[labelKey]}</span>
-              <span className="text-xs font-bold text-gray-900 tabular-nums shrink-0">
-                {val.toLocaleString()}{suffix}
-              </span>
-            </div>
-            <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
-            </div>
-          </div>
-        )
-      })}
-    </div>
+    <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold',
+      flat ? 'text-gray-400' : up ? 'text-emerald-600' : 'text-gray-500')}>
+      {isPct && <Icon size={13} />}{val}
+    </span>
   )
 }
 
-// A raised panel with a hairline border — the page's only container shape.
-function Panel({ title, right, children, className, bodyClass }) {
+function Panel({ title, right, children, className, bodyClass, lift }) {
   return (
-    <div className={clsx('bg-white border border-gray-200/80 rounded-2xl', className)}>
+    <div
+      className={clsx('bg-white border border-gray-200/70 rounded-2xl transition-all duration-200', lift && 'hover:-translate-y-0.5', className)}
+      style={{ boxShadow: SHADOW }}
+    >
       {(title || right) && (
         <div className="flex items-center justify-between px-5 pt-4 pb-3.5 border-b border-gray-100">
           {title && <span className="text-sm font-semibold text-gray-900">{title}</span>}
@@ -80,106 +66,149 @@ function Panel({ title, right, children, className, bodyClass }) {
   )
 }
 
-// Delta chip (vs previous window) — up = accent-ish green, down = gray, flat = muted.
-function Delta({ current, previous, isPct = false }) {
-  const cur = Number(current) || 0
-  const prev = Number(previous) || 0
-  const diff = isPct ? (cur - prev) * 100 : cur - prev
-  const flat = Math.abs(diff) < (isPct ? 0.05 : 0.5)
-  const Icon = flat ? Minus : diff > 0 ? ArrowUpRight : ArrowDownRight
-  const val = isPct ? `${Math.abs(diff).toFixed(1)} pts` : Math.abs(Math.round(diff)).toLocaleString()
+function StatTile({ icon: Icon, label, value, isPercent, isTime, current, previous, delay = 0 }) {
+  const numeric = isTime
+    ? (value == null ? 0 : value / 1000)
+    : isPercent
+      ? (value || 0) * 100
+      : (value || 0)
+  const animated = useCountAnimation(numeric, 1600, isPercent || isTime)
+
+  let display
+  if (isTime) {
+    display = value == null ? '—' : value < 1 ? '<1ms' : value < 1000 ? `${value}ms` : `${animated.toFixed(1)}s`
+  } else if (isPercent) {
+    display = `${animated.toFixed(1)}%`
+  } else {
+    display = Math.round(animated).toLocaleString()
+  }
+
   return (
-    <span className={clsx('inline-flex items-center gap-1 text-xs font-medium',
-      flat ? 'text-gray-400' : diff > 0 ? 'text-emerald-600' : 'text-gray-500')}>
-      <Icon size={14} />{val}
-    </span>
+    <div
+      className="bg-white border border-gray-200/70 rounded-2xl p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-300"
+      style={{ boxShadow: SHADOW, animation: 'an-rise .5s ease both', animationDelay: `${delay}ms` }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <span className="w-8 h-8 rounded-[10px] bg-gray-100 flex items-center justify-center text-gray-500">
+          <Icon size={16} />
+        </span>
+        {current != null && previous != null && <Delta current={current} previous={previous} />}
+      </div>
+      <p className="text-[23px] font-bold text-gray-900 tabular-nums leading-none tracking-tight">{display}</p>
+      <Eyebrow className="block mt-1.5">{label}</Eyebrow>
+    </div>
   )
 }
 
-// Minimal tooltip for the trend chart.
+function RankedBars({ rows, suffix = '', emptyText = 'No data in this period' }) {
+  if (!rows || rows.length === 0) {
+    return <p className="text-xs text-gray-400 py-6 text-center">{emptyText}</p>
+  }
+  const max = Math.max(...rows.map((r) => Number(r.value) || 0), 1)
+  const grays = ['#3f3f46', '#52525b', '#71717a', '#a1a1aa', '#c4c4cc', '#d4d4d8']
+  return (
+    <div className="flex flex-col gap-3.5">
+      {rows.map((r, i) => {
+        const val = Number(r.value) || 0
+        const pct = Math.round((val / max) * 100)
+        const color = i === 0 ? ACCENT : grays[Math.min(i - 1, grays.length - 1)]
+        return (
+          <div key={r.label + i}>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span className="text-xs text-gray-600 truncate pr-3">{r.label}</span>
+              <span className="text-xs font-bold text-gray-900 tabular-nums shrink-0">{val.toLocaleString()}{suffix}</span>
+            </div>
+            <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${pct}%`, background: color, transition: 'width .9s cubic-bezier(0.16,1,0.3,1)', transitionDelay: `${i * 60}ms` }}
+              />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-lg">
       <p className="text-gray-300 mb-1">{label}</p>
       {payload.map((p, i) => (
-        <p key={i} className="font-semibold tabular-nums" style={{ color: p.color }}>
-          {p.name}: {p.value}
-        </p>
+        <p key={i} className="font-semibold tabular-nums" style={{ color: p.color }}>{p.name}: {p.value}</p>
       ))}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// Hero band — the signature. Success rate as the dominant figure.
-// ─────────────────────────────────────────────────────────────
-
-function HeroBand({ kpis, periodLabel }) {
+function HeroBand({ kpis, weekly, periodLabel }) {
   const prev = kpis.previous || {}
   const successPct = (kpis.ai_success_rate || 0) * 100
-  const animatedSuccess = useCountAnimation(successPct, 1600, true)
-
+  const animated = useCountAnimation(successPct, 1600, true)
   const handled = kpis.ai_handled_total || 0
   const engaged = kpis.ai_engaged_total || 0
 
-  const ms = kpis.avg_response_time_ms
-  const avgStr = ms == null ? '—' : ms < 1 ? '<1ms' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+  const series = (weekly || []).slice(-8).map((w) => w.ai_replied || w.inbound || 0)
+  const sMax = Math.max(...series, 1)
 
-  const aiReplies = kpis.ai_replies_total || 0
-  const overrides = kpis.human_override_total || 0
-  const overrideRate = aiReplies > 0 ? ((overrides / aiReplies) * 100).toFixed(1) : '0.0'
-
-  const strip = [
-    { label: 'Avg response', value: avgStr },
-    { label: 'Inbound', value: (kpis.inbound_total || 0).toLocaleString(), cur: kpis.inbound_total, prev: prev.inbound_total },
-    { label: 'Escalated', value: (kpis.escalated_total || 0).toLocaleString(), cur: kpis.escalated_total, prev: prev.escalated_total },
-    { label: 'Override rate', value: `${overrideRate}%` },
-  ]
+  const diff = (kpis.ai_success_rate || 0) * 100 - (prev.ai_success_rate || 0) * 100
+  const up = diff >= 0
 
   return (
-    <div className="bg-white border border-gray-200/80 rounded-2xl overflow-hidden">
-      {/* Hero row */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 px-6 pt-5 pb-5 border-b border-gray-100">
+    <div
+      className="rounded-2xl px-6 py-5"
+      style={{
+        border: '0.5px solid rgba(255,89,0,0.18)',
+        background: 'linear-gradient(135deg, #fff8f4 0%, #ffffff 62%)',
+        boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 12px 32px -14px rgba(255,89,0,0.18)',
+      }}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
         <div>
-          <Eyebrow>AI performance · {periodLabel}</Eyebrow>
-          <div className="flex items-baseline gap-2.5 mt-2.5">
-            <span className="text-[52px] leading-none font-bold tabular-nums" style={{ color: ACCENT }}>
-              {animatedSuccess.toFixed(1)}%
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: ACCENT, boxShadow: '0 0 0 3px rgba(255,89,0,0.15)' }} />
+            <Eyebrow>AI performance · {periodLabel}</Eyebrow>
+          </div>
+          <div className="flex items-baseline gap-3">
+            <span className="font-bold tabular-nums leading-[0.9]" style={{ color: ACCENT, fontSize: 56, letterSpacing: '-0.02em' }}>
+              {animated.toFixed(1)}<span style={{ fontSize: 34 }}>%</span>
             </span>
-            <span className="text-sm text-gray-500">success rate</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">
-            {engaged.toLocaleString()} of {handled.toLocaleString()} conversations handled and engaged
-          </p>
-        </div>
-        <div className="text-left sm:text-right">
-          <Eyebrow>vs {periodLabel === 'today' ? 'yesterday' : 'previous'}</Eyebrow>
-          <div className="mt-1.5">
-            <Delta current={kpis.ai_success_rate} previous={prev.ai_success_rate} isPct />
-          </div>
-        </div>
-      </div>
-
-      {/* Supporting strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-gray-100">
-        {strip.map(({ label, value, cur, prev: p }, i) => (
-          <div key={label} className={clsx('px-5 py-4', i >= 2 && 'border-t sm:border-t-0 border-gray-100')}>
-            <p className="text-[22px] font-semibold text-gray-900 tabular-nums leading-none">{value}</p>
-            <div className="flex items-center justify-between mt-2">
-              <Eyebrow>{label}</Eyebrow>
-              {cur != null && p != null && <Delta current={cur} previous={p} />}
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] text-gray-600 font-medium">success rate</span>
+              <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold', up ? 'text-emerald-600' : 'text-gray-500')}>
+                {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{Math.abs(diff).toFixed(1)} pts
+              </span>
             </div>
           </div>
-        ))}
+          <p className="text-xs text-gray-400 mt-2.5">
+            {engaged.toLocaleString()} of {handled.toLocaleString()} conversations handled &amp; engaged
+          </p>
+        </div>
+
+        <div className="flex items-end gap-1 h-16 pt-1" aria-hidden="true">
+          {series.length > 0 ? series.map((v, i) => {
+            const h = Math.max(6, Math.round((v / sMax) * 56))
+            const isLast = i >= series.length - 2
+            return (
+              <div
+                key={i}
+                style={{
+                  width: 13, height: h, borderRadius: 3,
+                  background: isLast ? ACCENT : `rgba(255,89,0,${0.22 + (i / series.length) * 0.5})`,
+                  transformOrigin: 'bottom',
+                  animation: 'an-grow .6s ease both',
+                  animationDelay: `${i * 40}ms`,
+                }}
+              />
+            )
+          }) : null}
+        </div>
       </div>
     </div>
   )
 }
-
-// ─────────────────────────────────────────────────────────────
-// Page
-// ─────────────────────────────────────────────────────────────
 
 export default function Analytics() {
   const { user } = useAuth()
@@ -200,8 +229,7 @@ export default function Analytics() {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Could not load analytics. Try again.')
-      const analytics = await res.json()
-      setData(analytics)
+      setData(await res.json())
 
       if (user?.role === 'supervisor' || user?.role === 'admin') {
         try {
@@ -221,17 +249,13 @@ export default function Analytics() {
   }
 
   if (loading) return <SkeletonAnalytics />
-
   if (error) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-6 text-sm text-gray-700">
-        {error}
-      </div>
-    )
+    return <div className="bg-white border border-gray-200 rounded-2xl p-6 text-sm text-gray-700" style={{ boxShadow: SHADOW }}>{error}</div>
   }
   if (!data) return null
 
   const { kpis, weekly, intent_breakdown, channel_split, top_products, failure_breakdown } = data
+  const prev = kpis.previous || {}
 
   const periodLabel = days === 1 ? 'today' : days === 7 ? 'last 7 days' : days === 30 ? 'last 30 days' : `last ${days} days`
 
@@ -251,7 +275,9 @@ export default function Analytics() {
   const exportToCSV = () => exportAnalyticsCSV(reportData(), exportMeta())
   const exportToPDF = () => exportAnalyticsPDF(reportData(), exportMeta())
 
-  // Conversion strip
+  const aiReplies = kpis.ai_replies_total || 0
+  const overrideRate = aiReplies > 0 ? (kpis.human_override_total || 0) / aiReplies : 0
+
   const conv = data.conversion || {}
   const convRows = [
     { label: 'Recommended', value: conv.recommended_conversations || 0 },
@@ -261,7 +287,6 @@ export default function Analytics() {
   const convRate = ((conv.conversion_rate || 0) * 100).toFixed(1)
   const revenue = Math.round(conv.attributed_revenue || 0)
 
-  // Failure labels
   const FAILURE_LABELS = {
     rate_limit: 'Rate limit hit', timeout: 'Timed out', auth: 'Auth error',
     bad_request: 'Bad request', api_error: 'Claude API error', network: 'Network error',
@@ -273,7 +298,11 @@ export default function Analytics() {
 
   return (
     <div className="space-y-5 w-full px-0 lg:px-8 pb-10">
-      {/* Header */}
+      <style>{`
+        @keyframes an-rise { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes an-grow { from { transform:scaleY(0) } to { transform:scaleY(1) } }
+      `}</style>
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Analytics</h1>
@@ -285,32 +314,24 @@ export default function Analytics() {
               <button
                 key={range.days}
                 onClick={() => setDays(range.days)}
-                className={clsx(
-                  'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors',
-                  days === range.days ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                )}
+                className={clsx('text-xs font-semibold px-3 py-1.5 rounded-md transition-all',
+                  days === range.days ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800')}
               >
                 {range.label}
               </button>
             ))}
           </div>
           <div className="relative">
-            <button
-              onClick={() => setExportOpen((o) => !o)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-black transition-colors"
-            >
+            <button onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-black transition-colors">
               <Download size={14} /><span>Export</span>
             </button>
             {exportOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setExportOpen(false)} />
                 <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                  <button onClick={() => { exportToCSV(); setExportOpen(false) }} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg">
-                    <FileText size={13} /> Export as CSV
-                  </button>
-                  <button onClick={() => { exportToPDF(); setExportOpen(false) }} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg">
-                    <File size={13} /> Export as PDF
-                  </button>
+                  <button onClick={() => { exportToCSV(); setExportOpen(false) }} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg"><FileText size={13} /> Export as CSV</button>
+                  <button onClick={() => { exportToPDF(); setExportOpen(false) }} className="w-full text-left px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 last:rounded-b-lg"><File size={13} /> Export as PDF</button>
                 </div>
               </>
             )}
@@ -318,18 +339,23 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Hero band */}
-      <HeroBand kpis={kpis} periodLabel={periodLabel} />
+      <HeroBand kpis={kpis} weekly={weekly} periodLabel={periodLabel} />
 
-      {/* Trend */}
-      <Panel title="Message volume" right={<Eyebrow>{periodLabel}</Eyebrow>} bodyClass="pt-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatTile icon={Bolt}          label="Avg response"  value={kpis.avg_response_time_ms} isTime delay={40} />
+        <StatTile icon={MessageSquare} label="Inbound"       value={kpis.inbound_total}   current={kpis.inbound_total}   previous={prev.inbound_total}   delay={90} />
+        <StatTile icon={ArrowUpRight}  label="Escalated"     value={kpis.escalated_total} current={kpis.escalated_total} previous={prev.escalated_total} delay={140} />
+        <StatTile icon={UserCheck}     label="Override rate" value={overrideRate} isPercent delay={190} />
+      </div>
+
+      <Panel title="Message volume" right={<Eyebrow>{periodLabel}</Eyebrow>} bodyClass="pt-4" lift>
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={weekly || []} barGap={4} barCategoryGap="22%" margin={{ top: 8, right: 4, left: -12, bottom: 0 }}>
+          <BarChart data={weekly || []} barGap={4} barCategoryGap="22%" margin={{ top: 8, right: 4, left: -14, bottom: 0 }}>
             <XAxis dataKey="day" tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand' }} axisLine={false} tickLine={false} width={40} />
             <Tooltip content={<TrendTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-            <Bar dataKey="inbound" name="Inbound" fill="#e4e4e7" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="ai_replied" name="AI replied" fill={ACCENT} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="inbound" name="Inbound" fill="#e4e4e7" radius={[5, 5, 0, 0]} />
+            <Bar dataKey="ai_replied" name="AI replied" fill={ACCENT} radius={[5, 5, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
         <div className="flex items-center gap-5 mt-3 pl-1">
@@ -338,40 +364,33 @@ export default function Analytics() {
         </div>
       </Panel>
 
-      {/* Breakdowns grid — all unified ranked bars */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Panel title="Top customer intents" right={<Eyebrow>volume</Eyebrow>}>
+        <Panel title="Top customer intents" right={<Bot size={15} className="text-gray-300" />} lift>
           <RankedBars rows={(intent_breakdown || []).map((it) => ({ label: it.name, value: it.count }))} emptyText="No intent data yet" />
         </Panel>
-
-        <Panel title="Channels" right={<Eyebrow>messages</Eyebrow>}>
+        <Panel title="Channels" right={<Radio size={15} className="text-gray-300" />} lift>
           <RankedBars rows={(channel_split || []).map((c) => ({ label: c.name, value: c.count }))} emptyText="No channel data yet" />
         </Panel>
-
-        <Panel title="Most asked-about products" right={<Eyebrow>mentions</Eyebrow>}>
+        <Panel title="Most asked-about products" right={<Package size={15} className="text-gray-300" />} lift>
           <RankedBars rows={(top_products || []).map((p) => ({ label: p.name, value: p.mentions }))} emptyText="No product questions yet" />
         </Panel>
-
-        <Panel title="AI failures by reason" right={<Eyebrow>count</Eyebrow>}>
+        <Panel title="AI failures by reason" right={<AlertTriangle size={15} className="text-gray-300" />} lift>
           {failureRows.length === 0
             ? <p className="text-xs text-gray-400 py-6 text-center">No AI failures in this period.</p>
             : <RankedBars rows={failureRows} />}
         </Panel>
       </div>
 
-      {/* Conversion */}
-      <Panel title="Conversion" right={<Eyebrow>{periodLabel}</Eyebrow>}>
+      <Panel title="Conversion" right={<ShoppingBag size={15} className="text-gray-300" />} lift>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div className="sm:col-span-2">
-            <RankedBars rows={convRows} emptyText="No recommendations yet" />
-          </div>
+          <div className="sm:col-span-2"><RankedBars rows={convRows} emptyText="No recommendations yet" /></div>
           <div className="flex sm:flex-col justify-between gap-4 sm:border-l sm:border-gray-100 sm:pl-6">
             <div>
-              <p className="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{convRate}%</p>
+              <p className="text-[28px] font-bold tabular-nums leading-none" style={{ color: ACCENT }}>{convRate}%</p>
               <Eyebrow className="block mt-1.5">Conversion rate</Eyebrow>
             </div>
             <div>
-              <p className="text-[22px] font-semibold text-gray-900 tabular-nums leading-none">
+              <p className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
                 <span className="text-sm text-gray-400 font-medium">KES </span>{revenue.toLocaleString()}
               </p>
               <Eyebrow className="block mt-1.5">Attributed revenue</Eyebrow>
@@ -380,9 +399,8 @@ export default function Analytics() {
         </div>
       </Panel>
 
-      {/* Agent performance — supervisor + admin only */}
       {isStaffLead && agentData && agentData.agents?.length > 0 && (
-        <Panel title="Agent performance" right={<span className="inline-flex items-center gap-1.5 text-gray-400"><Users size={14} /></span>}>
+        <Panel title="Agent performance" right={<Users size={15} className="text-gray-300" />} lift>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[560px]">
               <thead>
@@ -395,12 +413,11 @@ export default function Analytics() {
               <tbody>
                 {agentData.agents.map((a) => {
                   const name = a.agent?.full_name || a.agent?.name || a.agent?.email || '—'
-                  const initial = name.charAt(0).toUpperCase()
                   return (
-                    <tr key={a.agent?.id || name} className="border-b border-gray-50 last:border-0">
+                    <tr key={a.agent?.id || name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-3">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-7 h-7 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">{initial}</span>
+                          <span className="w-7 h-7 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">{name.charAt(0).toUpperCase()}</span>
                           <span className="font-medium text-gray-800 truncate">{name}</span>
                         </div>
                       </td>
