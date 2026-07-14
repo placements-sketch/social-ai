@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import {
   Users, Download, FileText, File, Bolt, MessageSquare, ArrowUpRight, UserCheck,
@@ -14,6 +14,9 @@ import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const ACCENT = '#ff5900'
+
+// Coordinated donut palette: accent → warm → taupe → grays. Not a rainbow.
+const DONUT = ['#ff5900', '#ff8c4d', '#c99a86', '#8a8a93', '#a1a1aa', '#c4c4cc', '#d4d4d8']
 
 const DATE_RANGES = [
   { label: '7 days', days: 7 },
@@ -69,19 +72,13 @@ function Panel({ title, right, children, className, bodyClass, lift }) {
 function StatTile({ icon: Icon, label, value, isPercent, isTime, current, previous, delay = 0 }) {
   const numeric = isTime
     ? (value == null ? 0 : value / 1000)
-    : isPercent
-      ? (value || 0) * 100
-      : (value || 0)
+    : isPercent ? (value || 0) * 100 : (value || 0)
   const animated = useCountAnimation(numeric, 1600, isPercent || isTime)
 
   let display
-  if (isTime) {
-    display = value == null ? '—' : value < 1 ? '<1ms' : value < 1000 ? `${value}ms` : `${animated.toFixed(1)}s`
-  } else if (isPercent) {
-    display = `${animated.toFixed(1)}%`
-  } else {
-    display = Math.round(animated).toLocaleString()
-  }
+  if (isTime) display = value == null ? '—' : value < 1 ? '<1ms' : value < 1000 ? `${value}ms` : `${animated.toFixed(1)}s`
+  else if (isPercent) display = `${animated.toFixed(1)}%`
+  else display = Math.round(animated).toLocaleString()
 
   return (
     <div
@@ -89,9 +86,7 @@ function StatTile({ icon: Icon, label, value, isPercent, isTime, current, previo
       style={{ boxShadow: SHADOW, animation: 'an-rise .5s ease both', animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="w-8 h-8 rounded-[10px] bg-gray-100 flex items-center justify-center text-gray-500">
-          <Icon size={16} />
-        </span>
+        <span className="w-8 h-8 rounded-[10px] bg-gray-100 flex items-center justify-center text-gray-500"><Icon size={16} /></span>
         {current != null && previous != null && <Delta current={current} previous={previous} />}
       </div>
       <p className="text-[23px] font-bold text-gray-900 tabular-nums leading-none tracking-tight">{display}</p>
@@ -100,10 +95,57 @@ function StatTile({ icon: Icon, label, value, isPercent, isTime, current, previo
   )
 }
 
-function RankedBars({ rows, suffix = '', emptyText = 'No data in this period' }) {
-  if (!rows || rows.length === 0) {
-    return <p className="text-xs text-gray-400 py-6 text-center">{emptyText}</p>
-  }
+// Donut with coordinated palette + center total + legend. For part-to-whole (intents).
+function Donut({ rows, centerLabel = 'total', emptyText = 'No data yet' }) {
+  if (!rows || rows.length === 0) return <p className="text-xs text-gray-400 py-10 text-center">{emptyText}</p>
+  const total = rows.reduce((s, r) => s + (Number(r.value) || 0), 0) || 1
+  const top = rows.slice(0, 6)
+  const R = 15.9155
+  let offset = 25 // start at top
+  return (
+    <div className="flex items-center gap-5">
+      <div className="relative shrink-0" style={{ width: 132, height: 132 }}>
+        <svg width="132" height="132" viewBox="0 0 42 42">
+          <circle cx="21" cy="21" r={R} fill="none" stroke="#f4f4f5" strokeWidth="5" />
+          {top.map((r, i) => {
+            const frac = (Number(r.value) || 0) / total
+            const len = frac * 100
+            const dash = `${len} ${100 - len}`
+            const el = (
+              <circle key={i} cx="21" cy="21" r={R} fill="none" stroke={DONUT[i]} strokeWidth="5"
+                strokeDasharray={dash} strokeDashoffset={offset} strokeLinecap="butt"
+                style={{ transition: 'stroke-dasharray .9s cubic-bezier(0.16,1,0.3,1)' }} />
+            )
+            offset -= len
+            return el
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[22px] font-bold text-gray-900 leading-none tabular-nums">{total.toLocaleString()}</span>
+          <Eyebrow className="mt-0.5">{centerLabel}</Eyebrow>
+        </div>
+      </div>
+      <div className="flex-1 flex flex-col gap-2 min-w-0">
+        {top.map((r, i) => {
+          const pct = Math.round(((Number(r.value) || 0) / total) * 100)
+          return (
+            <div key={i} className="flex items-center justify-between text-xs gap-2">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ background: DONUT[i] }} />
+                <span className="text-gray-600 truncate">{r.label}</span>
+              </span>
+              <span className="font-bold text-gray-900 tabular-nums shrink-0">{pct}%</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Ranked bars — for genuine rankings (products) and small categoricals (channels, failures).
+function RankedBars({ rows, emptyText = 'No data in this period' }) {
+  if (!rows || rows.length === 0) return <p className="text-xs text-gray-400 py-6 text-center">{emptyText}</p>
   const max = Math.max(...rows.map((r) => Number(r.value) || 0), 1)
   const grays = ['#3f3f46', '#52525b', '#71717a', '#a1a1aa', '#c4c4cc', '#d4d4d8']
   return (
@@ -116,13 +158,10 @@ function RankedBars({ rows, suffix = '', emptyText = 'No data in this period' })
           <div key={r.label + i}>
             <div className="flex items-baseline justify-between mb-1.5">
               <span className="text-xs text-gray-600 truncate pr-3">{r.label}</span>
-              <span className="text-xs font-bold text-gray-900 tabular-nums shrink-0">{val.toLocaleString()}{suffix}</span>
+              <span className="text-xs font-bold text-gray-900 tabular-nums shrink-0">{val.toLocaleString()}</span>
             </div>
             <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${pct}%`, background: color, transition: 'width .9s cubic-bezier(0.16,1,0.3,1)', transitionDelay: `${i * 60}ms` }}
-              />
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, transition: 'width .9s cubic-bezier(0.16,1,0.3,1)', transitionDelay: `${i * 60}ms` }} />
             </div>
           </div>
         )
@@ -131,13 +170,50 @@ function RankedBars({ rows, suffix = '', emptyText = 'No data in this period' })
   )
 }
 
-function TrendTooltip({ active, payload, label }) {
+// Funnel — stepped, narrowing journey. Uses whatever steps are passed (real data only).
+function Funnel({ steps, rate, revenue }) {
+  const first = Math.max(...steps.map((s) => s.value), 1)
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <div className="sm:col-span-2 flex flex-col gap-2.5">
+        {steps.map((s, i) => {
+          const w = Math.max(6, Math.round((s.value / first) * 100))
+          const isLast = i === steps.length - 1
+          return (
+            <div key={s.label}>
+              <div className="flex justify-between text-xs mb-1"><span className="text-gray-600">{s.label}</span><span className="font-bold text-gray-900 tabular-nums">{s.value.toLocaleString()}</span></div>
+              <div className="h-8 rounded-lg" style={{
+                width: `${w}%`, marginLeft: `${(100 - w) / 2 * (i / steps.length)}%`,
+                background: isLast ? '#374151' : i === 0 ? ACCENT : '#ff9a5c',
+                transition: 'width .9s cubic-bezier(0.16,1,0.3,1)', transitionDelay: `${i * 80}ms`,
+              }} />
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex sm:flex-col justify-between gap-4 sm:border-l sm:border-gray-100 sm:pl-6">
+        <div>
+          <p className="text-[28px] font-bold tabular-nums leading-none" style={{ color: ACCENT }}>{rate}%</p>
+          <Eyebrow className="block mt-1.5">Conversion rate</Eyebrow>
+        </div>
+        <div>
+          <p className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+            <span className="text-sm text-gray-400 font-medium">KES </span>{revenue.toLocaleString()}
+          </p>
+          <Eyebrow className="block mt-1.5">Attributed revenue</Eyebrow>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AreaTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-lg">
       <p className="text-gray-300 mb-1">{label}</p>
       {payload.map((p, i) => (
-        <p key={i} className="font-semibold tabular-nums" style={{ color: p.color }}>{p.name}: {p.value}</p>
+        <p key={i} className="font-semibold tabular-nums" style={{ color: p.stroke }}>{p.name}: {p.value}</p>
       ))}
     </div>
   )
@@ -149,22 +225,17 @@ function HeroBand({ kpis, weekly, periodLabel }) {
   const animated = useCountAnimation(successPct, 1600, true)
   const handled = kpis.ai_handled_total || 0
   const engaged = kpis.ai_engaged_total || 0
-
   const series = (weekly || []).slice(-8).map((w) => w.ai_replied || w.inbound || 0)
   const sMax = Math.max(...series, 1)
-
-  const diff = (kpis.ai_success_rate || 0) * 100 - (prev.ai_success_rate || 0) * 100
+  const diff = successPct - (prev.ai_success_rate || 0) * 100
   const up = diff >= 0
 
   return (
-    <div
-      className="rounded-2xl px-6 py-5"
-      style={{
-        border: '0.5px solid rgba(255,89,0,0.18)',
-        background: 'linear-gradient(135deg, #fff8f4 0%, #ffffff 62%)',
-        boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 12px 32px -14px rgba(255,89,0,0.18)',
-      }}
-    >
+    <div className="rounded-2xl px-6 py-5" style={{
+      border: '0.5px solid rgba(255,89,0,0.18)',
+      background: 'linear-gradient(135deg, #fff8f4 0%, #ffffff 62%)',
+      boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 12px 32px -14px rgba(255,89,0,0.18)',
+    }}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -182,28 +253,14 @@ function HeroBand({ kpis, weekly, periodLabel }) {
               </span>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-2.5">
-            {engaged.toLocaleString()} of {handled.toLocaleString()} conversations handled &amp; engaged
-          </p>
+          <p className="text-xs text-gray-400 mt-2.5">{engaged.toLocaleString()} of {handled.toLocaleString()} conversations handled &amp; engaged</p>
         </div>
-
         <div className="flex items-end gap-1 h-16 pt-1" aria-hidden="true">
-          {series.length > 0 ? series.map((v, i) => {
+          {series.map((v, i) => {
             const h = Math.max(6, Math.round((v / sMax) * 56))
             const isLast = i >= series.length - 2
-            return (
-              <div
-                key={i}
-                style={{
-                  width: 13, height: h, borderRadius: 3,
-                  background: isLast ? ACCENT : `rgba(255,89,0,${0.22 + (i / series.length) * 0.5})`,
-                  transformOrigin: 'bottom',
-                  animation: 'an-grow .6s ease both',
-                  animationDelay: `${i * 40}ms`,
-                }}
-              />
-            )
-          }) : null}
+            return <div key={i} style={{ width: 13, height: h, borderRadius: 3, background: isLast ? ACCENT : `rgba(255,89,0,${0.22 + (i / series.length) * 0.5})`, transformOrigin: 'bottom', animation: 'an-grow .6s ease both', animationDelay: `${i * 40}ms` }} />
+          })}
         </div>
       </div>
     </div>
@@ -222,41 +279,30 @@ export default function Analytics() {
   useEffect(() => { fetchAnalytics() }, [days])
 
   const fetchAnalytics = async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     try {
       const res = await fetch(`${API_BASE}/analytics/summary?days=${days}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Could not load analytics. Try again.')
       setData(await res.json())
-
       if (user?.role === 'supervisor' || user?.role === 'admin') {
         try {
           const agentRes = await fetch(`${API_BASE}/analytics/agents?days=${days}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
           })
           if (agentRes.ok) setAgentData(await agentRes.json())
-        } catch (err) {
-          console.error('Failed to load agent data:', err)
-        }
+        } catch (err) { console.error('Failed to load agent data:', err) }
       }
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
+    } catch (err) { setError(err.message) } finally { setLoading(false) }
   }
 
   if (loading) return <SkeletonAnalytics />
-  if (error) {
-    return <div className="bg-white border border-gray-200 rounded-2xl p-6 text-sm text-gray-700" style={{ boxShadow: SHADOW }}>{error}</div>
-  }
+  if (error) return <div className="bg-white border border-gray-200 rounded-2xl p-6 text-sm text-gray-700" style={{ boxShadow: SHADOW }}>{error}</div>
   if (!data) return null
 
   const { kpis, weekly, intent_breakdown, channel_split, top_products, failure_breakdown } = data
   const prev = kpis.previous || {}
-
   const periodLabel = days === 1 ? 'today' : days === 7 ? 'last 7 days' : days === 30 ? 'last 30 days' : `last ${days} days`
 
   const getSubtitle = () => {
@@ -267,9 +313,7 @@ export default function Analytics() {
 
   const exportMeta = () => ({
     periodLabel: DATE_RANGES.find((r) => r.days === days)?.label || `Last ${days} days`,
-    generatedAt: new Date().toLocaleString(),
-    periodSlug: `${days}d`,
-    dateSlug: new Date().toISOString().split('T')[0],
+    generatedAt: new Date().toLocaleString(), periodSlug: `${days}d`, dateSlug: new Date().toISOString().split('T')[0],
   })
   const reportData = () => ({ ...data, agents: agentData?.agents || [] })
   const exportToCSV = () => exportAnalyticsCSV(reportData(), exportMeta())
@@ -279,21 +323,18 @@ export default function Analytics() {
   const overrideRate = aiReplies > 0 ? (kpis.human_override_total || 0) / aiReplies : 0
 
   const conv = data.conversion || {}
-  const convRows = [
-    { label: 'Recommended', value: conv.recommended_conversations || 0 },
-    { label: 'Converted', value: conv.converted_conversations || 0 },
-    { label: 'Attributed orders', value: conv.attributed_orders || 0 },
-  ]
   const convRate = ((conv.conversion_rate || 0) * 100).toFixed(1)
   const revenue = Math.round(conv.attributed_revenue || 0)
+  const funnelSteps = [
+    { label: 'Recommended', value: conv.recommended_conversations || 0 },
+    { label: 'Converted', value: conv.converted_conversations || 0 },
+  ]
 
   const FAILURE_LABELS = {
-    rate_limit: 'Rate limit hit', timeout: 'Timed out', auth: 'Auth error',
-    bad_request: 'Bad request', api_error: 'Claude API error', network: 'Network error',
-    bad_output: 'Malformed response', unknown: 'Unknown error',
+    rate_limit: 'Rate limit hit', timeout: 'Timed out', auth: 'Auth error', bad_request: 'Bad request',
+    api_error: 'Claude API error', network: 'Network error', bad_output: 'Malformed response', unknown: 'Unknown error',
   }
   const failureRows = (failure_breakdown || []).map((f) => ({ label: FAILURE_LABELS[f.reason] || f.reason, value: f.count }))
-
   const isStaffLead = user?.role === 'supervisor' || user?.role === 'admin'
 
   return (
@@ -311,12 +352,9 @@ export default function Analytics() {
         <div className="flex items-center gap-2">
           <div className="inline-flex p-0.5 bg-gray-100 rounded-lg">
             {DATE_RANGES.map((range) => (
-              <button
-                key={range.days}
-                onClick={() => setDays(range.days)}
+              <button key={range.days} onClick={() => setDays(range.days)}
                 className={clsx('text-xs font-semibold px-3 py-1.5 rounded-md transition-all',
-                  days === range.days ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800')}
-              >
+                  days === range.days ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800')}>
                 {range.label}
               </button>
             ))}
@@ -348,57 +386,54 @@ export default function Analytics() {
         <StatTile icon={UserCheck}     label="Override rate" value={overrideRate} isPercent delay={190} />
       </div>
 
+      {/* Volume — area/line trend */}
       <Panel title="Message volume" right={<Eyebrow>{periodLabel}</Eyebrow>} bodyClass="pt-4" lift>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={weekly || []} barGap={4} barCategoryGap="22%" margin={{ top: 8, right: 4, left: -14, bottom: 0 }}>
+        <ResponsiveContainer width="100%" height={230}>
+          <AreaChart data={weekly || []} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+            <defs>
+              <linearGradient id="gInbound" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a1a1aa" stopOpacity={0.18} /><stop offset="100%" stopColor="#a1a1aa" stopOpacity={0} /></linearGradient>
+              <linearGradient id="gAi" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} /><stop offset="100%" stopColor={ACCENT} stopOpacity={0} /></linearGradient>
+            </defs>
+            <CartesianGrid stroke="#f1f1f2" vertical={false} />
             <XAxis dataKey="day" tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand' }} axisLine={false} tickLine={false} width={40} />
-            <Tooltip content={<TrendTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-            <Bar dataKey="inbound" name="Inbound" fill="#e4e4e7" radius={[5, 5, 0, 0]} />
-            <Bar dataKey="ai_replied" name="AI replied" fill={ACCENT} radius={[5, 5, 0, 0]} />
-          </BarChart>
+            <Tooltip content={<AreaTooltip />} />
+            <Area type="monotone" dataKey="inbound" name="Inbound" stroke="#a1a1aa" strokeWidth={2} fill="url(#gInbound)" />
+            <Area type="monotone" dataKey="ai_replied" name="AI replied" stroke={ACCENT} strokeWidth={2.5} fill="url(#gAi)" />
+          </AreaChart>
         </ResponsiveContainer>
         <div className="flex items-center gap-5 mt-3 pl-1">
-          <span className="flex items-center gap-1.5 text-xs text-gray-500"><span className="w-2.5 h-2.5 rounded-sm bg-gray-200" />Inbound</span>
-          <span className="flex items-center gap-1.5 text-xs text-gray-500"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: ACCENT }} />AI replied</span>
+          <span className="flex items-center gap-1.5 text-xs text-gray-500"><span className="w-4 h-0.5 rounded bg-gray-400" />Inbound</span>
+          <span className="flex items-center gap-1.5 text-xs text-gray-500"><span className="w-4 h-0.5 rounded" style={{ background: ACCENT }} />AI replied</span>
         </div>
       </Panel>
 
+      {/* Intents (donut) + Channels (bars) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Panel title="Top customer intents" right={<Bot size={15} className="text-gray-300" />} lift>
-          <RankedBars rows={(intent_breakdown || []).map((it) => ({ label: it.name, value: it.count }))} emptyText="No intent data yet" />
+          <Donut rows={(intent_breakdown || []).map((it) => ({ label: it.name, value: it.count }))} centerLabel="messages" emptyText="No intent data yet" />
         </Panel>
         <Panel title="Channels" right={<Radio size={15} className="text-gray-300" />} lift>
           <RankedBars rows={(channel_split || []).map((c) => ({ label: c.name, value: c.count }))} emptyText="No channel data yet" />
         </Panel>
+      </div>
+
+      {/* Products (bars) + Failures (bars) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Panel title="Most asked-about products" right={<Package size={15} className="text-gray-300" />} lift>
           <RankedBars rows={(top_products || []).map((p) => ({ label: p.name, value: p.mentions }))} emptyText="No product questions yet" />
         </Panel>
         <Panel title="AI failures by reason" right={<AlertTriangle size={15} className="text-gray-300" />} lift>
-          {failureRows.length === 0
-            ? <p className="text-xs text-gray-400 py-6 text-center">No AI failures in this period.</p>
-            : <RankedBars rows={failureRows} />}
+          {failureRows.length === 0 ? <p className="text-xs text-gray-400 py-6 text-center">No AI failures in this period.</p> : <RankedBars rows={failureRows} />}
         </Panel>
       </div>
 
-      <Panel title="Conversion" right={<ShoppingBag size={15} className="text-gray-300" />} lift>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div className="sm:col-span-2"><RankedBars rows={convRows} emptyText="No recommendations yet" /></div>
-          <div className="flex sm:flex-col justify-between gap-4 sm:border-l sm:border-gray-100 sm:pl-6">
-            <div>
-              <p className="text-[28px] font-bold tabular-nums leading-none" style={{ color: ACCENT }}>{convRate}%</p>
-              <Eyebrow className="block mt-1.5">Conversion rate</Eyebrow>
-            </div>
-            <div>
-              <p className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-                <span className="text-sm text-gray-400 font-medium">KES </span>{revenue.toLocaleString()}
-              </p>
-              <Eyebrow className="block mt-1.5">Attributed revenue</Eyebrow>
-            </div>
-          </div>
-        </div>
+      {/* Conversion (funnel) */}
+      <Panel title="Conversion funnel" right={<ShoppingBag size={15} className="text-gray-300" />} lift>
+        <Funnel steps={funnelSteps} rate={convRate} revenue={revenue} />
       </Panel>
 
+      {/* Agents */}
       {isStaffLead && agentData && agentData.agents?.length > 0 && (
         <Panel title="Agent performance" right={<Users size={15} className="text-gray-300" />} lift>
           <div className="overflow-x-auto">
