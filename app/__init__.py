@@ -117,6 +117,7 @@ def create_app():
         from app.cron_routes import cron_bp
         from app.health import health_bp
         from app.settings import settings_bp
+        from app.ai_assistant import ai_assistant_bp
 
         app.register_blueprint(bp)
         app.register_blueprint(auth_bp)
@@ -136,7 +137,8 @@ def create_app():
         app.register_blueprint(cron_bp)
         app.register_blueprint(health_bp)
         app.register_blueprint(settings_bp)
-        
+        app.register_blueprint(ai_assistant_bp, url_prefix='/api')
+
         print("[APP] All blueprints registered successfully")
     except Exception as e:
         print(f"[APP ERROR] Failed to register blueprints: {str(e)}")
