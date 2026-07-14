@@ -666,36 +666,64 @@ export default function Dashboard() {
           </div>
 
           <div className="card p-5">
-            <p className="section-title mb-3">AI Performance {PERIOD_LABELS[period]}</p>
-            <div className="space-y-2.5">
-              {(() => {
-                const kpis = analyticsData?.kpis || {}
-                const successRate = ((kpis.ai_success_rate || 0) * 100).toFixed(1)
-                const avgResponseMs = kpis.avg_response_time_ms
-                const avgResponseStr = avgResponseMs == null
-                  ? '—'
-                  : avgResponseMs < 1 
-                    ? '<1ms'
-                    : avgResponseMs < 1000
-                      ? `${avgResponseMs}ms`
-                      : `${(avgResponseMs / 1000).toFixed(1)}s`
-                const aiReplies = kpis.ai_replies_total || 0
-                const overrides = kpis.human_override_total || 0
-                const overrideRate = aiReplies > 0
-                  ? ((overrides / aiReplies) * 100).toFixed(1)
-                  : '0.0'
-                return [
-                  { label: 'Success rate',  value: `${successRate}%`,  color: 'text-green-600' },
-                  { label: 'Avg response',  value: avgResponseStr,     color: 'text-gray-900'  },
-                  { label: 'Override rate', value: `${overrideRate}%`, color: 'text-amber-600' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">{label}</span>
-                    <span className={clsx('text-sm font-bold', color)}>{value}</span>
-                  </div>
-                ))
-              })()}
+            <div className="flex items-center justify-between mb-4">
+              <p className="section-title">AI Performance</p>
+              <span className="text-[10px] font-semibold text-gray-400">{PERIOD_LABELS[period]}</span>
             </div>
+            {(() => {
+              const kpis = analyticsData?.kpis || {}
+              const successRate = ((kpis.ai_success_rate || 0) * 100)
+              const handled = kpis.ai_handled_total || 0
+              const engaged = kpis.ai_engaged_total || 0
+              const avgResponseMs = kpis.avg_response_time_ms
+              const avgResponseStr = avgResponseMs == null
+                ? '—'
+                : avgResponseMs < 1
+                  ? '<1ms'
+                  : avgResponseMs < 1000
+                    ? `${avgResponseMs}ms`
+                    : `${(avgResponseMs / 1000).toFixed(1)}s`
+              const aiReplies = kpis.ai_replies_total || 0
+              const overrides = kpis.human_override_total || 0
+              const escalated = kpis.escalated_total || 0
+              const failed = kpis.failed_responses || 0
+              const overrideRate = aiReplies > 0 ? ((overrides / aiReplies) * 100).toFixed(1) : '0.0'
+
+              return (
+                <>
+                  {/* Hero: success rate + progress + context */}
+                  <div className="mb-4">
+                    <div className="flex items-end justify-between mb-2">
+                      <div>
+                        <p className="text-3xl font-bold text-green-600 leading-none">{successRate.toFixed(1)}%</p>
+                        <p className="text-xs text-gray-500 mt-1.5 font-medium">Success rate</p>
+                      </div>
+                      <p className="text-[11px] text-gray-400 text-right leading-snug">
+                        {engaged} of {handled}<br/>convos handled &amp; engaged
+                      </p>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.min(successRate, 100)}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Metrics strip */}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-3 border-t border-gray-100">
+                    {[
+                      { label: 'Avg response', value: avgResponseStr,       color: 'text-gray-900'  },
+                      { label: 'Override rate', value: `${overrideRate}%`,   color: 'text-amber-600' },
+                      { label: 'Escalated',     value: escalated,            color: 'text-purple-600'},
+                      { label: 'Failed',        value: failed,               color: failed > 0 ? 'text-red-600' : 'text-gray-900' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="flex flex-col">
+                        <span className={clsx('text-lg font-bold leading-none', color)}>{value}</span>
+                        <span className="text-[11px] text-gray-500 mt-1">{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
           </div>
 
           <div className="card p-5">
