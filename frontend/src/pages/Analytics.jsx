@@ -4,7 +4,7 @@ import {
 } from 'recharts'
 import {
   Users, Download, FileText, File, Bolt, MessageSquare, ArrowUpRight, UserCheck,
-  TrendingUp, TrendingDown, Minus, Bot, ShoppingBag, AlertTriangle, Radio, Package,
+  TrendingUp, TrendingDown, Minus, Bot, ShoppingBag, AlertTriangle, Radio, Package, ExternalLink,
 } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
@@ -154,16 +154,23 @@ function RankedBars({ rows, emptyText = 'No data in this period' }) {
         const val = Number(r.value) || 0
         const pct = Math.round((val / max) * 100)
         const color = i === 0 ? ACCENT : grays[Math.min(i - 1, grays.length - 1)]
+        const Row = r.href ? 'a' : 'div'
+        const rowProps = r.href
+          ? { href: r.href, target: '_blank', rel: 'noopener noreferrer', className: 'group block' }
+          : {}
         return (
-          <div key={r.label + i}>
+          <Row key={r.label + i} {...rowProps}>
             <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-xs text-gray-600 truncate pr-3">{r.label}</span>
+              <span className={clsx('text-xs truncate pr-3 flex items-center gap-1', r.href ? 'text-gray-600 group-hover:text-gray-900 transition-colors' : 'text-gray-600')}>
+                {r.label}
+                {r.href && <ExternalLink size={11} className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 shrink-0" />}
+              </span>
               <span className="text-xs font-bold text-gray-900 tabular-nums shrink-0">{val.toLocaleString()}</span>
             </div>
             <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
               <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, transition: 'width .9s cubic-bezier(0.16,1,0.3,1)', transitionDelay: `${i * 60}ms` }} />
             </div>
-          </div>
+          </Row>
         )
       })}
     </div>
@@ -421,7 +428,11 @@ export default function Analytics() {
       {/* Products (bars) + Failures (bars) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Panel title="Most asked-about products" right={<Package size={15} className="text-gray-300" />} lift>
-          <RankedBars rows={(top_products || []).map((p) => ({ label: p.name, value: p.mentions }))} emptyText="No product questions yet" />
+          <RankedBars rows={(top_products || []).map((p) => ({
+            label: p.name,
+            value: p.mentions,
+            href: p.handle ? `https://www.shopzetu.com/products/${p.handle}` : null,
+          }))} emptyText="No product questions yet" />
         </Panel>
         <Panel title="AI failures by reason" right={<AlertTriangle size={15} className="text-gray-300" />} lift>
           {failureRows.length === 0 ? <p className="text-xs text-gray-400 py-6 text-center">No AI failures in this period.</p> : <RankedBars rows={failureRows} />}
