@@ -70,6 +70,17 @@ def compute_segment(customer, vip_spend_threshold):
     last_order = customer.last_order_date
     created = customer.shopify_created_at
 
+    # Segment → suggested action (shown on the customer detail panel).
+    SEGMENT_ACTIONS = {
+        'vip':          'Send VIP invite + exclusive early access to new drops.',
+        'loyal':        'Reward loyalty — offer a thank-you perk or referral bonus.',
+        'regular':      'Encourage a repeat purchase with a curated recommendation.',
+        'new':          'Welcome series — introduce bestsellers and the brand story.',
+        'at_risk':      'Win-back nudge — a time-limited "we miss you" offer.',
+        'churned':      'Reactivation campaign — strong incentive to return.',
+        'never_bought': 'First-purchase incentive — a welcome discount to convert.',
+    }
+
     now = datetime.utcnow()
     days_since_order = (now - last_order).days if last_order else None
     days_since_join = (now - created).days if created else None
@@ -361,6 +372,85 @@ def get_customer(customer_id):
     vip_threshold = _vip_threshold()
     return jsonify({'customer': _serialize_customer(c, vip_threshold)}), 200
 
+@customers_bp.route('/customers/<int:customer_id>/profile', methods=['GET'])
+@jwt_required()
+def customer_profile(customer_id):
+    """
+    Rich per-customer analytics for the detail panel:
+    RFM tiles, customer-since, spend-over-time (by month), spend-by-brand,
+    top items purchased, and the segment's suggested action.
+    """
+    c = CustomerCache.query.get(customer_id)
+    if not c:
+        return jsonify({'error': 'Customer not found'}), 404
+
+    cid = c.shopify_customer_id
+
+    # Spend & orders over time (by month) — from OrderCache.
+    spend_over_time = []
+    try:
+        rows = db.session.execute(db.text("""
+            SELECT to_char(date_trunc('month', order_date), 'YYYY-MM') AS ym,
+                   COALESCE(SUM(total), 0) AS revenue,
+                   COUNT(*) AS orders
+            FROM orders_cache
+            WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
+            GROUP BY 1 ORDER BY 1
+        """), {'cid': cid}).fetchall()
+        spend_over_time = [{'month': r[0], 'revenue': float(r[1] or 0), 'orders': int(r[2])} for r in rows]
+    except Exception as e:
+        log_event("warn", "customers.profile.spend_over_time_failed", str(e))
+
+    # Top items purchased — unnest the products JSON array of this customer's orders.
+    top_items = []
+    try:
+        rows = db.session.execute(db.text("""
+            SELECT title, COUNT(*) AS qty
+            FROM (
+              SELECT jsonb_array_elements_text(products::jsonb) AS title
+              FROM orders_cache
+              WHERE shopify_customer_id = :cid
+            ) t
+            WHERE title IS NOT NULL AND title <> ''
+            GROUP BY title ORDER BY qty DESC LIMIT 8
+        """), {'cid': cid}).fetchall()
+        top_items = [{'name': r[0], 'count': int(r[1])} for r in rows]
+    except Exception as e:
+        log_event("warn", "customers.profile.top_items_failed", str(e))
+
+    # Spend by brand — derive brand from the first token of each product title.
+    # (Shop Zetu product titles start with the brand, e.g. "Vivo …", "Safari …".)
+    spend_by_brand = []
+    try:
+        rows = db.session.execute(db.text("""
+            SELECT split_part(title, ' ', 1) AS brand, COUNT(*) AS items
+            FROM (
+              SELECT jsonb_array_elements_text(products::jsonb) AS title
+              FROM orders_cache
+              WHERE shopify_customer_id = :cid
+            ) t
+            WHERE title IS NOT NULL AND title <> ''
+            GROUP BY 1 ORDER BY items DESC LIMIT 6
+        """), {'cid': cid}).fetchall()
+        spend_by_brand = [{'brand': r[0], 'items': int(r[1])} for r in rows]
+    except Exception as e:
+        log_event("warn", "customers.profile.spend_by_brand_failed", str(e))
+
+    since_year = c.first_order_date.year if c.first_order_date else (
+        c.shopify_created_at.year if c.shopify_created_at else None)
+
+    vip_threshold = _vip_threshold()
+    segment = compute_segment(c, vip_threshold)
+
+    return jsonify({
+        'rfm': {'r': c.rfm_r, 'f': c.rfm_f, 'm': c.rfm_m,
+                'score': f"{c.rfm_r}.{c.rfm_f}.{c.rfm_m}" if c.rfm_r is not None else None},
+        'customer_since': since_year,
+        'suggested_action': SEGMENT_ACTIONS.get(segment, 'Engage with a personalized recommendation.'),
+        'spend_over_time': spend_over_time,
+        'top_items': top_items,
+        'spend_by_brand': spend_by_brand,
+    }), 200
 
 # ─────────────────────────────────────────────
 # GET /api/customers/<id>/orders

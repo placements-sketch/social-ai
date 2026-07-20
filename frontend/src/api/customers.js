@@ -110,3 +110,13 @@ export function askCustomerAI(question, history = []) {
     })
   )
 }
+
+/** Rich per-customer analytics: RFM, spend-over-time, brands, top items, action. */
+export function getCustomerProfile(id) {
+  return handle(
+    fetch(`${API_BASE}/customers/${id}/profile`, {
+      method: 'GET',
+      headers: authHeaders(),
+    })
+  )
+}
