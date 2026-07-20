@@ -40,6 +40,16 @@ STALE_AFTER = timedelta(hours=12)
 DEFAULT_PER_PAGE = 20
 MAX_PER_PAGE = 100
 
+# Segment → suggested action (shown on the customer detail panel).
+SEGMENT_ACTIONS = {
+    'vip':          'Send VIP invite + exclusive early access to new drops.',
+    'loyal':        'Reward loyalty — offer a thank-you perk or referral bonus.',
+    'regular':      'Encourage a repeat purchase with a curated recommendation.',
+    'new':          'Welcome series — introduce bestsellers and the brand story.',
+    'at_risk':      'Win-back nudge — a time-limited "we miss you" offer.',
+    'churned':      'Reactivation campaign — strong incentive to return.',
+    'never_bought': 'First-purchase incentive — a welcome discount to convert.',
+}
 
 # ─────────────────────────────────────────────
 # RFM Segmentation
@@ -69,17 +79,6 @@ def compute_segment(customer, vip_spend_threshold):
     total_spent = float(customer.total_spent or 0)
     last_order = customer.last_order_date
     created = customer.shopify_created_at
-
-    # Segment → suggested action (shown on the customer detail panel).
-    SEGMENT_ACTIONS = {
-        'vip':          'Send VIP invite + exclusive early access to new drops.',
-        'loyal':        'Reward loyalty — offer a thank-you perk or referral bonus.',
-        'regular':      'Encourage a repeat purchase with a curated recommendation.',
-        'new':          'Welcome series — introduce bestsellers and the brand story.',
-        'at_risk':      'Win-back nudge — a time-limited "we miss you" offer.',
-        'churned':      'Reactivation campaign — strong incentive to return.',
-        'never_bought': 'First-purchase incentive — a welcome discount to convert.',
-    }
 
     now = datetime.utcnow()
     days_since_order = (now - last_order).days if last_order else None
