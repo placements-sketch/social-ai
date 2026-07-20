@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from app import db
 from app.sync_jobs import start_background_job, get_latest_job
 from app.utils.logger import log_event
-from app.customers import compute_segment, _vip_threshold
+from app.customers import compute_segment, _vip_threshold, recompute_rfm
 
 cron_bp = Blueprint('cron', __name__, url_prefix='/api/cron')
 
@@ -730,6 +730,9 @@ def cron_sync_orders():
                 offset += CHUNK
                 update_progress(f"Recomputed {customers_updated:,} customer aggregates...")
                 db.session.expunge_all()
+
+            update_progress("Scoring RFM...")
+            recompute_rfm()
 
         # ── Advance watermark — only reached on successful completion ──────
         state = SyncState.query.filter_by(kind='orders').first()

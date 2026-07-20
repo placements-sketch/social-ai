@@ -19,7 +19,7 @@ from app.models import AuthUser, OrderCache, CustomerCache
 from app.auth import log_audit, current_user_id
 from app.integrations.shopify import list_all_orders, iter_all_orders
 from app.sync_jobs import start_background_job, get_latest_job
-from app.customers import compute_segment, _vip_threshold
+from app.customers import compute_segment, _vip_threshold, recompute_rfm
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
 
@@ -216,6 +216,9 @@ def sync_orders():
             offset += CHUNK
             update_progress(f"Recomputed {customers_updated:,} customer aggregates...")
             db.session.expunge_all()
+
+        update_progress("Scoring RFM...")
+        recompute_rfm()
 
         # ── Step 5: audit log ───────────────────────────────────────────
         log_audit(

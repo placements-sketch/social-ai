@@ -575,3 +575,44 @@ def customers_sync_status():
         'stale_threshold_hours': int(STALE_AFTER.total_seconds() // 3600),
         'current_job': job.to_dict() if job else None,
     }), 200
+
+@customers_bp.route('/customers/recompute-rfm', methods=['POST'])
+@jwt_required()
+def recompute_rfm_endpoint():
+    current_user = AuthUser.query.get(current_user_id())
+    if not current_user or current_user.role not in ('admin', 'supervisor'):
+        return jsonify({'error': 'Not authorized'}), 403
+    recompute_rfm()
+    scored = db.session.query(func.count(CustomerCache.id)).filter(CustomerCache.rfm_r.isnot(None)).scalar()
+    return jsonify({'scored': scored}), 200
+
+def recompute_rfm():
+    """
+    Score every customer WITH orders 1-5 on Recency, Frequency, Monetary using
+    quintiles (NTILE 5) across the whole buyer base. Recency is inverted so
+    fewer days since last order = higher score. Zero-order customers are left
+    NULL (kept aside as 'no orders yet'). One SQL statement — fast at scale.
+    """
+    from sqlalchemy import text
+    sql = text("""
+        WITH scored AS (
+            SELECT
+                id,
+                NTILE(5) OVER (ORDER BY last_order_date ASC NULLS FIRST)  AS r,
+                NTILE(5) OVER (ORDER BY total_orders ASC)                 AS f,
+                NTILE(5) OVER (ORDER BY total_spent ASC)                  AS m
+            FROM customers_cache
+            WHERE total_orders > 0 AND last_order_date IS NOT NULL
+        )
+        UPDATE customers_cache c
+        SET rfm_r = s.r, rfm_f = s.f, rfm_m = s.m
+        FROM scored s
+        WHERE c.id = s.id
+    """)
+    db.session.execute(sql)
+    # Clear scores for anyone with no orders (in case they had scores before).
+    db.session.execute(text(
+        "UPDATE customers_cache SET rfm_r=NULL, rfm_f=NULL, rfm_m=NULL "
+        "WHERE total_orders = 0 OR last_order_date IS NULL"
+    ))
+    db.session.commit()
