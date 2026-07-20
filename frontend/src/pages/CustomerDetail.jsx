@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatDateAgo, formatTimeAgo, parseBackendTime } from '../utils/time'
 import { getCustomer, getCustomerOrders } from '../api/customers'
+import CustomerProfileExtras from './CustomerProfileExtras'
 
 const SEGMENT_META = {
   vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  ring: 'ring-amber-400/30',  accent: 'from-amber-400 to-amber-600' },
@@ -461,6 +462,8 @@ export default function CustomerDetail() {
           )}
         </div>
       </div>
+
+      <CustomerProfileExtras customerId={id} />
 
       {/* ─── ORDER HISTORY ──────────────────────────────────── */}
       <div className="card p-5">
