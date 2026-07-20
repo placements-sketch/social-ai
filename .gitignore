@@ -28,6 +28,8 @@ build/
 # =====================
 *.sqlite3
 *.db
+social_ai_backup.sql
+*.sql
 
 # =====================
 # VS CODE

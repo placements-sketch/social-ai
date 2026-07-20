@@ -12,7 +12,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 
 from app import limiter
-from app.auth import get_current_user
+from app.auth import current_user_id
+from app.models import AuthUser
 from app.ai_query import query_customers, aggregate_orders
 from app.utils.logger import log_event
 
@@ -100,7 +101,7 @@ SYSTEM_PROMPT = (
 @jwt_required()
 @limiter.limit("20 per minute")
 def customer_query():
-    user = get_current_user()
+    user = AuthUser.query.get(current_user_id())
     if not user:
         return jsonify({'error': 'User not found'}), 404
     if user.role not in ('admin', 'supervisor'):
