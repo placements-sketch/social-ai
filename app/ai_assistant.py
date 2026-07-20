@@ -117,7 +117,7 @@ def customer_query():
     try:
         import anthropic
         from flask import current_app
-        client = anthropic.Anthropic(api_key=current_app.config['ANTHROPIC_API_KEY'])
+        client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
     except Exception as e:
         log_event("error", "ai_assistant.client_init", str(e))
         return jsonify({'error': 'AI is not configured'}), 503

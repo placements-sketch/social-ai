@@ -18,6 +18,7 @@ import os
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from functools import wraps
+from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.sync_jobs import start_background_job, get_latest_job
@@ -137,22 +138,51 @@ def cron_sync_products():
                         updated += 1
                         continue
 
-                db.session.add(ProductCache(
-                    shopify_product_id=spid,
-                    name=(snap.get('name') or '')[:512],
-                    handle=(snap.get('handle') or '')[:256] or None,
-                    description=snap.get('description') or '',
-                    price=Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None,
-                    variants=snap.get('variants') or [],
-                    variants_detail=snap.get('variants_detail') or [],
-                    images=snap.get('images') or [],
-                    tags=snap.get('tags') or [],
-                    stock_quantity=snap.get('stock_quantity'),
-                    inventory_tracked=snap.get('inventory_tracked', False),
-                    cached_at=now,
-                ))
-                existing_ids.add(spid)
-                added += 1
+                # Guard against duplicate IDs within the same stream (Shopify
+                # pagination can repeat a product across pages, and migrated data
+                # may already hold it). A plain INSERT on a dup crashes the whole
+                # job (UniqueViolation), so upsert via a nested savepoint: try the
+                # insert, and if it collides, fall back to updating the existing row.
+                if spid in seen_ids:
+                    # Already inserted/updated earlier in THIS run — skip the dup.
+                    continue
+                seen_ids.add(spid)
+                try:
+                    with db.session.begin_nested():
+                        db.session.add(ProductCache(
+                            shopify_product_id=spid,
+                            name=(snap.get('name') or '')[:512],
+                            handle=(snap.get('handle') or '')[:256] or None,
+                            description=snap.get('description') or '',
+                            price=Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None,
+                            variants=snap.get('variants') or [],
+                            variants_detail=snap.get('variants_detail') or [],
+                            images=snap.get('images') or [],
+                            tags=snap.get('tags') or [],
+                            stock_quantity=snap.get('stock_quantity'),
+                            inventory_tracked=snap.get('inventory_tracked', False),
+                            cached_at=now,
+                        ))
+                    existing_ids.add(spid)
+                    added += 1
+                except IntegrityError:
+                    # Row already exists (dup key) — update it instead of dying.
+                    db.session.rollback()
+                    row = ProductCache.query.filter_by(shopify_product_id=spid).first()
+                    if row is not None:
+                        row.name = (snap.get('name') or '')[:512]
+                        row.handle = (snap.get('handle') or '')[:256] or None
+                        row.description = snap.get('description') or ''
+                        row.price = Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None
+                        row.variants = snap.get('variants') or []
+                        row.variants_detail = snap.get('variants_detail') or []
+                        row.images = snap.get('images') or []
+                        row.tags = snap.get('tags') or []
+                        row.stock_quantity = snap.get('stock_quantity')
+                        row.inventory_tracked = snap.get('inventory_tracked', False)
+                        row.cached_at = now
+                        updated += 1
+                        existing_ids.add(spid)
 
             db.session.commit()
             db.session.expunge_all()
