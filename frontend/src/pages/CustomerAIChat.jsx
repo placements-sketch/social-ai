@@ -96,8 +96,8 @@ export default function CustomerAIChat() {
           className="fixed z-50 flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden animate-[fadeInUp_.18s_ease-out]"
           style={{
             bottom: 88, right: 24,
-            width: 'min(400px, calc(100vw - 32px))',
-            height: 'min(560px, calc(100vh - 140px))',
+            width: 'min(520px, calc(100vw - 32px))',
+            height: 'min(720px, calc(100vh - 120px))',
             boxShadow: '0 12px 48px -12px rgba(16,24,40,0.28), 0 4px 12px -4px rgba(16,24,40,0.12)',
           }}
         >
