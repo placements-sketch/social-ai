@@ -16,6 +16,7 @@ import { formatDateAgo, formatTimeAgo } from '../utils/time'
 import {
   listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,
 } from '../api/customers'
+import CustomerAIChat from './CustomerAIChat'
 
 const SEGMENT_META = {
   vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',   border: 'border-amber-200',  ring: 'ring-amber-400/30',  accent: 'from-amber-400 to-amber-600',  dot: 'bg-amber-500' },
@@ -461,6 +462,8 @@ export default function Customers() {
           </>
         )}
       </div>
+
+      <CustomerAIChat />
 
       {/* ─── CUSTOMER TABLE ─────────────────────────────────── */}
       <div className="card p-5">

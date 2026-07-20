@@ -99,3 +99,14 @@ export function startCustomersSync() {
     })
   )
 }
+
+/** Ask the Customer Profiling AI a natural-language question. */
+export function askCustomerAI(question, history = []) {
+  return handle(
+    fetch(`${API_BASE}/ai/customer-query`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ question, history }),
+    })
+  )
+}
