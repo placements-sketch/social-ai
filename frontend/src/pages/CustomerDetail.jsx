@@ -224,9 +224,9 @@ export default function CustomerDetail() {
   const SegIcon = meta.icon
   const initials = ((customer.first_name?.[0] || customer.name?.[0] || '?') + (customer.last_name?.[0] || '')).toUpperCase()
 
-  const recScore = recencyScore(customer.days_since_last_order)
-  const freqScore = frequencyScore(customer.total_orders)
-  const monScore = monetaryScore(customer.total_spent)
+  const recScore = customer.rfm_r ?? 0
+  const freqScore = customer.rfm_f ?? 0
+  const monScore = customer.rfm_m ?? 0
   const rfmTotal = recScore + freqScore + monScore
 
   // Next milestone copy
@@ -370,30 +370,8 @@ export default function CustomerDetail() {
                  accent="from-amber-400 to-amber-600" />
       </div>
 
-      {/* ─── RFM BREAKDOWN ──────────────────────────────────── */}
-      <div>
-        <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <Target size={14} className="text-brand-500" /> RFM Score Breakdown
-          </h2>
-          <span className="text-xs text-gray-500">
-            Total <span className="font-bold text-gray-900">{rfmTotal}</span><span className="text-gray-400">/15</span>
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <RfmPillar icon={Clock} label="Recency" score={recScore}
-                     caption={customer.days_since_last_order != null
-                       ? `Last purchase ${customer.days_since_last_order} days ago`
-                       : 'No purchase history'}
-                     scaleLabel="≤30d=5 · 31-60=4 · 61-90=3 · 91-180=2 · 180+=1" />
-          <RfmPillar icon={Repeat} label="Frequency" score={freqScore}
-                     caption={`${customer.total_orders || 0} lifetime order${customer.total_orders === 1 ? '' : 's'}`}
-                     scaleLabel="10+=5 · 5-9=4 · 3-4=3 · 2=2 · 0-1=1" />
-          <RfmPillar icon={TrendingUp} label="Monetary" score={monScore}
-                     caption={`KES ${formatKES(customer.total_spent)} lifetime spend`}
-                     scaleLabel="500k+=5 · 100k+=4 · 50k+=3 · 10k+=2 · <10k=1" />
-        </div>
-      </div>
+      {/* ─── SUGGESTED ACTION · SPEND BY BRAND · TOP ITEMS ──── */}
+      <CustomerProfileExtras customerId={id} />
 
       {/* ─── SPEND TREND + LTV PROJECTION ───────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

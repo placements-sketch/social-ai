@@ -80,27 +80,6 @@ export default function CustomerProfileExtras({ customerId }) {
 
   return (
     <div className="space-y-5">
-      {/* RFM + customer since */}
-      <div className="card p-5">
-        <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4">
-          <Award size={14} className="text-brand-500" /> RFM Score
-          {rfm?.score && (
-            <span className="ml-auto text-lg font-bold tabular-nums text-gray-900">{rfm.score}</span>
-          )}
-        </h2>
-        <div className="flex gap-2.5">
-          <RfmTile label="Recency" value={rfm?.r} Icon={CalendarDays} />
-          <RfmTile label="Frequency" value={rfm?.f} Icon={Repeat} />
-          <RfmTile label="Monetary" value={rfm?.m} Icon={Coins} />
-        </div>
-        {customer_since && (
-          <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5">
-            <CalendarDays size={12} className="text-gray-400" />
-            Customer since <span className="font-semibold text-gray-700">{customer_since}</span>
-          </p>
-        )}
-        <p className="text-[11px] text-gray-400 mt-1">Each 1–5, scored on quintiles across the whole base.</p>
-      </div>
 
       {/* Suggested action */}
       {suggested_action && (
