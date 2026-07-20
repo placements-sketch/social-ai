@@ -525,6 +525,7 @@ export default function Customers() {
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Customer</th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">RFM</th>
                     <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Segment</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Spent</th>
                     <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Orders</th>
@@ -547,6 +548,11 @@ export default function Customers() {
                             <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
                             <p className="text-xs text-gray-500 truncate">{c.email || c.phone || '—'}</p>
                           </div>
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {c.rfm_score
+                            ? <span className="inline-block px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 text-xs font-bold tabular-nums">{c.rfm_score}</span>
+                            : <span className="text-xs text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-3">
                           <span className={clsx('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md', meta.bg, meta.color)}>

@@ -131,6 +131,10 @@ def _serialize_customer(c, vip_threshold):
         'first_order_date': c.first_order_date.isoformat() if c.first_order_date else None,
         'created_at': c.shopify_created_at.isoformat() if c.shopify_created_at else None,
         'segment': compute_segment(c, vip_threshold),
+        'rfm_r': c.rfm_r,
+        'rfm_f': c.rfm_f,
+        'rfm_m': c.rfm_m,
+        'rfm_score': f"{c.rfm_r}.{c.rfm_f}.{c.rfm_m}" if c.rfm_r is not None else None,
     }
 
 
