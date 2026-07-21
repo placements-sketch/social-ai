@@ -782,27 +782,35 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Channel Performance Modal */}
+      {/* Channel Performance Slide-over */}
       {showChannelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-md" onClick={() => setShowChannelModal(false)} />
-          <div className="relative bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto border border-gray-100">
-            {/* Header - Clean & Minimal */}
-            <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 sm:px-6 lg:px-8 py-4 lg:py-6 flex items-start justify-between gap-3">
+        <div className="fixed inset-0 z-50">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-[fadeIn_.2s_ease-out]"
+            onClick={() => setShowChannelModal(false)}
+          />
+          {/* Sheet */}
+          <div
+            className="absolute top-0 right-0 h-full w-full sm:max-w-xl lg:max-w-2xl bg-white shadow-2xl border-l border-gray-100 flex flex-col animate-[slideInRight_.28s_cubic-bezier(0.16,1,0.3,1)]"
+          >
+            {/* Header */}
+            <div className="shrink-0 bg-white/90 backdrop-blur-xl border-b border-gray-100 px-5 sm:px-6 py-5 flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <h2 className="text-lg sm:text-xl lg:text-2xl font-semibold text-gray-900 truncate">Channel Performance</h2>
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">Channel Performance</h2>
                 <p className="text-sm text-gray-500 mt-1">Message analytics across all platforms • {PERIOD_LABELS[period]}</p>
               </div>
               <button
                 onClick={() => setShowChannelModal(false)}
-                className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all shrink-0"
+                aria-label="Close"
               >
                 <X size={20} />
               </button>
             </div>
 
             {/* Content */}
-            <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8">
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
               {/* Key Metrics */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {(() => {

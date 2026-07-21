@@ -401,6 +401,13 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         else:
             search_terms = [product_keyword]
 
+        # When the match came only from a post image on an IG comment (the
+        # customer never named the product in text), stay tentative — visually
+        # similar items are easy to confuse, so confirm rather than assert.
+        context_data['image_only_match'] = (
+            keyword_source == "image" and channel == "instagram_comment"
+        )
+
         matches = search_products(search_terms, limit=3)
 
         if matches:

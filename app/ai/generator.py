@@ -593,6 +593,20 @@ Customer's detected intents: {intents_str}
                 "what you see and offer to help find it. Never claim stock or price you don't have data for."
             )
 
+        # When the product was identified ONLY from a post image on a comment
+        # (customer didn't name it), stay tentative — visually similar items are
+        # easy to confuse, so confirm rather than assert a specific name/price.
+        if context_data.get('image_only_match'):
+            system_prompt += (
+                "\n\n--- Important: tentative match ---\n"
+                "You identified this product only from the Instagram post's image, and the customer "
+                "did not name it in text. Visually similar products are easy to confuse, so do NOT "
+                "state a specific product name and price as certain. Instead, tentatively suggest the "
+                "likely match and ask the customer to confirm — for example: \"These look like our "
+                "[product] — want me to confirm the exact style and price for you?\". Only give a "
+                "definite price once the specific product is confirmed."
+            )
+
             post_caption = context_data.get('post_caption')
             if post_caption:
                 context_lines.append(
