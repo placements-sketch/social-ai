@@ -410,3 +410,36 @@ def delete_instagram_comment(comment_id: str) -> bool:
                   f"Delete comment exception: {e}",
                   payload={"comment_id": comment_id, "error": str(e)})
         return False
+    
+
+def fetch_instagram_media(media_id: str) -> dict | None:
+    """
+    Fetch an IG post's image URL + caption by media_id, for giving the AI
+    visual context on comments (the commenter is referring to the post image).
+    Returns {"image_url": str|None, "caption": str|None} or None on failure.
+    """
+    _, token = _get_meta_credentials()
+    if not token or not media_id:
+        return None
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}"
+    try:
+        r = requests.get(url, params={
+            "fields": "caption,media_url,thumbnail_url,media_type",
+            "access_token": token,
+        }, timeout=8)
+        if r.status_code >= 400:
+            log_event("warning", "integrations.meta.media_fetch",
+                      f"Media fetch failed ({r.status_code}): {(r.text or '')[:200]}",
+                      payload={"media_id": media_id})
+            return None
+        d = r.json() or {}
+        # For videos/carousels media_url may be absent — thumbnail_url is the fallback.
+        image_url = d.get("media_url") or d.get("thumbnail_url")
+        # Only use media_url as an image if it's actually an image type.
+        if d.get("media_type") == "VIDEO":
+            image_url = d.get("thumbnail_url")
+        return {"image_url": image_url, "caption": d.get("caption")}
+    except requests.RequestException as e:
+        log_event("warning", "integrations.meta.media_fetch",
+                  f"Media fetch exception: {e}", payload={"media_id": media_id})
+        return None

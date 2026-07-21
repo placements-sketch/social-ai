@@ -351,6 +351,18 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     product_keyword = None
     keyword_source = None
 
+    # For IG comments, the customer is referring to the POST's image, not an
+    # attachment. Fetch the post image + caption so the AI can see what
+    # "how much is this?" points to. Rides the same image_urls vision path.
+    post_caption = None
+    if channel == "instagram_comment" and media_id and not image_urls:
+        from app.integrations.meta import fetch_instagram_media
+        media = fetch_instagram_media(media_id)
+        if media:
+            if media.get("image_url"):
+                image_urls = [media["image_url"]]
+            post_caption = media.get("caption")
+
     # Stage 2 vision: when the customer sends a photo, identify the product in
     # it and use that as the search phrase. Strongest signal — it handles
     # "is this available?" + a photo, where the text names no product.
@@ -514,6 +526,9 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # Enrich context with the IDs so the generator can build UTM URLs
     context_data['_utm_conversation_id'] = conversation_id
     context_data['_utm_message_id'] = placeholder.id if placeholder else None
+
+    if post_caption:
+        context_data['post_caption'] = post_caption
 
     ai_result = generate_reply(message, intents, context_data, channel, history=history, image_urls=image_urls)
     reply           = ai_result['reply']

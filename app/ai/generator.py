@@ -593,6 +593,13 @@ Customer's detected intents: {intents_str}
                 "what you see and offer to help find it. Never claim stock or price you don't have data for."
             )
 
+            post_caption = context_data.get('post_caption')
+            if post_caption:
+                context_lines.append(
+                    f"CONTEXT: This is a comment on an Instagram post captioned: \"{post_caption[:300]}\". "
+                    f"The image shown is that post. The customer's comment refers to the product in this post."
+                )
+
         # ── Build the current user turn (attach image blocks if present) ─
         user_content = message
         if image_urls:
