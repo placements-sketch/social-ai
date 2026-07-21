@@ -709,3 +709,50 @@ def recompute_rfm():
         "WHERE total_orders = 0 OR last_order_date IS NULL"
     ))
     db.session.commit()
+
+@customers_bp.route('/customers/trends', methods=['GET'])
+@jwt_required()
+def customer_trends():
+    """
+    Data for the Trends page:
+      revenue_by_segment  — total spend grouped by segment (where money comes from)
+      recency_buckets     — count of buyers by days-since-last-order buckets
+    """
+    # Revenue contribution by segment.
+    seg_rows = db.session.execute(db.text("""
+        SELECT segment, COALESCE(SUM(total_spent), 0) AS revenue, COUNT(*) AS customers
+        FROM customers_cache
+        WHERE segment IS NOT NULL
+        GROUP BY segment
+        ORDER BY revenue DESC
+    """)).fetchall()
+    revenue_by_segment = [
+        {'segment': r[0], 'revenue': float(r[1] or 0), 'customers': int(r[2])}
+        for r in seg_rows
+    ]
+
+    # Customers by recency bucket (days since last order).
+    bucket_rows = db.session.execute(db.text("""
+        SELECT
+          CASE
+            WHEN last_order_date IS NULL THEN 'none'
+            WHEN last_order_date >= NOW() - INTERVAL '30 days'  THEN '0-30'
+            WHEN last_order_date >= NOW() - INTERVAL '60 days'  THEN '31-60'
+            WHEN last_order_date >= NOW() - INTERVAL '90 days'  THEN '61-90'
+            WHEN last_order_date >= NOW() - INTERVAL '180 days' THEN '91-180'
+            ELSE '180+'
+          END AS bucket,
+          COUNT(*) AS customers
+        FROM customers_cache
+        WHERE total_orders > 0
+        GROUP BY bucket
+    """)).fetchall()
+    # Order the buckets consistently.
+    order = ['0-30', '31-60', '61-90', '91-180', '180+']
+    bucket_map = {r[0]: int(r[1]) for r in bucket_rows if r[0] != 'none'}
+    recency_buckets = [{'bucket': b, 'customers': bucket_map.get(b, 0)} for b in order]
+
+    return jsonify({
+        'revenue_by_segment': revenue_by_segment,
+        'recency_buckets': recency_buckets,
+    }), 200

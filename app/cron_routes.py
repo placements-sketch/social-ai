@@ -1033,3 +1033,37 @@ def cron_watchdog():
         'checked': len(running_jobs),
         'stuck': stuck,
     }), 200
+
+@cron_bp.route('/prune-notifications', methods=['POST'])
+@require_cron_secret
+def cron_prune_notifications():
+    """
+    Delete read notifications older than 7 days and ALL notifications older
+    than 30 days. Keeps the table from growing unbounded. Fast single query —
+    no background job needed.
+    """
+    from app.models import Notification
+    from datetime import timedelta
+    now = datetime.utcnow()
+
+    # Read notifications older than 7 days — safe to remove.
+    read_cutoff = now - timedelta(days=7)
+    read_deleted = (Notification.query
+                    .filter(Notification.read_at.isnot(None))
+                    .filter(Notification.created_at < read_cutoff)
+                    .delete(synchronize_session=False))
+
+    # Anything older than 30 days, read or not — hard cap.
+    hard_cutoff = now - timedelta(days=30)
+    old_deleted = (Notification.query
+                   .filter(Notification.created_at < hard_cutoff)
+                   .delete(synchronize_session=False))
+
+    db.session.commit()
+    log_event("info", "cron.prune_notifications",
+              f"Pruned {read_deleted} read (>7d) + {old_deleted} old (>30d) notifications")
+    return jsonify({
+        'read_pruned': read_deleted,
+        'old_pruned': old_deleted,
+        'pruned_at': now.isoformat(),
+    }), 200
