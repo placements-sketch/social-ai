@@ -328,23 +328,8 @@ function BusinessPanel({ settings, setSettings }) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
 
-  const [locations, setLocations] = useState([])
-  const [locUpdated, setLocUpdated] = useState(null)
-  const [loadingLoc, setLoadingLoc] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
   const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition'
-
-  const loadLocations = async () => {
-    setLoadingLoc(true)
-    try {
-      const res = await fetch(`${API_BASE}/settings/business-locations`, { headers: authHeaders() })
-      const d = await res.json()
-      if (res.ok) { setLocations(d.locations || []); setLocUpdated(d.updated_at) }
-    } catch { /* silent */ } finally { setLoadingLoc(false) }
-  }
-  useEffect(() => { loadLocations() }, [])
 
   const save = async () => {
     setMsg(null)
@@ -365,19 +350,11 @@ function BusinessPanel({ settings, setSettings }) {
     } catch (err) { setMsg({ type: 'error', text: err.message }) } finally { setSaving(false) }
   }
 
-  const syncLocations = async () => {
-    setSyncing(true)
-    try {
-      await fetch(`${API_BASE}/store-info/sync`, { method: 'POST', headers: authHeaders() })
-      setTimeout(async () => { await loadLocations(); setSyncing(false) }, 4000)
-    } catch { setSyncing(false) }
-  }
-
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
         <PanelHeader icon={Store} title="Business info"
-          desc="Details your assistant uses when customers ask about hours, contact, or where to find you." />
+          desc="Details your assistant uses when customers ask about hours or how to reach you. Shop Zetu is online-only." />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
           <div>
             <label className={labelCls}>Store name</label>
@@ -406,47 +383,6 @@ function BusinessPanel({ settings, setSettings }) {
             <Save size={14} /> {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-3 pb-4 mb-4 border-b border-gray-100">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600 shrink-0">
-              <MapPin size={18} />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Store locations</h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Pulled from Shopify. {locUpdated ? `Updated ${fmtAgo(locUpdated)}.` : 'Not synced yet.'}
-              </p>
-            </div>
-          </div>
-          <button onClick={syncLocations} disabled={syncing}
-            className="text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5 shrink-0">
-            <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Syncing…' : 'Sync'}
-          </button>
-        </div>
-
-        {loadingLoc ? (
-          <div className="flex items-center justify-center py-6 text-gray-400"><Loader2 size={16} className="animate-spin mr-2" /> Loading…</div>
-        ) : locations.length === 0 ? (
-          <p className="text-xs text-gray-500 py-2">No locations synced yet. Hit Sync to pull them from Shopify.</p>
-        ) : (
-          <div className="space-y-2">
-            {locations.map((loc, i) => (
-              <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50">
-                <MapPin size={14} className="text-gray-400 mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-gray-900">{loc.name || 'Branch'}</p>
-                  <p className="text-[11px] text-gray-500 truncate">
-                    {[loc.address1, loc.city, loc.country].filter(Boolean).join(', ') || '—'}
-                    {loc.phone ? ` · ${loc.phone}` : ''}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )

@@ -89,26 +89,17 @@ def sync_locations_now() -> dict:
 
 def format_locations_for_prompt() -> str:
     """
-    Format the cached locations as a string block to inject into Claude's
-    system prompt. Returns an empty string if no locations are synced yet.
+    Shop Zetu is an ONLINE-ONLY store — it has no physical shops of its own.
+    (Shopify "locations" are fulfilment/warehouse points, not customer-facing
+    stores, and the physical branches belong to the sister brand Vivo, which
+    this app does not represent.) So instead of listing addresses, we tell the
+    AI the brand is online-only and delivers across Kenya.
     """
-    locations = get_cached_locations()
-    if not locations:
-        return ""
-
-    lines = ["Shop Zetu physical store locations:"]
-    for loc in locations:
-        # Build a compact one-line representation per shop
-        parts = [loc.get("name") or "Branch"]
-        addr_bits = [
-            loc.get("address1"),
-            loc.get("city"),
-        ]
-        addr = ", ".join([b for b in addr_bits if b])
-        if addr:
-            parts.append(addr)
-        if loc.get("phone"):
-            parts.append(f"phone: {loc['phone']}")
-        lines.append(f"  - {' | '.join(parts)}")
-
-    return "\n".join(lines)
+    return (
+        "Shop Zetu is an online-only store — it does NOT have any physical shops "
+        "or walk-in branches. All orders are placed online and delivered across "
+        "Kenya. If a customer asks to visit a store or asks where the shops are, "
+        "explain warmly that Shop Zetu is online-only and offer to help them order "
+        "online with delivery to their location. Never give a physical store "
+        "address, and never refer customers to Vivo or any other brand's stores."
+    )
