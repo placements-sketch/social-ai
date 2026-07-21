@@ -441,8 +441,6 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      <CustomerProfileExtras customerId={id} />
-
       {/* ─── ORDER HISTORY ──────────────────────────────────── */}
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
