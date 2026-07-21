@@ -81,6 +81,59 @@ const handlerBadge = (conv) => {
   return <span className={`${baseClass} bg-brand-100 text-brand-700`}>Claude</span>
 }
 
+// ── Per-comment post preview ──────────────────────────────────────
+// A tiny cache so multiple comments on the same post don't refetch.
+const _mediaCache = new Map()
+
+function CommentPostPreview({ mediaId }) {
+  const [post, setPost] = useState(() => _mediaCache.get(mediaId) || null)
+  useEffect(() => {
+    if (!mediaId || _mediaCache.has(mediaId)) return
+    let cancelled = false
+    fetchInstagramMedia(mediaId)
+      .then(data => {
+        if (cancelled) return
+        _mediaCache.set(mediaId, data)
+        setPost(data)
+      })
+      .catch(() => { /* silent — no preview on failure */ })
+    return () => { cancelled = true }
+  }, [mediaId])
+
+  if (!post) {
+    return (
+      <div className="flex items-center gap-2 mb-1 pl-1 text-[10px] text-gray-400">
+        <div className="w-8 h-8 rounded-md bg-gray-100 animate-pulse shrink-0" />
+        <span>Loading post…</span>
+      </div>
+    )
+  }
+
+  const thumb = post.thumbnail_url || post.media_url
+  const caption = (post.caption || '').trim()
+
+  return (
+    
+    <a href={post.permalink || '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 mb-1 pl-1 group max-w-[240px]"
+      title={caption || 'View post'}
+    >
+      {thumb ? (
+        <img src={thumb} alt="post" className="w-8 h-8 rounded-md object-cover shrink-0 border border-gray-200" loading="lazy" />
+      ) : (
+        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200">
+          <Instagram size={12} className="text-gray-400" />
+        </div>
+      )}
+      <span className="text-[10px] text-gray-500 group-hover:text-brand-600 truncate">
+        <span className="font-semibold">Comment on post</span>
+        {caption ? ` · ${caption.slice(0, 40)}${caption.length > 40 ? '…' : ''}` : ''}
+      </span>
+    </a>
+  )
+}
 
 export default function Messages() {
   const { user } = useAuth()
@@ -885,12 +938,17 @@ const handleSend = async () => {
                       </div>
                     </div>
                   ) : (
-                    <div className={clsx(
-                      'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
-                      msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
-                      msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
-                      msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
-                    )}>
+                    <div>
+                      {msg.from === 'user' && msg.media_id && activeConv?.platform?.includes('comment') && (
+                        <CommentPostPreview mediaId={msg.media_id} />
+                      )}
+                      <div className={clsx(
+                        'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
+                        msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
+                        msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
+                        msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
+                      )}>
+
                       {msg.image_urls && msg.image_urls.length > 0 && (
                         <div className="flex flex-col gap-1.5 mb-1.5">
                           {msg.image_urls.map((url, i) => (
@@ -905,6 +963,7 @@ const handleSend = async () => {
                         </div>
                       )}
                       {msg.text && msg.text !== '[Sent a photo]' && <div>{msg.text}</div>}
+                      </div>
                     </div>
                   )}
                   
