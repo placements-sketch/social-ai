@@ -44,7 +44,7 @@ export default function ScrollToTop() {
     <ModalPortal>
       <button
         onClick={scrollToTop}
-        className="fixed bottom-6 right-6 w-10 h-10 rounded-full bg-black text-white flex items-center justify-center transition-all duration-200 hover:bg-gray-900 shadow-lg z-50 hover:scale-110"
+        className="fixed bottom-24 right-6 w-10 h-10 rounded-full bg-black text-white flex items-center justify-center transition-all duration-200 hover:bg-gray-900 shadow-lg z-50 hover:scale-110"
         title="Scroll to top"
         aria-label="Scroll to top"
       >
