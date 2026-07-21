@@ -17,6 +17,7 @@ import {
   listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,
 } from '../api/customers'
 import CustomerAIChat from './CustomerAIChat'
+import CustomerTrends from './CustomerTrends'
 
 const SEGMENT_META = {
   vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',   border: 'border-amber-200',  ring: 'ring-amber-400/30',  accent: 'from-amber-400 to-amber-600',  dot: 'bg-amber-500' },
@@ -447,6 +448,8 @@ export default function Customers() {
           <BlockSkeleton className="lg:col-span-2 h-96" />
         </div>
       )}
+
+      <CustomerTrends />
 
       {/* ─── TOP SPENDERS + FREQUENT ────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

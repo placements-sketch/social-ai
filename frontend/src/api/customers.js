@@ -130,3 +130,13 @@ export function getCustomerProfile(id) {
     })
   )
 }
+
+/** Trends: revenue-by-segment + customers-by-recency-bucket. */
+export function getCustomerTrends() {
+  return handle(
+    fetch(`${API_BASE}/customers/trends`, {
+      method: 'GET',
+      headers: authHeaders(),
+    })
+  )
+}
