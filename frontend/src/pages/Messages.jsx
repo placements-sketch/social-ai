@@ -81,6 +81,7 @@ const handlerBadge = (conv) => {
   return <span className={`${baseClass} bg-brand-100 text-brand-700`}>Claude</span>
 }
 
+
 export default function Messages() {
   const { user } = useAuth()
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
@@ -221,22 +222,25 @@ export default function Messages() {
   }, [selected])
 
   // Fetch the IG post info when an IG-comment conversation is opened.
+  // Show the post the MOST RECENT comment is on — a customer can comment on
+  // several different posts, and the context should follow their latest one.
+  const latestCommentMediaId = (() => {
+    const inbound = (activeConv?.messages || []).filter(m => m.from === 'user' && m.media_id)
+    return inbound.length ? inbound[inbound.length - 1].media_id : null
+  })()
+
   useEffect(() => {
     setPostContext(null)
     if (!activeConv) return
     if (!activeConv.platform?.includes('comment')) return
-
-    // Find the first inbound message with a media_id (the post the comment is on)
-    const inboundWithMedia = (activeConv.messages || [])
-      .find(m => m.from === 'user' && m.media_id)
-    if (!inboundWithMedia?.media_id) return
+    if (!latestCommentMediaId) return
 
     setLoadingPost(true)
-    fetchInstagramMedia(inboundWithMedia.media_id)
+    fetchInstagramMedia(latestCommentMediaId)
       .then(data => setPostContext(data))
       .catch(err => console.warn('Failed to load post context:', err))
       .finally(() => setLoadingPost(false))
-  }, [activeConv?.id, activeConv?.platform])
+  }, [activeConv?.id, activeConv?.platform, latestCommentMediaId])
 
   // Auto-scroll to latest message when active conversation updates.
   const messagesEndRef = useRef(null)
