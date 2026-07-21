@@ -225,6 +225,7 @@ def list_notifications():
     unread_count = (Notification.query
                     .filter(Notification.user_id == uid)
                     .filter(Notification.read_at.is_(None))
+                    .filter(Notification.created_at >= cutoff)
                     .count())
 
     return jsonify({
