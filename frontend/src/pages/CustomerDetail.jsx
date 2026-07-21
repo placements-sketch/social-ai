@@ -383,6 +383,31 @@ export default function CustomerDetail() {
                  accent="from-amber-400 to-amber-600" />
       </div>
 
+      {/* ─── RFM BREAKDOWN ──────────────────────────────────── */}
+      <div>
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <Target size={14} className="text-brand-500" /> RFM Score Breakdown
+          </h2>
+          <span className="text-xs text-gray-500">
+            Total <span className="font-bold text-gray-900">{rfmTotal}</span><span className="text-gray-400">/15</span>
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <RfmPillar icon={Clock} label="Recency" score={recScore}
+                     caption={customer.days_since_last_order != null
+                       ? `Last purchase ${customer.days_since_last_order} days ago`
+                       : 'No purchase history'}
+                     scaleLabel="Quintile across all buyers · top 20% = 5" />
+          <RfmPillar icon={Repeat} label="Frequency" score={freqScore}
+                     caption={`${customer.total_orders || 0} lifetime order${customer.total_orders === 1 ? '' : 's'}`}
+                     scaleLabel="Quintile across all buyers · top 20% = 5" />
+          <RfmPillar icon={TrendingUp} label="Monetary" score={monScore}
+                     caption={`KES ${formatKES(customer.total_spent)} lifetime spend`}
+                     scaleLabel="Quintile across all buyers · top 20% = 5" />
+        </div>
+      </div>
+
       {/* ─── SUGGESTED ACTION · SPEND BY BRAND · TOP ITEMS ──── */}
       <CustomerProfileExtras customerId={id} />
 
