@@ -328,6 +328,19 @@ export default function CustomerDetail() {
                   {nextMilestone.label}
                 </div>
               )}
+
+              {/* Email action */}
+              {customer.email && (
+                <div className="mt-4">
+                  
+                  <a href={`mailto:${customer.email}`}
+                    className="inline-flex items-center gap-2 bg-black hover:bg-gray-800 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <Mail size={13} />
+                    Email {customer.first_name || customer.name?.split(' ')[0] || 'customer'}
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 

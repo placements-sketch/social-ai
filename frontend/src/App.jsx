@@ -22,6 +22,7 @@ import Notifications from './pages/Notifications'
 import Profile from './pages/Profile'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import CustomerConfig from './pages/CustomerConfig'
 
 export default function App() {
   return (
@@ -69,6 +70,15 @@ export default function App() {
                 element={
                   <ProtectedRoute requiredRole={['admin', 'supervisor']}>
                     <Customers />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="customers/config"
+                element={
+                  <ProtectedRoute requiredRole={['admin', 'supervisor']}>
+                    <CustomerConfig />
                   </ProtectedRoute>
                 }
               />

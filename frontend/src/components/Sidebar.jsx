@@ -13,8 +13,9 @@ import szLogo from '../images/sz.png'
 const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
   { to: '/messages',   icon: MessageSquare,   label: 'Messages',            roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
-  { to: '/customers',  icon: UserCircle,      label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business' },
-  { to: '/products',   icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/customers',        icon: UserCircle,      label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/customers/config', icon: Settings,        label: 'Profiling Config',   roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/products',         icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics',  icon: BarChart2,       label: 'Analytics',           roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
   { to: '/channels',   icon: Radio,           label: 'Channels',            roles: ['admin'], group: 'Setup' },
