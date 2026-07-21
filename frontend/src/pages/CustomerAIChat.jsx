@@ -59,6 +59,11 @@ export default function CustomerAIChat() {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, loading, open])
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('chat-panel-toggle', { detail: { open } }))
+    return () => window.dispatchEvent(new CustomEvent('chat-panel-toggle', { detail: { open: false } }))
+  }, [open])
+
   const send = async (text) => {
     const q = (text ?? input).trim()
     if (!q || loading) return
