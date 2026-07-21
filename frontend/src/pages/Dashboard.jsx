@@ -593,7 +593,7 @@ export default function Dashboard() {
 
         {/* Stats: 1/4 width - each in own card */}
         <div className="lg:col-span-1 space-y-3">
-          {channelStats.map(({ label, value }) => {
+          {channelStats.filter(c => c.value > 0).map(({ label, value }) => {
             const colorMap = {
               'Instagram': { bg: 'bg-pink-50', border: 'border-pink-100', text: 'text-pink-600', upper: 'text-pink-600' },
               'WhatsApp': { bg: 'bg-green-50', border: 'border-green-100', text: 'text-green-600', upper: 'text-green-600' },
@@ -844,7 +844,11 @@ export default function Dashboard() {
                     { name: 'WhatsApp', color: '#22c55e', icon: Smartphone, key: 'whatsapp' },
                     { name: 'Facebook', color: '#3b82f6', icon: MessageSquare, key: 'facebook' },
                     { name: 'TikTok', color: '#111111', icon: Music, key: 'tiktok' },
-                  ].map(({ name, color, icon: Icon, key }) => {
+                  ].filter(({ key }) => {
+                    const total = chartData.reduce((sum, d) =>
+                      sum + (d[key] || 0) + (d[`${key}_ai`] || 0) + (d[`${key}_human`] || 0), 0)
+                    return total > 0
+                  }).map(({ name, color, icon: Icon, key }) => {
                     const inbound = chartData.reduce((sum, d) => sum + (d[key] || 0), 0)
                     const ai = chartData.reduce((sum, d) => sum + (d[`${key}_ai`] || 0), 0)
                     const human = chartData.reduce((sum, d) => sum + (d[`${key}_human`] || 0), 0)
