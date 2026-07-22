@@ -340,7 +340,7 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
             return first
 
         shortlist = []
-        for i, p in enumerate(candidates[:8]):
+        for i, p in enumerate(candidates[:12]):
             u = _first_image_url(p)
             if u:
                 shortlist.append((i, p, u))
@@ -385,15 +385,26 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
             messages=[{"role": "user", "content": blocks}],
         )
 
-        text = resp.content[0].text.strip().replace("```json", "").replace("```", "").strip()
-        data = _json.loads(text)
+        raw = resp.content[0].text.strip()
+        # The model sometimes adds commentary after the JSON, which breaks a bare
+        # json.loads ("Extra data: line 4 ..."). Pull out the first object only.
+        import re as _re
+        m_json = _re.search(r'\{.*?\}', raw, _re.DOTALL)
+        if not m_json:
+            log_event("warn", "ai.vision.verify_failed", f"No JSON in verdict: {raw[:200]!r}")
+            return None
+        data = _json.loads(m_json.group(0))
         m = data.get("match")
         conf = (data.get("confidence") or "low").lower()
 
+        # Log the WHOLE shortlist — if the right product isn't in here, the
+        # problem is search recall, not the re-ranker.
+        cand_names = [candidates[i].get("name") for i in usable]
+
         if m is None:
             log_event("info", "ai.vision.verify",
-                      "Vision re-rank: no candidate matched the customer's photo",
-                      payload={"candidates": [p.get("name") for _i, p, _u in shortlist]})
+                      f"Vision re-rank: NO match. Candidates were: {cand_names}",
+                      payload={"candidates": cand_names})
             return {"index": None, "confidence": conf}
 
         m = int(m)
@@ -401,8 +412,9 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
             return None
         chosen = usable[m]
         log_event("info", "ai.vision.verify",
-                  f"Vision re-rank picked: {candidates[chosen].get('name')!r} ({conf})",
-                  payload={"chosen": candidates[chosen].get("name"), "confidence": conf})
+                  f"Vision re-rank picked {candidates[chosen].get('name')!r} ({conf}) from: {cand_names}",
+                  payload={"chosen": candidates[chosen].get("name"),
+                           "confidence": conf, "candidates": cand_names})
         return {"index": chosen, "confidence": conf}
 
     except Exception as e:
