@@ -401,13 +401,32 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         else:
             search_terms = [product_keyword]
 
-        # When the match came from an IMAGE (a DM photo or a comment's post
-        # image) rather than the customer naming the product in text, stay
-        # tentative — visually similar items are easy to confuse, so confirm
-        # the exact style/price rather than confidently asserting a wrong SKU.
+        # Image-sourced matches hedge by default — visually similar items are
+        # easy to confuse. A successful vision re-rank below clears this.
         context_data['image_only_match'] = (keyword_source == "image")
 
-        matches = search_products(search_terms, limit=3)
+        # For image matches, pull a WIDER shortlist and let vision pick the real
+        # one. Keyword search can't tell a wrap-front palazzo from a plain
+        # wide-leg; side-by-side photos can.
+        _img_verify = (keyword_source == "image" and bool(image_urls))
+        matches = search_products(search_terms, limit=(12 if _img_verify else 3))
+
+        if _img_verify and matches:
+            from app.ai.generator import verify_product_match
+            verdict = verify_product_match(image_urls, matches)
+            if verdict is not None:
+                idx = verdict.get("index")
+                if idx is None:
+                    # Nothing in the catalogue is the item in the photo. Say so
+                    # — far better than quoting a confident wrong price.
+                    context_data['image_match_failed'] = True
+                    matches = []
+                else:
+                    matches = [matches[idx]] + [m for i, m in enumerate(matches) if i != idx]
+                    if verdict.get("confidence") == "high":
+                        context_data['image_match_verified'] = True
+                        context_data['image_only_match'] = False
+            matches = matches[:3]
 
         if matches:
             context_data["products"] = matches              # full list for Claude
@@ -430,7 +449,8 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                           "match_names": [p.get("name") for p in matches],
                       },
                       conversation_id=(inbound_record.conversation_id if inbound_record else None))
-        else:
+            
+        elif not context_data.get('image_match_failed'):
             # Cache miss — the product may be new or newly-published since the
             # last 3-hourly sync. Try a live Shopify lookup, write hits back
             # into the cache, then re-run the cache search so ranking + shape

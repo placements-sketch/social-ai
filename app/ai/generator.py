@@ -307,6 +307,108 @@ def describe_product_in_image(image_urls: list) -> str | None:
         log_event("warn", "ai.vision.describe_failed", str(e)[:200])
         return None
 
+def verify_product_match(customer_image_urls: list, candidates: list) -> dict | None:
+    """
+    Vision re-rank. Keyword search ranks by NAME similarity, which knows nothing
+    about how a garment actually looks — that's why "navy wide leg pants" can
+    return a polka-dot pair. So we show Claude the customer's photo and the
+    candidate product photos side by side and ask which one it really is.
+
+    Returns {"index": int, "confidence": "high"|"low"} for a match,
+    {"index": None, ...} when nothing matches, or None if the check couldn't run
+    (caller then falls back to the keyword ranking).
+    """
+    if not customer_image_urls or not candidates:
+        return None
+    try:
+        import json as _json
+        import anthropic
+        from concurrent.futures import ThreadPoolExecutor
+        from flask import current_app
+
+        cust_b64, cust_type = _fetch_image_b64(customer_image_urls[0])
+        if not cust_b64:
+            return None
+
+        def _first_image_url(p):
+            imgs = p.get("images") or []
+            if not imgs:
+                return None
+            first = imgs[0]
+            if isinstance(first, dict):
+                return first.get("src") or first.get("url")
+            return first
+
+        shortlist = []
+        for i, p in enumerate(candidates[:8]):
+            u = _first_image_url(p)
+            if u:
+                shortlist.append((i, p, u))
+        if not shortlist:
+            return None
+
+        # Product images are separate HTTP fetches — do them in parallel so the
+        # customer isn't waiting on 8 sequential round-trips.
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            fetched = list(pool.map(lambda t: _fetch_image_b64(t[2]), shortlist))
+
+        blocks = [
+            {"type": "text", "text": "CUSTOMER'S PHOTO — identify this exact item:"},
+            {"type": "image", "source": {"type": "base64", "media_type": cust_type, "data": cust_b64}},
+            {"type": "text", "text": "CATALOGUE CANDIDATES:"},
+        ]
+        usable = []
+        for (orig_i, p, _u), (b64, mtype) in zip(shortlist, fetched):
+            if not b64:
+                continue
+            blocks.append({"type": "text", "text": f"Candidate {len(usable)}: {p.get('name', 'Unnamed')}"})
+            blocks.append({"type": "image",
+                           "source": {"type": "base64", "media_type": mtype, "data": b64}})
+            usable.append(orig_i)
+        if not usable:
+            return None
+
+        blocks.append({"type": "text", "text": (
+            "Which candidate is the SAME product as the customer's photo? Compare silhouette, "
+            "cut, neckline, waistline, pattern and distinctive construction details — not just "
+            "colour and category. Several candidates may look broadly similar; only pick one if "
+            "the specific design details genuinely match. If the customer's item is not among "
+            "them, say so rather than picking the closest.\n"
+            "Reply with ONLY JSON and nothing else: "
+            "{\"match\": <candidate number or null>, \"confidence\": \"high\" or \"low\"}"
+        )})
+
+        client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
+        model = current_app.config.get("CLASSIFIER_MODEL") or current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
+        resp = client.messages.create(
+            model=model, max_tokens=100,
+            messages=[{"role": "user", "content": blocks}],
+        )
+
+        text = resp.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+        data = _json.loads(text)
+        m = data.get("match")
+        conf = (data.get("confidence") or "low").lower()
+
+        if m is None:
+            log_event("info", "ai.vision.verify",
+                      "Vision re-rank: no candidate matched the customer's photo",
+                      payload={"candidates": [p.get("name") for _i, p, _u in shortlist]})
+            return {"index": None, "confidence": conf}
+
+        m = int(m)
+        if not (0 <= m < len(usable)):
+            return None
+        chosen = usable[m]
+        log_event("info", "ai.vision.verify",
+                  f"Vision re-rank picked: {candidates[chosen].get('name')!r} ({conf})",
+                  payload={"chosen": candidates[chosen].get("name"), "confidence": conf})
+        return {"index": chosen, "confidence": conf}
+
+    except Exception as e:
+        log_event("warn", "ai.vision.verify_failed", str(e)[:200])
+        return None
+
 def _classify_failure(exc) -> tuple[str, str]:
     """
     Map an exception from the Claude call to a stable (reason, detail) pair, so
@@ -593,26 +695,44 @@ Customer's detected intents: {intents_str}
                 "what you see and offer to help find it. Never claim stock or price you don't have data for."
             )
 
-        # When the product was identified ONLY from a post image on a comment
-        # (customer didn't name it), stay tentative — visually similar items are
-        # easy to confuse, so confirm rather than assert a specific name/price.
+        # Match came from an image and was NOT visually confirmed — hedge.
         if context_data.get('image_only_match'):
             system_prompt += (
                 "\n\n--- Important: tentative match ---\n"
-                "You identified this product only from the Instagram post's image, and the customer "
-                "did not name it in text. Visually similar products are easy to confuse, so do NOT "
-                "state a specific product name and price as certain. Instead, tentatively suggest the "
-                "likely match and ask the customer to confirm — for example: \"These look like our "
-                "[product] — want me to confirm the exact style and price for you?\". Only give a "
-                "definite price once the specific product is confirmed."
+                "You identified this product only from an image, and the customer did not name it in "
+                "text. Visually similar products are easy to confuse, so do NOT state a specific "
+                "product name and price as certain. Instead, tentatively suggest the likely match and "
+                "ask the customer to confirm — for example: \"These look like our [product] — want me "
+                "to confirm the exact style and price for you?\". Only give a definite price once the "
+                "specific product is confirmed."
             )
 
-            post_caption = context_data.get('post_caption')
-            if post_caption:
-                context_lines.append(
-                    f"CONTEXT: This is a comment on an Instagram post captioned: \"{post_caption[:300]}\". "
-                    f"The image shown is that post. The customer's comment refers to the product in this post."
-                )
+        # Vision re-rank confirmed the match — safe to be specific.
+        if context_data.get('image_match_verified'):
+            system_prompt += (
+                "\n\n--- Image match confirmed ---\n"
+                "The FIRST product in the catalogue data above was visually confirmed against the "
+                "customer's photo. Refer to it by name and price with confidence."
+            )
+
+        # Vision re-rank found nothing — admit it rather than guess.
+        if context_data.get('image_match_failed'):
+            system_prompt += (
+                "\n\n--- Product not found ---\n"
+                "You compared the customer's photo against the catalogue and NONE of the products "
+                "matched it. Do NOT name or price any product. Tell the customer you can't place "
+                "that exact piece from the photo, and ask them to share the product name or link, "
+                "or describe it, so you can check properly."
+            )
+
+        # IG comment: the image is the POST, and its caption often names the item.
+        post_caption = context_data.get('post_caption')
+        if post_caption:
+            system_prompt += (
+                f"\n\n--- Post context ---\n"
+                f"This is a comment on an Instagram post captioned: \"{post_caption[:300]}\". "
+                f"The image shown is that post. The customer's comment refers to the product in it."
+            )
 
         # ── Build the current user turn (attach image blocks if present) ─
         user_content = message
