@@ -298,6 +298,9 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
                 "variants": product.variants or [],
                 "variants_detail": product.variants_detail or [],
                 "stock_quantity": product.stock_quantity or 0,
+                # Needed by the vision re-ranker — without images it can't
+                # compare candidates against the customer's photo.
+                "images": product.images or [],
             })
 
         log_event("info", "integrations.shopify.cache_search",

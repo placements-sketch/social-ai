@@ -698,13 +698,16 @@ Customer's detected intents: {intents_str}
         # Match came from an image and was NOT visually confirmed — hedge.
         if context_data.get('image_only_match'):
             system_prompt += (
-                "\n\n--- Important: tentative match ---\n"
-                "You identified this product only from an image, and the customer did not name it in "
-                "text. Visually similar products are easy to confuse, so do NOT state a specific "
-                "product name and price as certain. Instead, tentatively suggest the likely match and "
-                "ask the customer to confirm — for example: \"These look like our [product] — want me "
-                "to confirm the exact style and price for you?\". Only give a definite price once the "
-                "specific product is confirmed."
+                "\n\n--- Important: UNCONFIRMED image match ---\n"
+                "This product was guessed from an image only; the customer never named it. Visually "
+                "similar items are easy to confuse, so treat the match as UNCONFIRMED.\n"
+                "In this reply you MUST NOT:\n"
+                "  - state a price or any stock/size numbers\n"
+                "  - include a product link or URL\n"
+                "  - assert the product name as fact\n"
+                "Instead, name the likely match tentatively and ask them to confirm before you give "
+                "details — e.g. \"These look like our [product] — is that the one? Confirm and I'll "
+                "send you the price, sizes and link right away.\" Once they confirm, give full details."
             )
 
         # Vision re-rank confirmed the match — safe to be specific.
