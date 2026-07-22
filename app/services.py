@@ -111,7 +111,7 @@ def _writeback_products(snaps):
 # the messages TABLE as shared state — this works across gunicorn worker
 # processes, unlike an in-process buffer (two events can land on different
 # workers, which don't share memory).
-_DEBOUNCE_SECONDS = 4.0
+_DEBOUNCE_SECONDS = 6.0
 
 
 def process_inbound(message, user_id, channel, external_id=None, media_id=None, image_urls=None):
@@ -401,12 +401,11 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         else:
             search_terms = [product_keyword]
 
-        # When the match came only from a post image on an IG comment (the
-        # customer never named the product in text), stay tentative — visually
-        # similar items are easy to confuse, so confirm rather than assert.
-        context_data['image_only_match'] = (
-            keyword_source == "image" and channel == "instagram_comment"
-        )
+        # When the match came from an IMAGE (a DM photo or a comment's post
+        # image) rather than the customer naming the product in text, stay
+        # tentative — visually similar items are easy to confuse, so confirm
+        # the exact style/price rather than confidently asserting a wrong SKU.
+        context_data['image_only_match'] = (keyword_source == "image")
 
         matches = search_products(search_terms, limit=3)
 
@@ -544,6 +543,29 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     ai_model        = ai_result['model']
     utm_token       = ai_result.get('utm_token')
     product_url     = ai_result.get('product_url')
+
+    # The customer may have sent another message WHILE the AI was generating
+    # (vision + catalog search takes seconds). The Step 2.5 check ran before
+    # that. Re-check now — if a newer inbound landed, drop this reply and let
+    # the newer event answer the whole burst, otherwise we double-answer the
+    # same photo with two different guesses.
+    if inbound_record is not None and not channel.endswith('_comment'):
+        if _has_newer_inbound(inbound_record):
+            if placeholder is not None:
+                try:
+                    from app import db
+                    db.session.delete(placeholder)
+                    db.session.commit()
+                except Exception:
+                    try:
+                        from app import db
+                        db.session.rollback()
+                    except Exception:
+                        pass
+            log_event("info", "services.debounce_superseded_late",
+                      "Newer inbound arrived during AI generation — dropping this reply",
+                      conversation_id=inbound_record.conversation_id)
+            return AI_SUPPRESSED
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,

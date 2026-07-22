@@ -323,8 +323,32 @@ def instagram_webhook():
 
     def process_in_background():
         with app_obj.app_context():
-            # Process DM events
-            for sender_id, message_text, mid, image_urls in events:
+            # Process DM events.
+            # Meta can batch a photo AND its caption into ONE payload. Handled
+            # sequentially, the first event would finish (and reply) before the
+            # second was even saved, so the debounce couldn't see it → two
+            # replies to one turn. So: persist all but the last event per
+            # sender, then run the pipeline only on the last — its coalesce
+            # step merges the saved ones into a single turn.
+            from collections import OrderedDict
+            _grouped = OrderedDict()
+            for _ev in events:
+                _grouped.setdefault(_ev[0], []).append(_ev)
+
+            for sender_id, _sender_events in _grouped.items():
+                if len(_sender_events) > 1:
+                    from app.services import _save_message
+                    for (_sid, _txt, _mid, _imgs) in _sender_events[:-1]:
+                        try:
+                            _save_message(
+                                user_id=sender_id, channel="instagram_dm",
+                                content=((_txt or "").strip() or "[Sent a photo]"),
+                                intent=None, direction="inbound",
+                                external_id=_mid, image_urls=_imgs,
+                            )
+                        except Exception:
+                            pass
+                _sid, message_text, mid, image_urls = _sender_events[-1]
                 try:
                     process_inbound(
                         message=message_text,
