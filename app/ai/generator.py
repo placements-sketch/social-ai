@@ -714,8 +714,9 @@ Customer's detected intents: {intents_str}
         if context_data.get('image_match_verified'):
             system_prompt += (
                 "\n\n--- Image match confirmed ---\n"
-                "The FIRST product in the catalogue data above was visually confirmed against the "
-                "customer's photo. Refer to it by name and price with confidence."
+                "The single product in the catalogue data above was visually confirmed against the "
+                "customer's photo — it IS the item they sent. Refer to it by that exact name and "
+                "price. Do NOT name, suggest, or link any other product in this reply."
             )
 
         # Vision re-rank found nothing — admit it rather than guess.

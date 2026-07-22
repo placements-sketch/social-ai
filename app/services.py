@@ -422,10 +422,15 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                     context_data['image_match_failed'] = True
                     matches = []
                 else:
-                    matches = [matches[idx]] + [m for i, m in enumerate(matches) if i != idx]
                     if verdict.get("confidence") == "high":
+                        # Vision confirmed this exact item. Pass ONLY it — leaving
+                        # the runners-up in context lets the model talk about a
+                        # different product than the one that was verified.
+                        matches = [matches[idx]]
                         context_data['image_match_verified'] = True
                         context_data['image_only_match'] = False
+                    else:
+                        matches = [matches[idx]] + [m for i, m in enumerate(matches) if i != idx]
             matches = matches[:3]
 
         if matches:
