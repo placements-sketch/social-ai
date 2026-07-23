@@ -331,7 +331,7 @@ export default function Customers() {
             />
             <KpiCard
               icon={TrendingUp}
-              label="Total Revenue"
+              label="Total Revenue (ex. VAT)"
               value={`KES ${formatKES(overview.kpis.total_revenue)}`}
               sub={`KES ${formatKES(overview.kpis.avg_aov)} avg order`}
               accent="from-brand-400 to-brand-600"

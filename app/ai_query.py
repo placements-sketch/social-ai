@@ -12,6 +12,7 @@ from sqlalchemy import func, and_
 
 from app import db
 from app.models import CustomerCache, OrderCache
+from app.customers import ex_vat
 
 MAX_ROWS = 50  # hard cap — the AI cannot exceed this no matter what it asks
 
@@ -61,7 +62,7 @@ def _customer_row(c):
         'city': c.city,
         'country': c.country,
         'segment': c.segment,
-        'total_spent': float(c.total_spent or 0),
+        'total_spent': ex_vat(c.total_spent),
         'total_orders': c.total_orders or 0,
         'last_order_date': c.last_order_date.strftime('%Y-%m-%d') if c.last_order_date else None,
     }
@@ -179,7 +180,7 @@ def aggregate_orders(time_window='this_month', group_by='customer', metric='sum_
 
     out = []
     for r in results:
-        revenue = float(r.revenue or 0)
+        revenue = ex_vat(r.revenue)
         orders = int(r.orders or 0)
         if group_by == 'customer':
             name = ' '.join(p for p in [r[1], r[2]] if p) or 'Unknown'

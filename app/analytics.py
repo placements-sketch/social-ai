@@ -289,10 +289,11 @@ def summary():
               .filter(ConversionAttribution.order_date >= cutoff)
               .count()
         )
-        attributed_revenue = float(
+        from app.customers import ex_vat
+        attributed_revenue = ex_vat(
             db.session.query(func.coalesce(func.sum(ConversionAttribution.order_total), 0))
               .filter(ConversionAttribution.order_date >= cutoff)
-              .scalar() or 0
+              .scalar()
         )
         conversion = {
             'recommended_conversations': recommended_convos,

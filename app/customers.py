@@ -112,6 +112,23 @@ def _vip_threshold():
 
 
 # ─────────────────────────────────────────────
+# VAT
+# ─────────────────────────────────────────────
+# Shopify stores VAT-INCLUSIVE totals. Kenya VAT is 16%, so every figure we
+# report as revenue is the stored amount ÷ 1.16. Dividing a sum is equivalent
+# to dividing each line and re-summing, so this applies cleanly at the end.
+VAT_DIVISOR = 1.16
+
+
+def ex_vat(amount):
+    """Strip VAT from a stored (VAT-inclusive) money figure."""
+    try:
+        return float(amount or 0) / VAT_DIVISOR
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# ─────────────────────────────────────────────
 # Serialization
 # ─────────────────────────────────────────────
 
@@ -134,8 +151,8 @@ def _serialize_customer(c, vip_threshold):
         'accepts_marketing': c.accepts_marketing,
         'tags': c.tags or [],
         'total_orders': c.total_orders or 0,
-        'total_spent': float(c.total_spent or 0),
-        'aov': float(c.total_spent or 0) / c.total_orders if (c.total_orders or 0) > 0 else 0,
+        'total_spent': ex_vat(c.total_spent),
+        'aov': (ex_vat(c.total_spent) / c.total_orders) if (c.total_orders or 0) > 0 else 0,
         'last_order_date': last_order.isoformat() if last_order else None,
         'days_since_last_order': days_since,
         'first_order_date': c.first_order_date.isoformat() if c.first_order_date else None,
@@ -233,9 +250,13 @@ def customers_overview():
     month_ago = now - timedelta(days=30)
 
     # ── KPIs: each one is a single SQL aggregate, milliseconds each ──────
-    total_revenue = float(
-        db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar() or 0
-    )
+    # Shopify stores VAT-INCLUSIVE totals. Kenya VAT is 16%, so gross sales —
+    # what actually counts as revenue — is the total ÷ 1.16. Dividing the sum
+    # is equivalent to dividing every line and re-summing.
+    VAT_DIVISOR = 1.16
+    total_revenue = ex_vat(
+        db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar()
+    ) / VAT_DIVISOR
     total_orders = int(
         db.session.query(func.coalesce(func.sum(CustomerCache.total_orders), 0)).scalar() or 0
     )
@@ -307,7 +328,7 @@ def customers_overview():
         month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
         for row in monthly:
             orders_n = int(row.orders or 0)
-            revenue = float(row.revenue or 0)
+            revenue = ex_vat(row.revenue)
             aov_by_month.append({
                 'month': month_names[int(row.m) - 1],
                 'orders': orders_n,
@@ -396,7 +417,7 @@ def customer_profile(customer_id):
             WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
             GROUP BY 1 ORDER BY 1
         """), {'cid': cid}).fetchall()
-        spend_over_time = [{'month': r[0], 'revenue': float(r[1] or 0), 'orders': int(r[2])} for r in rows]
+        spend_over_time = [{'month': r[0], 'revenue': ex_vat(r[1]), 'orders': int(r[2])} for r in rows]
     except Exception as e:
         log_event("warn", "customers.profile.spend_over_time_failed", str(e))
 
@@ -474,7 +495,7 @@ def customer_orders(customer_id):
         'id': r.shopify_order_id,
         'order_number': r.order_number,
         'date': r.order_date.isoformat() if r.order_date else None,
-        'total': float(r.total or 0),
+        'total': ex_vat(r.total),
         'currency': r.currency,
         'items': r.items_count,
         'products': r.products or [],
@@ -727,7 +748,7 @@ def customer_trends():
         ORDER BY revenue DESC
     """)).fetchall()
     revenue_by_segment = [
-        {'segment': r[0], 'revenue': float(r[1] or 0), 'customers': int(r[2])}
+        {'segment': r[0], 'revenue': ex_vat(r[1]), 'customers': int(r[2])}
         for r in seg_rows
     ]
 
