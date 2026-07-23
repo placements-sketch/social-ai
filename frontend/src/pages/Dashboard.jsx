@@ -844,11 +844,7 @@ export default function Dashboard() {
                     { name: 'WhatsApp', color: '#22c55e', icon: Smartphone, key: 'whatsapp' },
                     { name: 'Facebook', color: '#3b82f6', icon: MessageSquare, key: 'facebook' },
                     { name: 'TikTok', color: '#111111', icon: Music, key: 'tiktok' },
-                  ].filter(({ key }) => {
-                    const total = chartData.reduce((sum, d) =>
-                      sum + (d[key] || 0) + (d[`${key}_ai`] || 0) + (d[`${key}_human`] || 0), 0)
-                    return total > 0
-                  }).map(({ name, color, icon: Icon, key }) => {
+                  ].map(({ name, color, icon: Icon, key }) => {
                     const inbound = chartData.reduce((sum, d) => sum + (d[key] || 0), 0)
                     const ai = chartData.reduce((sum, d) => sum + (d[`${key}_ai`] || 0), 0)
                     const human = chartData.reduce((sum, d) => sum + (d[`${key}_human`] || 0), 0)

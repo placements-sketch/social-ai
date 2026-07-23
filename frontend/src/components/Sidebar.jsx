@@ -1,9 +1,9 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, MessageSquare, Package, Bot,
   Zap, Radio, BarChart2, ScrollText, Settings, Sparkles,
-  ChevronLeft, ChevronRight, X, Users, UserCircle, Bell,
+  ChevronLeft, ChevronRight, ChevronDown, X, Users, UserCircle, Bell,
 } from 'lucide-react'
 import PresenceDot from './PresenceDot'
 import clsx from 'clsx'
@@ -13,8 +13,10 @@ import szLogo from '../images/sz.png'
 const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
   { to: '/messages',   icon: MessageSquare,   label: 'Messages',            roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
-  { to: '/customers',        icon: UserCircle,      label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business' },
-  { to: '/customers/config', icon: Settings,        label: 'Profiling Config',   roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
+    children: [
+      { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
+    ] },
   { to: '/products',         icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics',  icon: BarChart2,       label: 'Analytics',           roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
@@ -30,7 +32,12 @@ const allNav = [
 
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
   const { user } = useAuth()
+  const location = useLocation()
   const nav = allNav.filter(item => item.roles.includes(user?.role))
+
+  // Which parent menus are manually open. Unset = auto (open when a child
+  // route is active), so landing on /customers/config shows it expanded.
+  const [openMenus, setOpenMenus] = useState({})
 
   // Live unread badge for Messages — number of conversations needing attention.
   const [messagesBadge, setMessagesBadge] = useState(0)
@@ -133,11 +140,14 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
               )}
 
               <div className="space-y-0.5 lg:space-y-1">
-                {groupItems.map(({ to, icon: Icon, label, badge }) => {
+                {groupItems.map(({ to, icon: Icon, label, badge, children }) => {
                   const liveBadge = to === '/messages' ? messagesBadge : badge
+                  const kids = (children || []).filter(c => c.roles.includes(user?.role))
+                  const kidsOpen = openMenus[to] ?? kids.some(c => location.pathname === c.to)
+                  const showKids = kids.length > 0 && kidsOpen && (isMobile || !collapsed)
                   return (
+                  <div key={to}>
                   <NavLink
-                    key={to}
                     to={to}
                     title={isMobile ? undefined : (collapsed ? label : undefined)}
                     className={({ isActive }) =>
@@ -170,7 +180,45 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                         {liveBadge > 99 ? '99+' : liveBadge}
                       </span>
                     )}
+
+                    {kids.length > 0 && (isMobile || !collapsed) && (
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.preventDefault(); e.stopPropagation()
+                          setOpenMenus(m => ({ ...m, [to]: !kidsOpen }))
+                        }}
+                        className="ml-auto p-0.5 rounded hover:bg-white/10 shrink-0"
+                      >
+                        <ChevronDown
+                          size={14}
+                          className={clsx('transition-transform', kidsOpen && 'rotate-180')}
+                        />
+                      </span>
+                    )}
                   </NavLink>
+
+                  {showKids && (
+                    <div className="mt-0.5 space-y-0.5 pl-9 border-l border-white/10 ml-4">
+                      {kids.map(kid => (
+                        <NavLink
+                          key={kid.to}
+                          to={kid.to}
+                          className={({ isActive }) =>
+                            clsx(
+                              'block rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                              isActive
+                                ? 'bg-brand-600/20 text-white'
+                                : 'text-gray-500 hover:text-white hover:bg-white/5'
+                            )
+                          }
+                        >
+                          {kid.label}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                  </div>
                   )
                 })}
               </div>

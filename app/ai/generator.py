@@ -736,9 +736,11 @@ Customer's detected intents: {intents_str}
             system_prompt += (
                 "\n\n--- Product not found ---\n"
                 "You compared the customer's photo against the catalogue and NONE of the products "
-                "matched it. Do NOT name or price any product. Tell the customer you can't place "
-                "that exact piece from the photo, and ask them to share the product name or link, "
-                "or describe it, so you can check properly."
+                "matched it. Do NOT name, price, or link any product, and do NOT guess at a similar "
+                "one. Say briefly that you can't place that exact piece from the photo, then ask them "
+                "for the product name or the shopzetu.com link so you can check it properly. You are "
+                "ALREADY in a DM with them — never tell them to 'DM us', check the bio, or contact "
+                "another channel. Keep it short and warm."
             )
 
         # IG comment: the image is the POST, and its caption often names the item.

@@ -169,6 +169,24 @@ def _coalesce_recent_inbound(inbound_record):
         log_event("warn", "services._coalesce_recent_inbound", str(e))
         return (inbound_record.content, None)
 
+def _burst_already_answered(inbound_record):
+    """
+    True if a real outbound reply (not our own pending placeholder) already
+    exists after this inbound — meaning another thread already answered this
+    burst. Catches Meta splitting a photo and its caption across two separate
+    webhooks, and retries landing on the second gunicorn worker.
+    """
+    try:
+        from app.models import Message
+        return Message.query.filter(
+            Message.conversation_id == inbound_record.conversation_id,
+            Message.direction == 'outbound',
+            Message.sender.in_(('ai', 'human')),
+            Message.id > inbound_record.id,
+        ).first() is not None
+    except Exception as e:
+        log_event("warn", "services._burst_already_answered", str(e))
+        return False
 
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None, image_urls: list | None = None) -> str:
     """
@@ -575,7 +593,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # the newer event answer the whole burst, otherwise we double-answer the
     # same photo with two different guesses.
     if inbound_record is not None and not channel.endswith('_comment'):
-        if _has_newer_inbound(inbound_record):
+        if _has_newer_inbound(inbound_record) or _burst_already_answered(inbound_record):
             if placeholder is not None:
                 try:
                     from app import db
@@ -607,9 +625,10 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
               },
               conversation_id=conversation_id)
 
-    # ── Step 7: Brief delay before finalizing the outbound (dashboard order) ─
-    import time
-    time.sleep(5)
+    # ── Step 7: Finalize the outbound row IMMEDIATELY ──────────────────────
+    # No delay here. While the row sits as 'ai_pending' the coalescer can't
+    # see that we just replied, so anything arriving in that window gets
+    # answered a second time over the same content.
     _finalize_outbound_message(
         placeholder=placeholder,
         content=reply,
