@@ -179,6 +179,7 @@ export default function TopBar({ onMenuClick }) {
 
   const API_BASE = import.meta.env.VITE_API_BASE || '/api'
   const [health, setHealth] = useState({ status: 'operational' })
+  const [showHealth, setShowHealth] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -286,11 +287,16 @@ export default function TopBar({ onMenuClick }) {
   // Track previous unread_count per conversation to detect TRUE new inbound.
   const prevUnreadRef = useRef(new Map())
   const isFirstMsgLoadRef = useRef(true)
+  const msgPollRunningRef = useRef(false)   // stops overlapping poll runs
 
   useEffect(() => {
     let cancelled = false
 
     const loadMessages = async () => {
+      // This body awaits several times; without a guard the 5s interval kicks
+      // off a second run that re-reads stale unread counts and re-toasts.
+      if (msgPollRunningRef.current) return
+      msgPollRunningRef.current = true
       try {
         const { listConversations } = await import('../api/messages')
         const data = await listConversations({ channel: 'all', page: 1, per_page: 20 })
@@ -311,6 +317,9 @@ export default function TopBar({ onMenuClick }) {
         for (const c of convs) {
           const prev = prevUnreadRef.current.get(c.id) ?? 0
           const curr = c.unread_count || 0
+          // Record BEFORE the awaits below — otherwise a concurrent run sees
+          // the old value and fires a duplicate toast for the same message.
+          prevUnreadRef.current.set(c.id, curr)
           if (curr > prev) {
             // Fetch the conv to get the actual latest INBOUND message
             // (lastMessage on the list reflects the most recent message
@@ -334,15 +343,16 @@ export default function TopBar({ onMenuClick }) {
               })
             }
           }
-          prevUnreadRef.current.set(c.id, curr)
-        }
+          }
       } catch (err) {
         console.error('[Toast] Failed to poll messages:', err)
+      } finally {
+        msgPollRunningRef.current = false
       }
     }
 
     loadMessages()
-    const timer = setInterval(loadMessages, 5000)
+    const timer = setInterval(loadMessages, 10000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [showToast])
 
@@ -384,17 +394,59 @@ export default function TopBar({ onMenuClick }) {
           <Menu size={18} />
         </button>
 
-        <div
-          className="flex items-center gap-2"
-          title={health.status && health.status !== 'operational'
-            ? `${health.errors || 0} errors, ${health.warnings || 0} warnings, ${health.failed_jobs || 0} failed jobs (last hour)`
-            : 'No errors or failed jobs in the last hour'}
+        <button
+          onClick={() => setShowHealth(s => !s)}
+          className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-gray-200/60 transition-colors"
+          title="System status — click for details"
         >
           <span className={clsx('w-1.5 h-1.5 rounded-full', hStatus.dot)} style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
           <span className="hidden sm:block text-xs text-gray-400 font-normal tracking-wide">
             {hStatus.label}
           </span>
-        </div>
+        </button>
+
+        {showHealth && (
+          <ModalPortal>
+            <div className="fixed inset-0 z-40" onClick={() => setShowHealth(false)} />
+            <div className="fixed left-4 top-16 w-[26rem] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden flex flex-col max-h-[520px]">
+              <div className="flex items-start justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">{hStatus.label}</h3>
+                  <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
+                    {health.errors || 0} errors · {health.warnings || 0} warnings · {health.failed_jobs || 0} failed jobs (last hour)
+                  </p>
+                </div>
+                <button onClick={() => setShowHealth(false)} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
+                {!(health.issues || []).length ? (
+                  <div className="px-4 py-8 text-center">
+                    <CheckCircle size={26} className="text-green-400 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500">Nothing wrong in the last hour.</p>
+                  </div>
+                ) : (
+                  health.issues.map((iss, i) => (
+                    <div key={i} className="px-4 py-2.5 flex items-start gap-2.5">
+                      <span className={clsx('w-1.5 h-1.5 rounded-full mt-1.5 shrink-0',
+                        iss.level === 'error' || iss.level === 'critical' ? 'bg-red-500' : 'bg-amber-500')} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-bold text-gray-700 font-mono truncate">{iss.source}</p>
+                        <p className="text-xs text-gray-600 mt-0.5 leading-snug break-words">{iss.message}</p>
+                        {iss.at && (
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            {new Date(iss.at + 'Z').toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </ModalPortal>
+        )}
       </div>
 
       <div className="flex items-center gap-1 md:gap-2">

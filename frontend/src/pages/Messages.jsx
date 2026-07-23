@@ -302,7 +302,7 @@ export default function Messages() {
         // Silent fail
       }
     }
-    const timer = setInterval(silentRefresh, 1000)
+    const timer = setInterval(silentRefresh, 3000)
     return () => clearInterval(timer)
   }, [selected])
 
