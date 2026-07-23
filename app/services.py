@@ -1015,11 +1015,25 @@ def _save_message(user_id, channel, content, intent, direction,
             conversation.last_message = content[:200]
             conversation.last_message_at = datetime.utcnow()
 
+        # Snapshot AI-eligibility NOW. Analytics used to join the live
+        # conversation.ai_enabled flag, so switching AI off today silently
+        # rewrote yesterday's figures. Freezing it here makes history stable.
+        ai_eligible = None
+        if direction == "inbound":
+            try:
+                from app.models import Channel
+                ch = Channel.query.filter_by(channel=channel).first()
+                channel_ok = True if ch is None else bool(ch.enabled)
+                ai_eligible = bool(conversation.ai_enabled) and channel_ok
+            except Exception:
+                ai_eligible = None
+
         msg = Message(
             conversation_id=conversation.id,
             user_id=user.id,
             channel=channel,
             direction=direction,
+            ai_eligible=ai_eligible,
             sender=("ai" if direction == "outbound" else None),
             content=content,
             intent=intent,

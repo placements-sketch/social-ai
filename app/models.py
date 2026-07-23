@@ -261,6 +261,7 @@ class Message(db.Model):
     intent = db.Column(db.String(255), nullable=True)    
     product_keyword = db.Column(db.String(128), nullable=True)
     ai_response_time_ms = db.Column(db.Integer, nullable=True)
+    ai_eligible = db.Column(db.Boolean, nullable=True, index=True)
     ai_tokens_used      = db.Column(db.Integer, nullable=True)
     ai_model            = db.Column(db.String(64), nullable=True)
     platform_message_id = db.Column(db.String(256), nullable=True, unique=True)

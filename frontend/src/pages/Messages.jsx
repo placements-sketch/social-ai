@@ -1278,18 +1278,14 @@ function ContextContent({ conv }) {
     .map(s => s.trim())
     .filter(Boolean)
 
-  // Response time: gap between the latest inbound and the latest AI reply.
-  // Both timestamps come from `created_at` on Message rows.
+  // Use the generator's own measured time. Deriving it from created_at was
+  // wrong: the outbound row is created BEFORE the AI runs, so the gap was
+  // really the debounce window, not the response time — which is why this
+  // read ~8s while the dashboard average read ~2s.
   let responseTime = null
-  if (lastInbound?.created_at && lastAiReply?.created_at) {
-    const inboundTime = parseBackendTime(lastInbound.created_at)?.getTime() || 0
-    const replyTime = parseBackendTime(lastAiReply.created_at)?.getTime() || 0
-    const diffMs = replyTime - inboundTime
-    if (diffMs >= 0 && diffMs < 60_000) {
-      responseTime = `${(diffMs / 1000).toFixed(1)}s`
-    } else if (diffMs >= 60_000) {
-      responseTime = `${Math.round(diffMs / 60_000)}m`
-    }
+  const ms = lastAiReply?.ai_response_time_ms
+  if (ms != null) {
+    responseTime = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
   }
 
   const prettyIntent = (s) => s.replace(/_/g, ' ')

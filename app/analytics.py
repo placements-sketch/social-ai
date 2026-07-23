@@ -151,13 +151,13 @@ def summary():
             .filter(Conversation.ai_enabled == True)
             .subquery()
         )
+        # Frozen snapshot, not a live join — see Message.ai_eligible.
         eligible_msg_q = _scope_filter(
             Message.query
               .filter(Message.created_at >= start_dt)
               .filter(Message.created_at < end_dt)
               .filter(Message.direction == 'inbound')
-              .filter(Message.conversation_id.in_(ai_eligible_conv_ids))
-              .filter(~Message.channel.in_(disabled_channels)),
+              .filter(Message.ai_eligible.is_(True)),
             Message, user,
         )
         eligible_inbound = eligible_msg_q.count()
@@ -167,9 +167,7 @@ def summary():
               .filter(Message.created_at >= start_dt)
               .filter(Message.created_at < end_dt)
               .filter(Message.direction == 'outbound')
-              .filter(Message.sender == 'ai')
-              .filter(Message.conversation_id.in_(ai_eligible_conv_ids))
-              .filter(~Message.channel.in_(disabled_channels)),
+              .filter(Message.sender == 'ai'),
             Message, user,
         )
         eligible_ai_replies = eligible_ai_replies_q.count()
@@ -204,8 +202,7 @@ def summary():
                   .filter(Message.created_at < end_dt)
                   .filter(Message.direction == 'outbound')
                   .filter(Message.sender == 'ai')
-                  .filter(Message.conversation_id.in_(ai_eligible_conv_ids))
-                  .filter(~Message.channel.in_(disabled_channels)),
+                  .filter(Message.conversation_id.in_(inbound_conv_ids)),
                 Message, user,
             ).distinct().all()
         )
