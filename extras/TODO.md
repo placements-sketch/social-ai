@@ -52,3 +52,5 @@ Get these done:
 
 
 - System issues detected in topbar should tell us exactly what issues otherwise its not helping us really
+
+- Backup the DB!

@@ -199,17 +199,19 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                   </NavLink>
 
                   {showKids && (
-                    <div className="mt-0.5 space-y-0.5 pl-9 border-l border-white/10 ml-4">
+                    <div className="mt-1 mb-1 ml-[1.4rem] pl-3 border-l border-white/[0.07] space-y-0.5">
                       {kids.map(kid => (
                         <NavLink
                           key={kid.to}
                           to={kid.to}
                           className={({ isActive }) =>
                             clsx(
-                              'block rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                              'relative block rounded-lg pl-3 pr-3 py-1.5 text-[13px] transition-colors',
+                              'before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2',
+                              'before:h-1 before:w-1 before:rounded-full before:transition-colors',
                               isActive
-                                ? 'bg-brand-600/20 text-white'
-                                : 'text-gray-500 hover:text-white hover:bg-white/5'
+                                ? 'text-white font-medium before:bg-brand-500'
+                                : 'text-gray-500 hover:text-gray-200 before:bg-white/20 hover:before:bg-white/40'
                             )
                           }
                         >

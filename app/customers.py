@@ -321,6 +321,8 @@ def customers_overview():
                 func.coalesce(func.sum(OrderCache.total), 0).label('revenue'),
             )
             .filter(OrderCache.order_date >= six_months_ago)
+            .filter(OrderCache.financial_status.in_(
+                ('paid', 'partially_paid', 'partially_refunded')))
             .group_by('y', 'm')
             .order_by('y', 'm')
             .all()
@@ -415,6 +417,7 @@ def customer_profile(customer_id):
                    COUNT(*) AS orders
             FROM orders_cache
             WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
+              AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
             GROUP BY 1 ORDER BY 1
         """), {'cid': cid}).fetchall()
         spend_over_time = [{'month': r[0], 'revenue': ex_vat(r[1]), 'orders': int(r[2])} for r in rows]
