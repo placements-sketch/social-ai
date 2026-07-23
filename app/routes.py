@@ -268,10 +268,21 @@ def instagram_webhook():
                     atype = a.get("type")
                     if atype == "image":
                         u = payload.get("url")
-                    elif atype in ("share", "ig_reel", "story_mention"):
-                        u = (payload.get("image_url")
-                             or payload.get("thumbnail_url")
-                             or payload.get("url"))
+                    elif atype in ("ig_post", "share", "ig_reel", "story_mention"):
+                        u = payload.get("image_url") or payload.get("thumbnail_url")
+                        post_mid = payload.get("ig_post_media_id")
+                        if not u and post_mid:
+                            try:
+                                from app.integrations.meta import fetch_instagram_media
+                                media = fetch_instagram_media(post_mid)
+                                if media and media.get("image_url"):
+                                    u = media["image_url"]
+                            except Exception as e:
+                                current_app.logger.warning(
+                                    f"[IG webhook] could not resolve ig_post {post_mid}: {e}"
+                                )
+                        if not u:
+                            u = payload.get("url")
                     elif atype == "video":
                         u = payload.get("thumbnail_url") or payload.get("image_url")
                     else:
@@ -309,10 +320,21 @@ def instagram_webhook():
                     atype = a.get("type")
                     if atype == "image":
                         u = payload.get("url")
-                    elif atype in ("share", "ig_reel", "story_mention"):
-                        u = (payload.get("image_url")
-                             or payload.get("thumbnail_url")
-                             or payload.get("url"))
+                    elif atype in ("ig_post", "share", "ig_reel", "story_mention"):
+                        u = payload.get("image_url") or payload.get("thumbnail_url")
+                        post_mid = payload.get("ig_post_media_id")
+                        if not u and post_mid:
+                            try:
+                                from app.integrations.meta import fetch_instagram_media
+                                media = fetch_instagram_media(post_mid)
+                                if media and media.get("image_url"):
+                                    u = media["image_url"]
+                            except Exception as e:
+                                current_app.logger.warning(
+                                    f"[IG webhook] could not resolve ig_post {post_mid}: {e}"
+                                )
+                        if not u:
+                            u = payload.get("url")
                     elif atype == "video":
                         u = payload.get("thumbnail_url") or payload.get("image_url")
                     else:
