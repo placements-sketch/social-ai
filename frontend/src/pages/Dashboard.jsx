@@ -6,6 +6,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
 import { SkeletonCard } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
@@ -593,7 +594,7 @@ export default function Dashboard() {
 
         {/* Stats: 1/4 width - each in own card */}
         <div className="lg:col-span-1 space-y-3">
-          {channelStats.filter(c => c.value > 0).map(({ label, value }) => {
+          {channelStats.map(({ label, value }) => {
             const colorMap = {
               'Instagram': { bg: 'bg-pink-50', border: 'border-pink-100', text: 'text-pink-600', upper: 'text-pink-600' },
               'WhatsApp': { bg: 'bg-green-50', border: 'border-green-100', text: 'text-green-600', upper: 'text-green-600' },
@@ -782,8 +783,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Channel Performance Slide-over */}
-      {showChannelModal && (
+      {/* Channel Performance Slide-over — portalled to <body> so `fixed`
+          anchors to the viewport. Inside the Layout tree an ancestor creates
+          a containing block, which was offsetting the sheet from the top. */}
+      {showChannelModal && createPortal(
         <div className="fixed inset-0 z-50">
           {/* Backdrop */}
           <div
@@ -992,7 +995,8 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
