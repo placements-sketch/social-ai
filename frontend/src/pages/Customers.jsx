@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer, Tooltip, CartesianGrid,
-  AreaChart, Area, XAxis, YAxis,
+  AreaChart, Area, XAxis, YAxis, ComposedChart, Bar, Line, Legend,
 } from 'recharts'
 import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
@@ -411,28 +411,30 @@ export default function Customers() {
           {/* AOV by month */}
           <div className="card p-5 lg:col-span-2">
             <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Activity size={14} className="text-brand-500" /> Average Order Value by Month
+              <Activity size={14} className="text-brand-500" /> Orders & revenue over time
             </h2>
             {overview.aov_by_month?.length > 0 ? (
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={overview.aov_by_month}>
-                  <defs>
-                    <linearGradient id="aovGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%"   stopColor="#ff5900" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#ff5900" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={overview.aov_by_month} margin={{ top: 8, right: 4, left: 4, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
-                         tickFormatter={v => `${(v / 1000).toFixed(1)}k`} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                         interval="preserveStartEnd" minTickGap={28} />
+                  <YAxis yAxisId="rev" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                         tickFormatter={v => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(0)}M` : `${(v / 1000).toFixed(0)}K`} />
+                  <YAxis yAxisId="ord" orientation="right" tick={{ fontSize: 11, fill: '#9ca3af' }}
+                         axisLine={false} tickLine={false} />
                   <Tooltip
-                    formatter={(value, name) => name === 'aov' ? [`KES ${formatKES(value)}`, 'AOV'] : [value, name]}
+                    formatter={(value, name) => name === 'Revenue (KES)'
+                      ? [`KES ${formatKES(value)}`, name]
+                      : [formatKES(value), name]}
                     contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                   />
-                  <Area type="monotone" dataKey="aov" stroke="#ff5900" strokeWidth={2.5}
-                        fill="url(#aovGrad)" dot={{ r: 3, fill: '#ff5900' }} />
-                </AreaChart>
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+                  <Bar yAxisId="rev" dataKey="revenue" name="Revenue (KES)" fill="#ff5900"
+                       radius={[3, 3, 0, 0]} maxBarSize={16} />
+                  <Line yAxisId="ord" type="monotone" dataKey="orders" name="Orders" stroke="#111827"
+                        strokeWidth={2} dot={{ r: 2 }} />
+                </ComposedChart>
               </ResponsiveContainer>
             ) : (
               <div className="text-center py-14">

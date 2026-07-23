@@ -304,40 +304,34 @@ def customers_overview():
     )
     segment_counts = {seg: count for seg, count in segment_rows if seg}
 
-    # ── AOV by month: from OrderCache when populated, else empty ─────────
-    # Real aggregation from order data — only sums + counts.
+    # ── Orders & revenue by month, all time ─────────────────────────────
+    # Key name kept as `aov_by_month` for backwards compatibility; it now
+    # carries revenue and order counts too, for the combo chart.
     aov_by_month = []
     try:
-        from app.models import OrderCache
-        from sqlalchemy import extract
-
-        # Group orders by year-month for the last 6 calendar months
-        six_months_ago = now.replace(day=1) - timedelta(days=180)
-        monthly = (
-            db.session.query(
-                extract('year', OrderCache.order_date).label('y'),
-                extract('month', OrderCache.order_date).label('m'),
-                func.count(OrderCache.id).label('orders'),
-                func.coalesce(func.sum(OrderCache.total), 0).label('revenue'),
-            )
-            .filter(OrderCache.order_date >= six_months_ago)
-            .filter(OrderCache.financial_status.in_(
-                ('paid', 'partially_paid', 'partially_refunded')))
-            .group_by('y', 'm')
-            .order_by('y', 'm')
-            .all()
-        )
         month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-        for row in monthly:
-            orders_n = int(row.orders or 0)
-            revenue = ex_vat(row.revenue)
+        rows = db.session.execute(db.text("""
+            SELECT to_char(date_trunc('month', order_date), 'YYYY-MM') AS ym,
+                   COUNT(*)                       AS orders,
+                   COALESCE(SUM(total), 0)        AS revenue
+            FROM orders_cache
+            WHERE order_date IS NOT NULL
+              AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
+            GROUP BY 1
+            ORDER BY 1
+        """)).fetchall()
+        for r in rows:
+            orders_n = int(r[1] or 0)
+            revenue = ex_vat(r[2])
+            y, m = r[0].split('-')
             aov_by_month.append({
-                'month': month_names[int(row.m) - 1],
-                'orders': orders_n,
-                'aov': round(revenue / orders_n) if orders_n else 0,
+                'month':   f"{month_names[int(m) - 1]} {y[2:]}",
+                'orders':  orders_n,
+                'revenue': round(revenue),
+                'aov':     round(revenue / orders_n) if orders_n else 0,
             })
     except Exception as e:
-        log_event("warn", "customers.overview.aov_by_month_failed", str(e))
+        log_event("warn", "customers.overview.revenue_by_month_failed", str(e))
         aov_by_month = []
 
     # ── Top products (from real orders when populated) ───────────────────
