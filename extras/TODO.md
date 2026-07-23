@@ -49,3 +49,6 @@ Get these done:
 - The pop-up notification keeps re-popping up on every page refresh
 - In the chat panel, make the links clickable and the images expandable
 - Gross sales(Customer profiling page)- should be calculated by Cost of item / 1.16
+
+
+- System issues detected in topbar should tell us exactly what issues otherwise its not helping us really

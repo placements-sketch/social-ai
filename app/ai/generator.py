@@ -361,7 +361,9 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
         for (orig_i, p, _u), (b64, mtype) in zip(shortlist, fetched):
             if not b64:
                 continue
-            blocks.append({"type": "text", "text": f"Candidate {len(usable)}: {p.get('name', 'Unnamed')}"})
+            # No product name — it biases the model toward whichever title
+            # reads most like the description instead of judging the image.
+            blocks.append({"type": "text", "text": f"Candidate {len(usable)}:"})
             blocks.append({"type": "image",
                            "source": {"type": "base64", "media_type": mtype, "data": b64}})
             usable.append(orig_i)
@@ -369,19 +371,28 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
             return None
 
         blocks.append({"type": "text", "text": (
-            "Which candidate is the SAME product as the customer's photo? Compare silhouette, "
-            "cut, neckline, waistline, pattern and distinctive construction details — not just "
-            "colour and category. Several candidates may look broadly similar; only pick one if "
-            "the specific design details genuinely match. If the customer's item is not among "
-            "them, say so rather than picking the closest.\n"
-            "Reply with ONLY JSON and nothing else: "
+            "Which candidate is the SAME garment as the customer's photo?\n\n"
+            "Think it through before answering:\n"
+            "1. Describe the customer's garment precisely — silhouette, waistline, how the "
+            "front is constructed (plain, wrapped, overlapping, pleated, panelled, split), "
+            "hem width, drape, fastenings.\n"
+            "2. Say which candidates share ALL of those construction details. Most candidates "
+            "will be the same colour and the same broad cut — that is NOT a match.\n"
+            "3. Choose the one matching every detail, or null if none genuinely do.\n\n"
+            "Use \"high\" ONLY when the distinctive construction details are clearly identical. "
+            "If your choice rests mainly on colour and general shape, that is \"low\".\n\n"
+            "Finish with a single JSON object on its own line, with nothing after it:\n"
             "{\"match\": <candidate number or null>, \"confidence\": \"high\" or \"low\"}"
         )})
 
         client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
-        model = current_app.config.get("CLASSIFIER_MODEL") or current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
+        # Fine-grained visual discrimination is the one spot where a stronger
+        # model clearly pays for itself — this fires once per image message,
+        # not on every turn. Override with VISION_RERANK_MODEL if needed.
+        import os as _os
+        model = _os.getenv("VISION_RERANK_MODEL") or "claude-sonnet-5"
         resp = client.messages.create(
-            model=model, max_tokens=100,
+            model=model, max_tokens=700,
             messages=[{"role": "user", "content": blocks}],
         )
 
@@ -389,11 +400,11 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
         # The model sometimes adds commentary after the JSON, which breaks a bare
         # json.loads ("Extra data: line 4 ..."). Pull out the first object only.
         import re as _re
-        m_json = _re.search(r'\{.*?\}', raw, _re.DOTALL)
-        if not m_json:
-            log_event("warn", "ai.vision.verify_failed", f"No JSON in verdict: {raw[:200]!r}")
+        objs = _re.findall(r'\{[^{}]*\}', raw)
+        if not objs:
+            log_event("warn", "ai.vision.verify_failed", f"No JSON in verdict: {raw[:300]!r}")
             return None
-        data = _json.loads(m_json.group(0))
+        data = _json.loads(objs[-1])
         m = data.get("match")
         conf = (data.get("confidence") or "low").lower()
 
