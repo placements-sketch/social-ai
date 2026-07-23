@@ -211,38 +211,108 @@ function RankedBars({ rows, emptyText = 'No data in this period' }) {
   )
 }
 
-// Funnel — stepped, narrowing journey. Uses whatever steps are passed (real data only).
-function Funnel({ steps, rate, revenue }) {
-  const first = Math.max(...steps.map((s) => s.value), 1)
+// Conversion funnel — how often an AI product recommendation turns into an
+// order. Only two stages, because that's what the attribution data actually
+// supports; the money sits alongside so the panel answers "did this sell?"
+function Funnel({ conversion }) {
+  const recommended = conversion?.recommended_conversations || 0
+  const converted   = conversion?.converted_conversations   || 0
+  const rate        = (conversion?.conversion_rate || 0) * 100
+  const orders      = conversion?.attributed_orders  || 0
+  const revenue     = conversion?.attributed_revenue || 0
+
+  if (recommended === 0) {
+    return (
+      <p className="text-xs text-gray-400 py-8 text-center">
+        Nothing to show yet — this fills in once the AI starts sending tracked
+        product links and orders come back against them.
+      </p>
+    )
+  }
+
+  const convPct = (converted / recommended) * 100
+  const lost = Math.max(0, recommended - converted)
+  const fmtKES = (n) => `KES ${Number(n).toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
+
+  const stages = [
+    {
+      label: 'AI recommended a product',
+      help: 'Conversations where the assistant sent a tracked product link',
+      value: recommended, pct: 100, color: ACCENT,
+    },
+    {
+      label: 'Customer ordered',
+      help: 'Those that produced an order we can attribute back',
+      value: converted, pct: convPct, color: '#111827',
+    },
+  ]
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-      <div className="sm:col-span-2 flex flex-col gap-2.5">
-        {steps.map((s, i) => {
-          const w = Math.max(6, Math.round((s.value / first) * 100))
-          const isLast = i === steps.length - 1
-          return (
-            <div key={s.label}>
-              <div className="flex justify-between text-xs mb-1"><span className="text-gray-600">{s.label}</span><span className="font-bold text-gray-900 tabular-nums">{s.value.toLocaleString()}</span></div>
-              <div className="h-8 rounded-lg" style={{
-                width: `${w}%`, marginLeft: `${(100 - w) / 2 * (i / steps.length)}%`,
-                background: isLast ? '#374151' : i === 0 ? ACCENT : '#ff9a5c',
-                transition: 'width .9s cubic-bezier(0.16,1,0.3,1)', transitionDelay: `${i * 80}ms`,
-              }} />
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="lg:col-span-3 space-y-4">
+        {stages.map((s, i) => (
+          <div key={s.label}>
+            <div className="flex items-baseline justify-between gap-3 mb-1.5">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-800 truncate">{s.label}</p>
+                <p className="text-[11px] text-gray-400 truncate">{s.help}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-sm font-bold text-gray-900 tabular-nums">
+                  {s.value.toLocaleString()}
+                </span>
+                {i > 0 && (
+                  <span className="text-[11px] text-gray-400 ml-1.5 tabular-nums">
+                    {s.pct.toFixed(1)}%
+                  </span>
+                )}
+              </div>
             </div>
-          )
-        })}
+            <div className="h-9 rounded-lg bg-gray-100 overflow-hidden">
+              <div
+                className="h-full rounded-lg"
+                style={{
+                  width: `${Math.max(s.pct, 1.5)}%`,
+                  background: s.color,
+                  transition: 'width .9s cubic-bezier(0.16,1,0.3,1)',
+                  transitionDelay: `${i * 120}ms`,
+                }}
+              />
+            </div>
+            {i === 0 && (
+              <div className="flex items-center gap-2 pl-1 mt-2">
+                <div className="w-px h-4 bg-gray-200" />
+                <p className="text-[11px] text-gray-400 tabular-nums">
+                  {lost.toLocaleString()} didn’t order
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
-      <div className="flex sm:flex-col justify-between gap-4 sm:border-l sm:border-gray-100 sm:pl-6">
-        <div>
-          <p className="text-[28px] font-bold tabular-nums leading-none" style={{ color: ACCENT }}>{rate}%</p>
-          <Eyebrow className="block mt-1.5">Conversion rate</Eyebrow>
-        </div>
-        <div>
-          <p className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-            <span className="text-sm text-gray-400 font-medium">KES </span>{revenue.toLocaleString()}
-          </p>
-          <Eyebrow className="block mt-1.5">Attributed revenue</Eyebrow>
-        </div>
+
+      <div className="lg:col-span-2 grid grid-cols-3 lg:grid-cols-1 gap-3">
+        {[
+          { label: 'Conversion rate',    value: `${rate.toFixed(1)}%`, accent: true },
+          { label: 'Attributed orders',  value: orders.toLocaleString() },
+          { label: 'Attributed revenue', value: fmtKES(revenue) },
+        ].map(({ label, value, accent }) => (
+          <div
+            key={label}
+            className={clsx('rounded-xl px-4 py-3 border',
+              accent ? 'border-transparent' : 'border-gray-100 bg-white')}
+            style={accent ? { background: 'rgba(255,89,0,0.07)' } : undefined}
+          >
+            <p
+              className={clsx('text-xl font-bold tabular-nums leading-none truncate',
+                !accent && 'text-gray-900')}
+              style={accent ? { color: ACCENT } : undefined}
+            >
+              {value}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1.5">{label}</p>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -342,7 +412,7 @@ export default function Analytics() {
   if (error) return <div className="bg-white border border-gray-200 rounded-2xl p-6 text-sm text-gray-700" style={{ boxShadow: SHADOW }}>{error}</div>
   if (!data) return null
 
-  const { kpis, weekly, intent_breakdown, channel_split, top_products, failure_breakdown } = data
+  const { kpis, weekly, intent_breakdown, channel_split, top_products, failure_breakdown, conversion } = data
   const prev = kpis.previous || {}
   const periodLabel = days === 1 ? 'today' : days === 7 ? 'last 7 days' : days === 30 ? 'last 30 days' : `last ${days} days`
 
@@ -471,7 +541,7 @@ export default function Analytics() {
 
       {/* Conversion (funnel) */}
       <Panel title="Conversion funnel" right={<ShoppingBag size={15} className="text-gray-300" />} lift>
-        <Funnel steps={funnelSteps} rate={convRate} revenue={revenue} />
+        <Funnel conversion={conversion} />
       </Panel>
 
       {/* Agents */}

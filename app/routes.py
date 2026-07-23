@@ -258,11 +258,31 @@ def instagram_webhook():
                 if sender_id in our_ids:
                     continue
 
-                image_urls = [
-                    a["payload"]["url"]
-                    for a in (msg.get("attachments") or [])
-                    if a.get("type") == "image" and (a.get("payload") or {}).get("url")
-                ]
+                # A forwarded post/reel/story is NOT type "image" — it arrives
+                # as "share" (or ig_reel / story_mention), so the old
+                # image-only filter dropped it and the AI never saw what the
+                # customer sent. Pull a usable image URL out of those too.
+                image_urls = []
+                for a in (msg.get("attachments") or []):
+                    payload = a.get("payload") or {}
+                    atype = a.get("type")
+                    if atype == "image":
+                        u = payload.get("url")
+                    elif atype in ("share", "ig_reel", "story_mention"):
+                        u = (payload.get("image_url")
+                             or payload.get("thumbnail_url")
+                             or payload.get("url"))
+                    elif atype == "video":
+                        u = payload.get("thumbnail_url") or payload.get("image_url")
+                    else:
+                        u = None
+                    if atype and atype != "image":
+                        current_app.logger.info(
+                            f"[IG webhook] non-image attachment type={atype} "
+                            f"payload_keys={list(payload.keys())} picked={bool(u)}"
+                        )
+                    if u and u not in image_urls:
+                        image_urls.append(u)
                 mid = msg.get("mid")
                 if sender_id and (text or image_urls):
                     events.append((sender_id, text or "", mid, image_urls))
@@ -279,11 +299,31 @@ def instagram_webhook():
                 sender_id = (value.get("sender") or {}).get("id")
                 if sender_id in our_ids:
                     continue
-                image_urls = [
-                    a["payload"]["url"]
-                    for a in (msg.get("attachments") or [])
-                    if a.get("type") == "image" and (a.get("payload") or {}).get("url")
-                ]
+                # A forwarded post/reel/story is NOT type "image" — it arrives
+                # as "share" (or ig_reel / story_mention), so the old
+                # image-only filter dropped it and the AI never saw what the
+                # customer sent. Pull a usable image URL out of those too.
+                image_urls = []
+                for a in (msg.get("attachments") or []):
+                    payload = a.get("payload") or {}
+                    atype = a.get("type")
+                    if atype == "image":
+                        u = payload.get("url")
+                    elif atype in ("share", "ig_reel", "story_mention"):
+                        u = (payload.get("image_url")
+                             or payload.get("thumbnail_url")
+                             or payload.get("url"))
+                    elif atype == "video":
+                        u = payload.get("thumbnail_url") or payload.get("image_url")
+                    else:
+                        u = None
+                    if atype and atype != "image":
+                        current_app.logger.info(
+                            f"[IG webhook] non-image attachment type={atype} "
+                            f"payload_keys={list(payload.keys())} picked={bool(u)}"
+                        )
+                    if u and u not in image_urls:
+                        image_urls.append(u)
                 mid = msg.get("mid")
                 if sender_id and (text or image_urls):
                     events.append((sender_id, text or "", mid, image_urls))
