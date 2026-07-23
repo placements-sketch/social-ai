@@ -408,13 +408,27 @@ export default function Customers() {
             </div>
           </div>
 
-          {/* AOV by month */}
-          <div className="card p-5 lg:col-span-2">
-            <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Activity size={14} className="text-brand-500" /> Orders & revenue over time
-            </h2>
+          {/* Orders & revenue over time */}
+          <div className="card p-5 lg:col-span-2 flex flex-col">
+            <div className="shrink-0 mb-3">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Activity size={14} className="text-brand-500" /> Orders & revenue over time
+              </h2>
+              {overview.aov_by_month?.length > 0 && (() => {
+                const rows = overview.aov_by_month
+                const totalOrders  = rows.reduce((s, r) => s + (r.orders || 0), 0)
+                const totalRevenue = rows.reduce((s, r) => s + (r.revenue || 0), 0)
+                const aov = totalOrders ? Math.round(totalRevenue / totalOrders) : 0
+                return (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {formatKES(totalOrders)} orders · KES {formatKES(totalRevenue)} · AOV KES {formatKES(aov)} · All time
+                  </p>
+                )
+              })()}
+            </div>
             {overview.aov_by_month?.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <div className="flex-1 min-h-[240px] -mb-2">
+                <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={overview.aov_by_month} margin={{ top: 8, right: 4, left: 4, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
@@ -435,7 +449,8 @@ export default function Customers() {
                   <Line yAxisId="ord" type="monotone" dataKey="orders" name="Orders" stroke="#111827"
                         strokeWidth={2} dot={{ r: 2 }} />
                 </ComposedChart>
-              </ResponsiveContainer>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <div className="text-center py-14">
                 <Activity size={28} className="text-gray-300 mx-auto mb-2" />
