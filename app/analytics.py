@@ -292,30 +292,37 @@ def summary():
     # whole dashboard — it just degrades the tile to zeros.
     try:
         from app.models import ConversionAttribution
-        recommended_convos = (
-            db.session.query(Message.conversation_id)
+        # COHORT basis: everything below is anchored on the SAME set of
+        # conversations — those that received a tracked link in this window.
+        # Previously the numerator counted orders dated in the window while the
+        # denominator counted recommendations in the window, so an order today
+        # against last month's recommendation landed in one and not the other,
+        # letting the rate exceed 100%.
+        recommended_conv_ids = set(
+            cid for (cid,) in db.session.query(Message.conversation_id)
               .filter(Message.utm_token.isnot(None))
               .filter(Message.created_at >= cutoff)
               .filter(Message.created_at < now)
-              .distinct().count()
+              .distinct().all()
+            if cid is not None
         )
-        converted_convos = (
-            db.session.query(ConversionAttribution.conversation_id)
-              .filter(ConversionAttribution.order_date >= cutoff)
-              .filter(ConversionAttribution.conversation_id.isnot(None))
-              .distinct().count()
-        )
-        attributed_orders = (
-            db.session.query(ConversionAttribution)
-              .filter(ConversionAttribution.order_date >= cutoff)
-              .count()
-        )
+        recommended_convos = len(recommended_conv_ids)
+
+        converted_convos = 0
+        attributed_orders = 0
+        attributed_revenue_raw = 0
+        if recommended_conv_ids:
+            conv_rows = (
+                db.session.query(ConversionAttribution)
+                  .filter(ConversionAttribution.conversation_id.in_(recommended_conv_ids))
+                  .all()
+            )
+            converted_convos = len({r.conversation_id for r in conv_rows})
+            attributed_orders = len(conv_rows)
+            attributed_revenue_raw = sum(float(r.order_total or 0) for r in conv_rows)
+
         from app.customers import ex_vat
-        attributed_revenue = ex_vat(
-            db.session.query(func.coalesce(func.sum(ConversionAttribution.order_total), 0))
-              .filter(ConversionAttribution.order_date >= cutoff)
-              .scalar()
-        )
+        attributed_revenue = ex_vat(attributed_revenue_raw)
         conversion = {
             'recommended_conversations': recommended_convos,
             'converted_conversations':   converted_convos,
@@ -461,17 +468,24 @@ def summary():
             piece = piece.strip()
             if piece:
                 intent_counts[piece] = intent_counts.get(piece, 0) + count
-    total_intents = sum(intent_counts.values()) or 1
+    # Percent = share of intent-LABELLED MESSAGES carrying this intent. The old
+    # denominator was total intent *mentions*, so a 3-intent message counted 3
+    # times while the UI called them messages. These sum to >100% when messages
+    # carry multiple intents — that's correct for multi-label data.
+    total_labelled_msgs = sum(c for _, c in intent_rows) or 1
     intent_breakdown = sorted(
-        [{'name': k, 'count': v, 'percent': round(100 * v / total_intents, 1)}
+        [{'name': k, 'count': v, 'percent': round(100 * v / total_labelled_msgs, 1)}
          for k, v in intent_counts.items()],
         key=lambda x: x['count'], reverse=True,
     )[:6]  # top 6 fits the donut chart legend nicely
 
     # ── Channel split ─────────────────────────────────────────────────────
+    # INBOUND only — this is a customer-traffic view. Counting outbound made a
+    # chatty channel look busier than one customers actually use.
     channel_q = _scope_filter(
         db.session.query(Message.channel, func.count(Message.id))
         .filter(Message.created_at >= cutoff)
+        .filter(Message.direction == 'inbound')
         .group_by(Message.channel),
         Message, user,
     )
@@ -491,8 +505,11 @@ def summary():
     handle_expr = func.split_part(
         func.split_part(Message.product_url, '/products/', 2), '?', 1
     )
+    # DISTINCT conversations, not messages — recommending the same item five
+    # times in one thread is one customer asking, not five.
     prod_rows = _scope_filter(
-        db.session.query(handle_expr.label('handle'), func.count(Message.id))
+        db.session.query(handle_expr.label('handle'),
+                         func.count(func.distinct(Message.conversation_id)))
         .filter(Message.created_at >= cutoff)
         .filter(Message.product_url.isnot(None))
         .group_by(handle_expr),

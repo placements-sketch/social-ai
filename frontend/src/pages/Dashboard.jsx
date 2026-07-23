@@ -687,7 +687,10 @@ export default function Dashboard() {
               const overrides = kpis.human_override_total || 0
               const escalated = kpis.escalated_total || 0
               const failed = kpis.failed_responses || 0
-              const overrideRate = aiReplies > 0 ? ((overrides / aiReplies) * 100).toFixed(1) : '0.0'
+              // Both sides must be CONVERSATIONS. Dividing conversations by
+              // message count made this shrink as the AI got chattier.
+              const convTotal = kpis.conversations_total || 0
+              const overrideRate = convTotal > 0 ? ((overrides / convTotal) * 100).toFixed(1) : '0.0'
               const responseRate = ((kpis.ai_response_rate || 0) * 100).toFixed(1)
 
               return (
@@ -697,7 +700,7 @@ export default function Dashboard() {
                     <div className="flex items-end justify-between mb-2">
                       <div>
                         <p className="text-3xl font-bold text-green-600 leading-none">{successRate.toFixed(1)}%</p>
-                        <p className="text-xs text-gray-500 mt-1.5 font-medium">Success rate</p>
+                        <p className="text-xs text-gray-500 mt-1.5 font-medium">Engagement rate</p>
                       </div>
                       <p className="text-[11px] text-gray-400 text-right leading-snug">
                         {engaged} of {handled}<br/>convos handled &amp; engaged

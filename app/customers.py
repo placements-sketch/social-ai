@@ -103,12 +103,22 @@ def compute_segment(customer, vip_spend_threshold):
 
 
 def _vip_threshold():
-    """Compute the VIP spend threshold (top 25% of spenders) once per request."""
+    """
+    VIP spend threshold = 75th percentile among customers who have ACTUALLY
+    BOUGHT. Over the whole table this was meaningless: ~77% of records have
+    zero spend, so p75 landed inside the zero band, returned 0, and
+    `0 or 50000` is falsy — silently hardcoding 50,000 on every request.
+    """
     p75 = (
-        db.session.query(func.percentile_cont(0.75).within_group(CustomerCache.total_spent.asc()))
+        db.session.query(
+            func.percentile_cont(0.75).within_group(CustomerCache.total_spent.asc())
+        )
+        .filter(CustomerCache.total_orders > 0)
         .scalar()
     )
-    return float(p75 or 50000)  # Fallback if no data
+    if p75 is None or float(p75) <= 0:
+        return 50000.0   # explicit fallback for an empty/unsynced table
+    return float(p75)
 
 
 # ─────────────────────────────────────────────
@@ -250,13 +260,10 @@ def customers_overview():
     month_ago = now - timedelta(days=30)
 
     # ── KPIs: each one is a single SQL aggregate, milliseconds each ──────
-    # Shopify stores VAT-INCLUSIVE totals. Kenya VAT is 16%, so gross sales —
-    # what actually counts as revenue — is the total ÷ 1.16. Dividing the sum
-    # is equivalent to dividing every line and re-summing.
-    VAT_DIVISOR = 1.16
+    # ex_vat() already applies the ÷1.16. Do NOT divide again here.
     total_revenue = ex_vat(
         db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar()
-    ) / VAT_DIVISOR
+    )
     total_orders = int(
         db.session.query(func.coalesce(func.sum(CustomerCache.total_orders), 0)).scalar() or 0
     )
@@ -273,7 +280,15 @@ def customers_overview():
         .filter(CustomerCache.total_orders >= 2)
         .scalar() or 0
     )
-    retention_rate = (repeat / total) if total else 0
+    # Retention = of customers who bought at least once, how many came back.
+    # The old denominator was ALL records, including ~125k who never bought —
+    # that's a signup→repeat rate, not retention.
+    buyers = (
+        db.session.query(func.count(CustomerCache.id))
+        .filter(CustomerCache.total_orders > 0)
+        .scalar() or 0
+    )
+    retention_rate = (repeat / buyers) if buyers else 0
 
     # ── Top spenders (only 5 rows loaded) ────────────────────────────────
     top_spenders_rows = (
@@ -351,6 +366,8 @@ def customers_overview():
                 FROM (
                   SELECT jsonb_array_elements_text(products::jsonb) AS title
                   FROM orders_cache
+                  WHERE order_date >= NOW() - INTERVAL '180 days'
+                    AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
                 ) AS line_items
                 WHERE title IS NOT NULL AND title <> ''
                 GROUP BY title

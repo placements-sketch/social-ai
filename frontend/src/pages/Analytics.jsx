@@ -431,7 +431,9 @@ export default function Analytics() {
   const exportToPDF = () => exportAnalyticsPDF(reportData(), exportMeta())
 
   const aiReplies = kpis.ai_replies_total || 0
-  const overrideRate = aiReplies > 0 ? (kpis.human_override_total || 0) / aiReplies : 0
+  // Conversations ÷ conversations. Was conversations ÷ messages.
+  const convTotal = kpis.conversations_total || 0
+  const overrideRate = convTotal > 0 ? (kpis.human_override_total || 0) / convTotal : 0
 
   const conv = data.conversion || {}
   const convRate = ((conv.conversion_rate || 0) * 100).toFixed(1)

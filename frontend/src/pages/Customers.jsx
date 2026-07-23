@@ -329,7 +329,7 @@ export default function Customers() {
               icon={Users}
               label="Total Customers"
               value={overview.kpis.total_customers}
-              sub={`${formatKES(overview.kpis.new_this_month)} new this month`}
+              sub={`${formatKES(overview.kpis.new_this_month)} new in last 30 days`}
               accent="from-blue-400 to-blue-600"
             />
             <KpiCard
