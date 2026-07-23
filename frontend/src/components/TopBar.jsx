@@ -146,6 +146,24 @@ function NotificationItem({ notif, Icon, color, bg, onClickNotif }) {
   )
 }
 
+// Which urgent notifications have already been announced as a toast.
+// Kept in localStorage because the refs below reset on every page load —
+// without this the catch-up toast re-fires on every refresh.
+const TOASTED_KEY = 'toastedNotificationIds'
+
+function alreadyToasted() {
+  try { return new Set(JSON.parse(localStorage.getItem(TOASTED_KEY) || '[]')) }
+  catch { return new Set() }
+}
+
+function markToasted(ids) {
+  if (!ids.length) return
+  try {
+    const prev = JSON.parse(localStorage.getItem(TOASTED_KEY) || '[]')
+    localStorage.setItem(TOASTED_KEY, JSON.stringify([...prev, ...ids].slice(-200)))
+  } catch { /* quota or parse — non-fatal */ }
+}
+
 export default function TopBar({ onMenuClick }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -211,8 +229,10 @@ export default function TopBar({ onMenuClick }) {
           newList.forEach(n => seenIdsRef.current.add(n.id))
           isFirstLoadRef.current = false
 
+          const announced = alreadyToasted()
           const unreadUrgent = newList.filter(
             n => !n.read && n.severity === 'urgent' &&
+                 !announced.has(n.id) &&
                  !(n.actor_id && user?.id && n.actor_id === user.id)
           )
           if (unreadUrgent.length === 1) {
@@ -228,6 +248,7 @@ export default function TopBar({ onMenuClick }) {
               severity: 'urgent',
             })
           }
+          markToasted(unreadUrgent.map(n => n.id))
           return
         }
 
@@ -243,12 +264,12 @@ export default function TopBar({ onMenuClick }) {
           const isMyOwnAction = n.actor_id && user?.id && n.actor_id === user.id
 
           if (isUrgent && isUnread && !isMyOwnAction) {
-            console.log('[Toast] Showing urgent notification:', n.title)
             showToast({
               title: n.title,
               body: n.body,
               severity: n.severity,
             })
+            markToasted([n.id])
           }
         })
       } catch (err) {

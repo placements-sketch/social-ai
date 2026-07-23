@@ -135,6 +135,37 @@ function CommentPostPreview({ mediaId }) {
   )
 }
 
+// Bare URLs in message text → clickable links. Split on the global regex,
+// test with a non-global one (a /g regex is stateful across .test calls).
+const URL_SPLIT_RE = /(https?:\/\/[^\s<>()"']+)/g
+const IS_URL_RE = /^https?:\/\//
+
+function Linkified({ text, dark }) {
+  return (
+    <>
+      {String(text).split(URL_SPLIT_RE).map((part, i) =>
+        IS_URL_RE.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={clsx(
+              'underline underline-offset-2 break-all',
+              dark ? 'text-white/90 hover:text-white' : 'text-brand-600 hover:text-brand-700'
+            )}
+          >
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  )
+}
+
 export default function Messages() {
   const { user } = useAuth()
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
@@ -168,6 +199,7 @@ export default function Messages() {
 
   const [postContext, setPostContext] = useState(null)
   const [loadingPost, setLoadingPost] = useState(false)
+  const [lightbox, setLightbox] = useState(null)   // expanded attachment url
 
   const [toast, setToast] = useState(null)
   const showToast = (text, type = 'info') => {
@@ -307,6 +339,14 @@ export default function Messages() {
     )
     return () => cancelAnimationFrame(id)
   }, [activeConv?.id, activeConv?.messages?.length, aiTyping])
+
+  // Esc closes the expanded attachment.
+  useEffect(() => {
+    if (!lightbox) return
+    const onKey = (e) => { if (e.key === 'Escape') setLightbox(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightbox])
 
   // Load all channels on mount
   useEffect(() => {
@@ -956,13 +996,18 @@ const handleSend = async () => {
                               key={i}
                               src={url}
                               alt="attachment"
-                              className="rounded-xl max-w-[220px] w-full object-cover"
+                              onClick={() => setLightbox(url)}
+                              className="rounded-xl max-w-[220px] w-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
                               loading="lazy"
                             />
                           ))}
                         </div>
                       )}
-                      {msg.text && msg.text !== '[Sent a photo]' && <div>{msg.text}</div>}
+                      {msg.text && msg.text !== '[Sent a photo]' && (
+                        <div className="whitespace-pre-wrap break-words">
+                          <Linkified text={msg.text} dark={msg.from !== 'user'} />
+                        </div>
+                      )}
                       </div>
                     </div>
                   )}
@@ -1169,6 +1214,28 @@ const handleSend = async () => {
               <X size={14} />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Expanded attachment */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[70] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt="attachment"
+            className="max-h-full max-w-full rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 p-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
+            aria-label="Close"
+          >
+            <X size={20} />
+          </button>
         </div>
       )}
 
