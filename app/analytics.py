@@ -174,7 +174,21 @@ def summary():
         )
         eligible_ai_replies = eligible_ai_replies_q.count()
 
-        failed        = max(0, eligible_inbound - eligible_ai_replies)
+        # Real AI failures only: the generator threw and fell back to a mock
+        # reply. This used to be (eligible_inbound - ai_replies), which counted
+        # normal coalescing — 3 messages answered by 1 reply scored 2
+        # "failures" — so the number climbed even when nothing was wrong.
+        from app.models import Log
+        failed = (db.session.query(func.count(Log.id))
+                  .filter(Log.source == 'ai.generator.failure')
+                  .filter(Log.created_at >= start_dt)
+                  .filter(Log.created_at < end_dt)
+                  .scalar() or 0)
+
+        # Still worth tracking separately: inbound with no AI reply. Mostly
+        # legitimate (coalesced bursts, skipped non-question comments), so it
+        # is NOT a failure count.
+        unanswered = max(0, eligible_inbound - eligible_ai_replies)
         # RESPONSE rate: of AI-eligible inbound, how much did the AI actually answer.
         response_rate = (eligible_ai_replies / eligible_inbound) if eligible_inbound else 0.0
 
@@ -225,6 +239,7 @@ def summary():
             'ai_replies_total':    ai_repl,
             'human_replies_total': human_repl,
             'failed_responses':    failed,
+            'unanswered_inbound':  unanswered,
             'avg_response_time_ms': int(avg_ms) if avg_ms is not None else None,
             'ai_response_rate':    round(response_rate, 4),   # renamed from ai_success_rate
             'ai_success_rate':     round(success_rate, 4),    # NEW — real success
