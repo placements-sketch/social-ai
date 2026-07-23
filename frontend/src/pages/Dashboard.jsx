@@ -825,7 +825,7 @@ export default function Dashboard() {
                     { label: 'Total Inbound', value: totalInbound, Icon: Inbox, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
                     { label: 'AI Replies', value: totalAI, Icon: Bot, iconBg: 'bg-brand-50', iconColor: 'text-brand-600' },
                     { label: 'Human Replies', value: totalHuman, Icon: UserRound, iconBg: 'bg-amber-50', iconColor: 'text-amber-600' },
-                    { label: 'Response Rate', value: `${responseRate}%`, Icon: Activity, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
+                    { label: 'Response Rate', value: `${((analyticsData?.kpis?.ai_response_rate || 0) * 100).toFixed(1)}%`, Icon: Activity, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
                   ]
                 })().map(({ label, value, Icon, iconBg, iconColor }) => (
                   <div key={label} className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-5 hover:border-gray-200 hover:shadow-sm transition-all min-w-0">

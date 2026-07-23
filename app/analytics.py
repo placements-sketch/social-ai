@@ -189,8 +189,29 @@ def summary():
         # legitimate (coalesced bursts, skipped non-question comments), so it
         # is NOT a failure count.
         unanswered = max(0, eligible_inbound - eligible_ai_replies)
-        # RESPONSE rate: of AI-eligible inbound, how much did the AI actually answer.
-        response_rate = (eligible_ai_replies / eligible_inbound) if eligible_inbound else 0.0
+        # RESPONSE rate at CONVERSATION level. Message-level (ai_replies /
+        # inbound) is structurally depressed by coalescing: 3 customer messages
+        # answered by 1 reply scored 33%, even though the customer was fully
+        # answered. What matters is whether the conversation got a reply.
+        inbound_conv_ids = set(
+            cid for (cid,) in eligible_msg_q
+                .with_entities(Message.conversation_id).distinct().all()
+        )
+        answered_conv_ids = set(
+            cid for (cid,) in _scope_filter(
+                db.session.query(Message.conversation_id)
+                  .filter(Message.created_at >= start_dt)
+                  .filter(Message.created_at < end_dt)
+                  .filter(Message.direction == 'outbound')
+                  .filter(Message.sender == 'ai')
+                  .filter(Message.conversation_id.in_(ai_eligible_conv_ids))
+                  .filter(~Message.channel.in_(disabled_channels)),
+                Message, user,
+            ).distinct().all()
+        )
+        response_rate = (
+            len(inbound_conv_ids & answered_conv_ids) / len(inbound_conv_ids)
+        ) if inbound_conv_ids else 0.0
 
         # ── SUCCESS rate ──────────────────────────────────────────────────
         # A conversation "succeeds" when the AI handled it WITHOUT escalating

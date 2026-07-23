@@ -129,6 +129,7 @@ export default function Customers() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segmentFilter, setSegmentFilter] = useState('all')
   const [sortBy, setSortBy] = useState('spent_desc')
+  const [granularity, setGranularity] = useState('month')
   const [page, setPage] = useState(1)
   const PER_PAGE = 25
 
@@ -142,6 +143,8 @@ export default function Customers() {
   const [error, setError] = useState(null)
   const [syncing, setSyncing] = useState(false)
 
+  const [granularity, setGranularity] = useState('month')
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
     return () => clearTimeout(t)
@@ -152,14 +155,14 @@ export default function Customers() {
   const loadOverview = useCallback(async () => {
     setLoadingOverview(true)
     try {
-      const data = await getCustomersOverview()
+      const data = await getCustomersOverview({ granularity })
       setOverview(data)
     } catch (err) {
       setError(err.message)
     } finally {
       setLoadingOverview(false)
     }
-  }, [])
+  }, [granularity])
 
   const loadSyncStatus = useCallback(async () => {
     try {
@@ -410,7 +413,8 @@ export default function Customers() {
 
           {/* Orders & revenue over time */}
           <div className="card p-5 lg:col-span-2 flex flex-col">
-            <div className="shrink-0 mb-3">
+            <div className="shrink-0 mb-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
               <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
                 <Activity size={14} className="text-brand-500" /> Orders & revenue over time
               </h2>
@@ -425,6 +429,23 @@ export default function Customers() {
                   </p>
                 )
               })()}
+              </div>
+              <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
+                {['day', 'week', 'month'].map(g => (
+                  <button
+                    key={g}
+                    onClick={() => setGranularity(g)}
+                    className={clsx(
+                      'px-2.5 py-1 rounded-md text-[11px] font-semibold capitalize transition-colors',
+                      granularity === g
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-800'
+                    )}
+                  >
+                    {g === 'day' ? 'Daily' : g === 'week' ? 'Weekly' : 'Monthly'}
+                  </button>
+                ))}
+              </div>
             </div>
             {overview.aov_by_month?.length > 0 ? (
               <div className="flex-1 min-h-[240px] -mb-2">

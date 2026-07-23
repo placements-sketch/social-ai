@@ -50,10 +50,12 @@ export function listCustomers({
   )
 }
 
-/** KPIs + segment counts + top spenders/frequent + AOV by month + top products. */
-export function getCustomersOverview() {
+/** KPIs + segment counts + top spenders/frequent + orders/revenue over time + top products. */
+export function getCustomersOverview({ granularity = 'month' } = {}) {
+  const params = new URLSearchParams()
+  params.set('granularity', granularity)
   return handle(
-    fetch(`${API_BASE}/customers/overview`, {
+    fetch(`${API_BASE}/customers/overview?${params.toString()}`, {
       method: 'GET',
       headers: authHeaders(),
     })

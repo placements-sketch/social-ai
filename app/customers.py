@@ -304,16 +304,19 @@ def customers_overview():
     )
     segment_counts = {seg: count for seg, count in segment_rows if seg}
 
-    # ── Orders & revenue by month, all time ─────────────────────────────
-    # Key name kept as `aov_by_month` for backwards compatibility; it now
-    # carries revenue and order counts too, for the combo chart.
+    # ── Orders & revenue over time ──────────────────────────────────────
+    # Granularity comes from the UI toggle. Whitelisted before it reaches the
+    # SQL string — date_trunc can't take a bound parameter for its unit.
+    gran = (request.args.get('granularity') or 'month').lower()
+    if gran not in ('day', 'week', 'month'):
+        gran = 'month'
+
     aov_by_month = []
     try:
-        month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-        rows = db.session.execute(db.text("""
-            SELECT to_char(date_trunc('month', order_date), 'YYYY-MM') AS ym,
-                   COUNT(*)                       AS orders,
-                   COALESCE(SUM(total), 0)        AS revenue
+        rows = db.session.execute(db.text(f"""
+            SELECT date_trunc('{gran}', order_date) AS bucket,
+                   COUNT(*)                        AS orders,
+                   COALESCE(SUM(total), 0)         AS revenue
             FROM orders_cache
             WHERE order_date IS NOT NULL
               AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
@@ -323,9 +326,10 @@ def customers_overview():
         for r in rows:
             orders_n = int(r[1] or 0)
             revenue = ex_vat(r[2])
-            y, m = r[0].split('-')
+            bucket = r[0]
+            label = bucket.strftime('%b %y') if gran == 'month' else bucket.strftime('%d %b %y')
             aov_by_month.append({
-                'month':   f"{month_names[int(m) - 1]} {y[2:]}",
+                'month':   label,
                 'orders':  orders_n,
                 'revenue': round(revenue),
                 'aov':     round(revenue / orders_n) if orders_n else 0,
