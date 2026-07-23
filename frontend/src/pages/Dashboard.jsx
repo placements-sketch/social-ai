@@ -98,6 +98,50 @@ function ActivityItem({ item }) {
   )
 }
 
+// Extracted so useCountAnimation is called once, unconditionally, at the top
+// level of a component. Calling it inside .map() + an if/else (as before)
+// breaks the Rules of Hooks — the animated value stopped re-targeting when
+// the period filter changed, so the KPI cards looked frozen.
+function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, kpis, periodLabel }) {
+  const prev = kpis.previous || {}
+  const currentValue = kpiKey ? (kpis[kpiKey] ?? 0) : 0
+  const previousValue = kpiKey ? (prev[kpiKey] ?? 0) : 0
+
+  const animatedValue = useCountAnimation(
+    isPercentage ? currentValue * 100 : currentValue,
+    2000,
+    !!isPercentage
+  )
+
+  const displayValue = isPercentage ? `${animatedValue.toFixed(1)}%` : animatedValue
+
+  const change = currentValue - previousValue
+  const arrow = change > 0 ? '↑' : change < 0 ? '↓' : '→'
+  const colorClass =
+    change > 0 ? 'text-green-600' :
+    change < 0 ? 'text-red-600'   :
+                 'text-gray-500'
+  const changeDisplay = isPercentage
+    ? `${(change * 100).toFixed(1)}%`
+    : Math.abs(change)
+
+  return (
+    <div className="stat-card min-w-0">
+      <div className="flex items-start justify-between gap-2">
+        <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', bg)}>
+          <Icon size={18} className={color} />
+        </div>
+        <span className={`text-[10px] font-semibold whitespace-nowrap ${colorClass}`}>
+          {arrow} {changeDisplay}
+        </span>
+      </div>
+      <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mt-2 tabular-nums truncate">{displayValue}</p>
+      <p className="text-sm text-gray-500 font-semibold truncate">{label}</p>
+      <p className="text-[10px] text-gray-400 truncate">vs {periodLabel}</p>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [analyticsData, setAnalyticsData] = useState(null)
   const [systemAlerts, setSystemAlerts] = useState([])
@@ -453,58 +497,14 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCardsData.map(({ label, value, icon: Icon, color, bg, kpiKey, isPercentage }) => {
-          // Current vs previous from the analytics response
-          const kpis = analyticsData?.kpis || {}
-          const prev = kpis.previous || {}
-          const currentValue = kpiKey ? (kpis[kpiKey] ?? 0) : 0
-          const previousValue = kpiKey ? (prev[kpiKey] ?? 0) : 0
-
-          // Use animation for numeric and percentage values
-          let animatedValue = 0
-          if (isPercentage) {
-            animatedValue = useCountAnimation(currentValue * 100, 2000, true)
-          } else {
-            animatedValue = useCountAnimation(currentValue)
-          }
-
-          // Display value
-          let displayValue = value
-          if (isPercentage) {
-            displayValue = `${animatedValue.toFixed(1)}%`
-          } else {
-            displayValue = animatedValue
-          }
-
-          // Change calculation
-          const change = currentValue - previousValue
-          const arrow = change > 0 ? '↑' : change < 0 ? '↓' : '→'
-          const colorClass =
-            change > 0 ? 'text-green-600' :
-            change < 0 ? 'text-red-600'   :
-                         'text-gray-500'
-
-          // Format change display
-          const changeDisplay = isPercentage
-            ? `${(change * 100).toFixed(1)}%`
-            : Math.abs(change)
-
-          return (
-            <div key={label} className="stat-card min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', bg)}>
-                  <Icon size={18} className={color} />
-                </div>
-                <span className={`text-[10px] font-semibold whitespace-nowrap ${colorClass}`}>
-                  {arrow} {changeDisplay}
-                </span>
-              </div>
-              <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mt-2 tabular-nums truncate">{displayValue}</p>
-              <p className="text-sm text-gray-500 font-semibold truncate">{label}</p>
-              <p className="text-[10px] text-gray-400 truncate">vs {PREVIOUS_LABELS[period]}</p>
-            </div>
-          )
-        })}
+        {statCardsData.map((card) => (
+          <StatCard
+            key={`${card.label}-${period}`}
+            {...card}
+            kpis={analyticsData?.kpis || {}}
+            periodLabel={PREVIOUS_LABELS[period]}
+          />
+        ))}
       </div>
 
       {/* Channel Performance */}
