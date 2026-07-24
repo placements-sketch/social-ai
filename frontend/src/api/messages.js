@@ -202,3 +202,13 @@ export function fetchInstagramMedia(mediaId) {
     })
   )
 }
+
+/** Org settings — used here to read the global AI master switch. */
+export function getAppSettings() {
+  return handle(
+    fetch(`${API_BASE}/settings`, {
+      method: 'GET',
+      headers: authHeaders(),
+    })
+  )
+}

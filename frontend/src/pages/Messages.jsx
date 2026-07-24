@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
   assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
-  fetchInstagramMedia,
+  fetchInstagramMedia, getAppSettings,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -202,6 +202,24 @@ export default function Messages() {
   const [lightbox, setLightbox] = useState(null)   // expanded attachment url
 
   const [toast, setToast] = useState(null)
+
+  // Global AI master switch (Settings → Automated AI replies). When it's off
+  // every conversation behaves as AI-off regardless of its own flag, so the
+  // manual reply bar must appear. Re-checked on a slow interval so flipping
+  // the switch reaches open tabs without a reload.
+  const [aiGloballyOff, setAiGloballyOff] = useState(false)
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const d = await getAppSettings()
+        setAiGloballyOff(d?.settings?.ai?.enabled === false)
+      } catch { /* leave as-is */ }
+    }
+    check()
+    const t = setInterval(check, 30000)
+    return () => clearInterval(t)
+  }, [])
+
   const showToast = (text, type = 'info') => {
     setToast({ text, type })
     setTimeout(() => setToast(t => (t && t.text === text ? null : t)), 5000)
@@ -427,6 +445,10 @@ export default function Messages() {
     ? conversations.filter(c => attentionInfo(c) !== null)
     : conversations
 
+  // Effective AI state for the open conversation — the global master switch
+  // overrides the per-conversation flag.
+  const aiActive = !!activeConv?.ai_enabled && !aiGloballyOff
+
   // ── Toggle AI for the active conversation ─────────────────────────────────
   const handleToggleAI = async () => {
     if (!activeConv) return
@@ -489,6 +511,9 @@ const handleSend = async () => {
           : c))
       setReplyText('')
       setReplyContext(null)
+      if (data.delivered === false) {
+        showToast('Saved, but Instagram did not accept it — the customer has NOT received this.', 'warning')
+      }
     } catch (err) {
       setConvError(err.message)
     } finally {
@@ -809,21 +834,24 @@ const handleSend = async () => {
               {/* AI Toggle button */}
               <button
                 onClick={handleToggleAI}
+                disabled={aiGloballyOff}
+                title={aiGloballyOff ? 'AI is switched off globally in Settings' : undefined}
                 className={clsx(
-                  'text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap',
-                  activeConv.ai_enabled
+                  'text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed',
+                  aiActive
                     ? 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
                     : 'border-amber-300 bg-amber-50 text-amber-600'
                 )}
               >
-                <span className="sm:hidden">{activeConv.ai_enabled ? '⚙️' : '⚠️'}</span>
-                <span className="hidden sm:inline">{activeConv.ai_enabled ? 'Disable AI' : '⚠ AI Off'}</span>
+                <span className="sm:hidden">{aiActive ? '⚙️' : '⚠️'}</span>
+                <span className="hidden sm:inline">{aiActive ? 'Disable AI' : '⚠ AI Off'}</span>
               </button>
 
-              {/* AI Off indicator badge — only show when AI is disabled */}
-              {!activeConv.ai_enabled && (
+              {!aiActive && (
                 <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 shrink-0">
-                  <span className="text-amber-600 text-xs font-semibold">AI Disabled</span>
+                  <span className="text-amber-600 text-xs font-semibold">
+                    {aiGloballyOff ? 'AI Off (global)' : 'AI Disabled'}
+                  </span>
                 </div>
               )}
 
@@ -1019,7 +1047,7 @@ const handleSend = async () => {
                     {/* Reply button - always available for all messages */}
                     <button 
                       onClick={() => {
-                        if (activeConv.ai_enabled) {
+                        if (aiActive) {
                           confirm({
                             title: 'AI is Enabled',
                             message: 'You cannot reply manually while AI is enabled for this conversation. Disable AI first.',
@@ -1120,7 +1148,7 @@ const handleSend = async () => {
           </div>
 
           {/* Manual reply bar — shown when AI is disabled for this conversation */}
-          {activeConv && !activeConv.ai_enabled && (
+          {activeConv && !aiActive && (
             <div className="border-t border-gray-100 bg-white">
               {/* Reply context bar */}
               {replyContext && (

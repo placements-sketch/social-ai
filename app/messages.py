@@ -285,6 +285,8 @@ def send_reply(conversation_id):
 
     db.session.commit()
 
+    delivered = True   # flipped to False if the channel dispatch fails
+
     # Dispatch the reply to the customer via the channel API (IG/FB/WA).
     # Same path the AI uses. Failures are logged but don't roll back the DB —
     # the agent's reply is still recorded, and they can retry from the UI.
@@ -312,7 +314,18 @@ def send_reply(conversation_id):
             if new_ext_id:
                 reply.external_id = new_ext_id
                 db.session.commit()
+            else:
+                # _dispatch_reply returns None on failure without raising, so
+                # the except below never fires. Without this the agent sees a
+                # sent-looking message the customer never received.
+                delivered = False
+                from app.utils.logger import log_event
+                log_event("error", "messages.send_reply.not_delivered",
+                          f"Manual reply for conv {conv.id} was NOT delivered to the channel",
+                          payload={"conversation_id": conv.id, "channel": conv.channel},
+                          conversation_id=conv.id)
     except Exception as e:
+        delivered = False
         from app.utils.logger import log_event
         log_event("error", "messages.send_reply.dispatch",
                   f"Failed to dispatch manual reply for conv {conv.id}: {e}",
@@ -330,6 +343,7 @@ def send_reply(conversation_id):
     return jsonify({
         'message': reply.to_dict(),
         'conversation': conv.to_dict(include_messages=False),
+        'delivered': delivered,
     }), 201
 
 
