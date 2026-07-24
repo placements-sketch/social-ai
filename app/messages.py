@@ -15,7 +15,7 @@ Foundation fields stamped here:
   - Conversation.resolved_at / resolved_by  ← stamped when status flips to 'resolved'
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -258,6 +258,21 @@ def send_reply(conversation_id):
         return jsonify({'error': f'Invalid sender. Must be one of: {", ".join(sorted(VALID_SENDERS))}'}), 400
 
     now = datetime.utcnow()
+
+    # Idempotency: an identical outbound on this conversation within the last
+    # few seconds is a duplicate submit, not a genuine repeat. Return the
+    # existing row instead of creating a second one.
+    recent_dupe = (Message.query
+        .filter_by(conversation_id=conv.id, direction='outbound', content=content)
+        .filter(Message.created_at >= now - timedelta(seconds=10))
+        .first())
+    if recent_dupe:
+        return jsonify({
+            'message': recent_dupe.to_dict(),
+            'conversation': conv.to_dict(include_messages=False),
+            'delivered': True,
+            'deduped': True,
+        }), 201
 
     reply = Message(
         conversation_id=conv.id,

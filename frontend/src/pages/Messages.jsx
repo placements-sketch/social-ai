@@ -186,6 +186,10 @@ export default function Messages() {
 
   const [replyText, setReplyText]       = useState('')
   const [sending, setSending]           = useState(false)
+  // Refs update synchronously; `sending` state doesn't close the gate fast
+  // enough when two triggers land in the same tick (double Enter, or Enter
+  // plus the button), which sent the same reply twice.
+  const sendingRef = useRef(false)
   const [isInitialLoad, setIsInitialLoad] = useState(true) // flag for auto-select on first load
 
   // Assignment UI
@@ -478,7 +482,8 @@ export default function Messages() {
   // ── Send a manual reply ───────────────────────────────────────────────────
 const handleSend = async () => {
     const content = replyText.trim()
-    if (!content || !activeConv || sending) return
+    if (!content || !activeConv || sendingRef.current) return
+    sendingRef.current = true
     setSending(true)
     try {
       // If replying to a specific message, prepend a quote line so the
@@ -517,6 +522,7 @@ const handleSend = async () => {
     } catch (err) {
       setConvError(err.message)
     } finally {
+      sendingRef.current = false
       setSending(false)
     }
   }
