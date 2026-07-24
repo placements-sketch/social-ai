@@ -656,7 +656,24 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
     The question-gate exists because comments are PUBLIC. We don't want
     the bot replying to "love this!" or pure emoji praise on a post.
     DMs reply to everything (private 1:1, expected behavior).
+
+    A global master switch (settings → "ai.enabled") is checked FIRST and
+    overrides everything below.
     """
+    # Global kill switch. Deliberately FAILS CLOSED: if the setting can't be
+    # read we stay silent rather than risk auto-replying to real customers
+    # while the platform is meant to be manual-only.
+    try:
+        from app.settings import get_section
+        if not get_section("ai").get("enabled", True):
+            log_event("info", "services.ai_disabled_globally",
+                      "AI master switch is OFF — no automated reply",
+                      payload={"channel": channel, "user_id": user_id})
+            return False
+    except Exception as e:
+        log_event("error", "services.ai_switch_unreadable",
+                  f"Could not read AI master switch, staying silent: {e}")
+        return False
     try:
         from app.models import Channel, Conversation, User
         from app.utils.intent import is_question

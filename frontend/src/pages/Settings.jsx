@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Settings2, Sliders, Bell, Plug, Store, Truck, AlertTriangle, Save, Loader2, Zap, Instagram, ShoppingBag, Mail, RefreshCw, MapPin, Plus, Trash2, Send, Download } from 'lucide-react'
+import { Settings2, Sliders, Bell, Plug, Store, Truck, AlertTriangle, Save, Loader2, Zap, Instagram, ShoppingBag, Mail, RefreshCw, MapPin, Plus, Trash2, Send, Download, Bot } from 'lucide-react'
 import clsx from 'clsx'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -49,6 +49,10 @@ export default function Settings() {
         <h1 className="text-2xl font-bold text-gray-900 leading-tight">Settings</h1>
         <p className="text-sm text-gray-500">Organisation-wide configuration for your assistant.</p>
       </div>
+
+      {!loading && !error && (
+        <AIMasterSwitch settings={settings} setSettings={setSettings} />
+      )}
 
       <div className="flex flex-col md:flex-row gap-5">
         {/* Tab rail */}
@@ -100,6 +104,98 @@ export default function Settings() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function AIMasterSwitch({ settings, setSettings }) {
+  const enabled = settings?.ai?.enabled !== false
+  const [saving, setSaving] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const apply = async (next) => {
+    setMsg(null); setSaving(true); setConfirming(false)
+    try {
+      const res = await fetch(`${API_BASE}/settings`, {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ ai: { enabled: next } }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed to save')
+      setSettings(d.settings)
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message })
+    } finally { setSaving(false) }
+  }
+
+  // Turning ON is the risky direction — it starts auto-replying to real
+  // customers — so that one asks first. Turning OFF is immediate.
+  const onToggle = () => (enabled ? apply(false) : setConfirming(true))
+
+  return (
+    <div className={clsx(
+      'rounded-2xl border p-5 sm:p-6 transition-colors',
+      enabled ? 'bg-white border-gray-200' : 'bg-amber-50 border-amber-300'
+    )}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
+            enabled ? 'bg-brand-50 text-brand-600' : 'bg-amber-100 text-amber-700')}>
+            <Bot size={18} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-gray-900">Automated AI replies</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {enabled
+                ? 'The assistant is replying to customers automatically on all channels.'
+                : 'OFF — messages still arrive in the inbox, but every reply is manual.'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onToggle}
+          disabled={saving}
+          className={clsx(
+            'relative inline-flex w-12 h-6 rounded-full transition-colors shrink-0 disabled:opacity-50',
+            enabled ? 'bg-brand-600' : 'bg-gray-300'
+          )}
+          aria-label="Toggle automated AI replies"
+        >
+          <span className={clsx(
+            'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+            enabled && 'translate-x-6'
+          )} />
+        </button>
+      </div>
+
+      {confirming && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <p className="text-xs text-gray-700">
+            Turn automated replies back on? The assistant will start answering real
+            customers on every connected channel immediately.
+          </p>
+          <div className="flex gap-2 mt-2.5">
+            <button onClick={() => apply(true)} disabled={saving}
+              className="text-xs font-semibold px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
+              {saving ? 'Turning on…' : 'Yes, turn AI on'}
+            </button>
+            <button onClick={() => setConfirming(false)}
+              className="text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!enabled && !confirming && (
+        <p className="text-xs text-amber-800 mt-3 pt-3 border-t border-amber-200">
+          Every DM and comment now needs a human reply. Instagram's 24-hour window
+          still applies — after that you can't reply until the customer writes again.
+        </p>
+      )}
+
+      {msg && <p className="text-xs text-red-600 mt-2">{msg.text}</p>}
     </div>
   )
 }

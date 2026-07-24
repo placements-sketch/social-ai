@@ -40,6 +40,11 @@ DEFAULTS = {
         "discord_webhook_url": "",
         "discord_min_severity": "warning",
     },
+    "ai": {
+        # Master switch. When False, NO automated reply is sent on any channel.
+        # Inbound is still received, stored and displayed — agents reply by hand.
+        "enabled": True,
+    },
 }
 
 def _merge(base: dict, override: dict) -> dict:
