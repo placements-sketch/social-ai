@@ -143,8 +143,6 @@ export default function Customers() {
   const [error, setError] = useState(null)
   const [syncing, setSyncing] = useState(false)
 
-  const [granularity, setGranularity] = useState('month')
-
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
     return () => clearTimeout(t)
