@@ -22,7 +22,7 @@ const sources = [
   { value: 'api', label: 'API' },
 ]
 
-export default function Logs() {
+export default function Logs({ embedded = false }) {
   const [userRole, setUserRole] = useState(null)
   const [logType, setLogType] = useState(null) // Start as null, set after role check
   const [logs, setLogs] = useState([])

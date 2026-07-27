@@ -23,6 +23,7 @@ import Profile from './pages/Profile'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import CustomerConfig from './pages/CustomerConfig'
+import Activity from './pages/Activity'
 
 export default function App() {
   return (
@@ -60,8 +61,9 @@ export default function App() {
                 }
               />
               <Route path="analytics" element={<Analytics />} />
-              <Route path="logs" element={<Logs />} />
-              <Route path="notifications" element={<Notifications />} />
+              <Route path="activity" element={<Activity />} />
+              <Route path="notifications" element={<Navigate to="/activity" replace />} />
+              <Route path="logs" element={<Navigate to="/activity?tab=logs" replace />} />
               <Route path="profile" element={<Profile />} />
 
               {/* Admin + Supervisor */}

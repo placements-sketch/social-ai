@@ -129,7 +129,7 @@ function NotificationRow({ notif, onClick }) {
   )
 }
 
-export default function Notifications() {
+export default function Notifications({ embedded = false }) {
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -206,11 +206,11 @@ export default function Notifications() {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-5xl mx-auto">
+    <div className={embedded ? 'space-y-6 w-full' : 'space-y-6 w-full max-w-5xl mx-auto'}>
       {/* Header */}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
+          {!embedded && <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>}
           <p className="text-sm text-gray-500 mt-0.5">
             {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
             <span className="text-gray-300 mx-1.5">·</span>
