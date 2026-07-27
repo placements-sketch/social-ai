@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, MessageSquare, Package, Bot,
-  Zap, Radio, BarChart2, ScrollText, Settings, Sparkles,
+  Zap, BarChart2, ScrollText, Settings, Sparkles,
   ChevronLeft, ChevronRight, ChevronDown, X, Users, UserCircle, Bell,
 } from 'lucide-react'
 import PresenceDot from './PresenceDot'
@@ -11,23 +11,30 @@ import { useAuth } from '../context/AuthContext'
 import szLogo from '../images/sz.png'
 
 const allNav = [
-  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard',          roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
-  { to: '/messages',   icon: MessageSquare,   label: 'Messages',            roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
+  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
+  { to: '/messages',   icon: MessageSquare,   label: 'Messages',  roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
+
   { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
     children: [
       { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
     ] },
-  { to: '/products',         icon: Package,         label: 'Products',            roles: ['admin', 'supervisor'], group: 'Business' },
-  { to: '/analytics',  icon: BarChart2,       label: 'Analytics',           roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
+  { to: '/products',  icon: Package,   label: 'Products',  roles: ['admin', 'supervisor'], group: 'Business' },
+  { to: '/analytics', icon: BarChart2, label: 'Analytics', roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
-  { to: '/channels',   icon: Radio,           label: 'Channels',            roles: ['admin'], group: 'Setup' },
-  { to: '/ai',         icon: Bot,             label: 'AI Settings',         roles: ['admin'], group: 'Setup' },
-  { to: '/automation', icon: Zap,             label: 'Automation',          roles: ['admin'], group: 'Setup' },
+  { to: '/ai', icon: Bot, label: 'AI & Automation', roles: ['admin'], group: 'Admin',
+    children: [
+      { to: '/automation', label: 'Automation Rules', roles: ['admin'] },
+    ] },
+  { to: '/users',    icon: Users,    label: 'Users',    roles: ['admin'], group: 'Admin' },
+  { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin'], group: 'Admin',
+    children: [
+      { to: '/channels', label: 'Channels', roles: ['admin'] },
+    ] },
 
-  { to: '/logs',          icon: ScrollText,      label: 'Logs',          roles: ['admin', 'agent', 'supervisor'], group: 'System' },
-  { to: '/notifications', icon: Bell,            label: 'Notifications', roles: ['admin', 'agent', 'supervisor'], group: 'System' },
-  { to: '/users',         icon: Users,           label: 'Users',         roles: ['admin'], group: 'System' },
-  { to: '/settings',      icon: Settings,        label: 'Settings',      roles: ['admin'], group: 'System' },
+  { to: '/notifications', icon: Bell, label: 'Activity', roles: ['admin', 'agent', 'supervisor'], group: 'System',
+    children: [
+      { to: '/logs', label: 'System Logs', roles: ['admin', 'agent', 'supervisor'] },
+    ] },
 ]
 
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
@@ -117,11 +124,11 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       {/* ── Nav links ── */}
       <nav
         className={clsx(
-          'flex-1 min-h-0 py-4 lg:py-5 overflow-hidden',
+          'flex-1 min-h-0 py-4 lg:py-5 overflow-y-auto overflow-x-hidden hide-scrollbar',
           isMobile ? 'px-3' : (collapsed ? 'md:px-2 px-3' : 'px-3')
         )}
       >
-        {['Core', 'Business', 'Setup', 'System'].map((groupName, idx) => {
+        {['Core', 'Business', 'Admin', 'System'].map((groupName, idx) => {
           const groupItems = nav.filter(item => item.group === groupName)
           if (groupItems.length === 0) return null
 
