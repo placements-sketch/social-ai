@@ -17,7 +17,7 @@ const TABS = [
   { id: 'danger',        label: 'Danger zone',          icon: AlertTriangle },
 ]
 
-export default function Settings() {
+export default function Settings({ embedded = false }) {
   const [tab, setTab] = useState('handoff')
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
