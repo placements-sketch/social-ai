@@ -24,6 +24,8 @@ import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import CustomerConfig from './pages/CustomerConfig'
 import Activity from './pages/Activity'
+import AIAndAutomation from './pages/AIAndAutomation'
+import SettingsAndChannels from './pages/SettingsAndChannels'
 
 export default function App() {
   return (
@@ -99,34 +101,20 @@ export default function App() {
                 path="ai"
                 element={
                   <ProtectedRoute requiredRole={['admin']}>
-                    <AISettings />
+                    <AIAndAutomation />
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="automation"
-                element={
-                  <ProtectedRoute requiredRole={['admin']}>
-                    <Automation />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="channels"
-                element={
-                  <ProtectedRoute requiredRole={['admin']}>
-                    <Channels />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="automation" element={<Navigate to="/ai?tab=automation" replace />} />
               <Route
                 path="settings"
                 element={
                   <ProtectedRoute requiredRole={['admin']}>
-                    <Settings />
+                    <SettingsAndChannels />
                   </ProtectedRoute>
                 }
               />
+              <Route path="channels" element={<Navigate to="/settings?tab=channels" replace />} />
               <Route
                 path="users"
                 element={

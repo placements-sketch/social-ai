@@ -23,12 +23,12 @@ const allNav = [
 
   { to: '/ai', icon: Bot, label: 'AI & Automation', roles: ['admin'], group: 'Admin',
     children: [
-      { to: '/automation', label: 'Automation Rules', roles: ['admin'] },
+      { to: '/ai?tab=automation', label: 'Automation Rules', roles: ['admin'] },
     ] },
   { to: '/users',    icon: Users,    label: 'Users',    roles: ['admin'], group: 'Admin' },
   { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin'], group: 'Admin',
     children: [
-      { to: '/channels', label: 'Channels', roles: ['admin'] },
+      { to: '/settings?tab=channels', label: 'Channels', roles: ['admin'] },
     ] },
 
   { to: '/notifications', icon: Bell, label: 'Activity', roles: ['admin', 'agent', 'supervisor'], group: 'System',

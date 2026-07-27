@@ -239,7 +239,7 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
-export default function Channels() {
+export default function Channels({ embedded = false }) {
   const [channels, setChannels]           = useState([])
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
@@ -382,14 +382,16 @@ export default function Channels() {
   const totalCount  = channels.length
 
   return (
-    <div className="space-y-6 w-full max-w-7xl mx-auto">
+    <div className={embedded ? 'space-y-6 w-full' : 'space-y-6 w-full max-w-7xl mx-auto'}>
 
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-end justify-between gap-4">
+        {!embedded && (
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Channels</h1>
           <p className="text-sm text-gray-500 mt-0.5">Manage connected platforms and monitor their real-time status</p>
         </div>
+        )}
         {/* Summary pill */}
         <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 shrink-0">
           <span className="w-2 h-2 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4,0,0.6,1) infinite' }} />

@@ -22,7 +22,7 @@ const RESPONSE_RULES = [
   { key: 'always_offer_alternatives_when_out_of_stock', label: 'Suggest alternatives when product is out of stock' },
 ]
 
-export default function AISettings() {
+export default function AISettings({ embedded = false }) {
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -176,8 +176,8 @@ export default function AISettings() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Customize your AI assistant's personality and behavior</p>
+          {!embedded && <h1 className="text-2xl font-bold text-gray-900">AI Settings</h1>}
+          {!embedded && <p className="text-sm text-gray-500 mt-1">Customize your AI assistant's personality and behavior</p>}
         </div>
         <div className="flex gap-2">
           <button

@@ -45,10 +45,12 @@ export default function Settings() {
   return (
     <div className="space-y-6 w-full max-w-7xl mx-auto">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 leading-tight">Settings</h1>
-        <p className="text-sm text-gray-500">Organisation-wide configuration for your assistant.</p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 leading-tight">Settings</h1>
+          <p className="text-sm text-gray-500">Organisation-wide configuration for your assistant.</p>
+        </div>
+      )}
 
       {!loading && !error && (
         <AIMasterSwitch settings={settings} setSettings={setSettings} />
