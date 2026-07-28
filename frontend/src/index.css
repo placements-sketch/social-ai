@@ -509,3 +509,94 @@ button:not(:disabled):active,
   .stat-card:hover { transform: none; }
   button:not(:disabled):active { transform: none; }
 }
+
+/* ── Remaining light surfaces ────────────────────────────────────────────────
+   Every tint actually used in the codebase, not just the common ones. The
+   *-50 shades are ~97% lightness — on a dark card they read as white patches.
+   bg-amber-50 alone appears 42 times.                                       */
+.dark .bg-amber-50   { background-color: rgba(245, 158, 11, 0.12); }
+.dark .bg-amber-100  { background-color: rgba(245, 158, 11, 0.18); }
+.dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.12); }
+.dark .bg-pink-50    { background-color: rgba(236, 72, 153, 0.12); }
+.dark .bg-purple-100 { background-color: rgba(168, 85, 247, 0.18); }
+.dark .bg-slate-50   { background-color: var(--surface-2); }
+.dark .bg-slate-400  { background-color: #4b5563; }
+.dark .bg-teal-50    { background-color: rgba(20, 184, 166, 0.12); }
+.dark .bg-cyan-50    { background-color: rgba(6, 182, 212, 0.12); }
+.dark .bg-rose-50    { background-color: rgba(244, 63, 94, 0.12); }
+.dark .bg-sky-50     { background-color: rgba(14, 165, 233, 0.12); }
+.dark .bg-violet-50  { background-color: rgba(139, 92, 246, 0.12); }
+
+.dark .text-amber-500,  .dark .text-amber-600,
+.dark .text-amber-700,  .dark .text-amber-900  { color: #fbbf24; }
+.dark .text-emerald-600,.dark .text-emerald-700 { color: #34d399; }
+.dark .text-pink-600,   .dark .text-pink-700    { color: #f472b6; }
+.dark .text-slate-600,  .dark .text-slate-700   { color: #a3a3a3; }
+.dark .border-amber-100 { border-color: rgba(245, 158, 11, 0.22); }
+.dark .border-red-100   { border-color: rgba(239, 68, 68, 0.22); }
+.dark .border-green-100 { border-color: rgba(34, 197, 94, 0.22); }
+
+/* Translucent white washes — on dark these are haze, not highlight. Rebuild
+   them from white at much lower alpha so they read as a lift, not a panel. */
+.dark .bg-white\/90 { background-color: rgba(255, 255, 255, 0.10); }
+.dark .bg-white\/70 { background-color: rgba(255, 255, 255, 0.08); }
+.dark .bg-white\/60 { background-color: rgba(255, 255, 255, 0.07); }
+.dark .bg-white\/40 { background-color: rgba(255, 255, 255, 0.05); }
+.dark .bg-white\/20 { background-color: rgba(255, 255, 255, 0.04); }
+.dark .bg-white\/10 { background-color: rgba(255, 255, 255, 0.03); }
+.dark .bg-white\/5  { background-color: rgba(255, 255, 255, 0.02); }
+
+/* Darken the glass a touch so cards sit under their content rather than
+   competing with it. */
+.dark {
+  --glass-bg: rgba(16, 16, 16, 0.62);
+}
+
+/* ── Make the lime pop ───────────────────────────────────────────────────────
+   Brightness alone doesn't read as "pop" on dark — contrast and bloom do. The
+   hex stays #c7ea46; what changes is that brand elements now cast light.    */
+.dark {
+  --brand-glow: 0 0 0 1px rgba(199, 234, 70, 0.22), 0 6px 22px rgba(199, 234, 70, 0.28);
+}
+
+/* Primary actions bloom */
+.dark .btn-primary,
+.dark .bg-black {
+  box-shadow: var(--brand-glow);
+}
+.dark .btn-primary:hover,
+.dark .bg-black:hover {
+  background-color: #d4f25c;
+  box-shadow: 0 0 0 1px rgba(199, 234, 70, 0.35), 0 8px 30px rgba(199, 234, 70, 0.42);
+}
+
+/* Brand text sits brighter than the raw swatch so it separates from the glow */
+.dark .text-brand-500,
+.dark .text-brand-600,
+.dark .text-brand-700 { color: #d4f25c; }
+
+/* Brand tints carry more weight and a defined edge */
+.dark .bg-brand-50  { background-color: rgba(199, 234, 70, 0.16); }
+.dark .bg-brand-100 { background-color: rgba(199, 234, 70, 0.24); }
+.dark .bg-brand-500,
+.dark .bg-brand-600 { background-color: var(--brand); color: #0a0a0a; }
+.dark .border-brand-200,
+.dark .border-brand-500 { border-color: rgba(199, 234, 70, 0.45); }
+
+/* Accents and status dots glow */
+.dark .accent-line {
+  background-color: var(--brand);
+  box-shadow: 0 0 12px rgba(199, 234, 70, 0.55);
+}
+.dark .badge-primary {
+  background-color: rgba(199, 234, 70, 0.16);
+  color: #d4f25c;
+}
+
+/* Stronger ambient lime so the glass has real colour to refract */
+.dark body::before {
+  background:
+    radial-gradient(55rem 55rem at 10% -15%, rgba(199, 234, 70, 0.20), transparent 62%),
+    radial-gradient(45rem 45rem at 105% 5%,  rgba(199, 234, 70, 0.11), transparent 58%),
+    radial-gradient(40rem 40rem at 50% 115%, rgba(199, 234, 70, 0.07), transparent 60%);
+}
