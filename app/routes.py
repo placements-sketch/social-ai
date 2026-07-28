@@ -24,10 +24,36 @@ from app.services import process_message, process_inbound
 bp = Blueprint("main", __name__)
 
 
+def _candidate_app_secrets() -> list[tuple[str, str]]:
+    """
+    Every app secret that may legitimately sign events hitting this endpoint,
+    as (label, secret) pairs.
+
+    More than one Meta app points here: the Facebook-Login app
+    (META_APP_SECRET) and the Instagram-product app (IG_APP_SECRET). Each
+    signs with its OWN secret, so verifying against only one silently 403s
+    everything the other sends. META_EXTRA_APP_SECRETS accepts a
+    comma-separated list for any additional apps.
+    """
+    out, seen = [], set()
+
+    def add(label, value):
+        if value and value not in seen:
+            seen.add(value)
+            out.append((label, value))
+
+    add('META_APP_SECRET',
+        os.getenv('META_APP_SECRET') or current_app.config.get('META_APP_SECRET'))
+    add('IG_APP_SECRET', os.getenv('IG_APP_SECRET'))
+    for i, extra in enumerate(os.getenv('META_EXTRA_APP_SECRETS', '').split(',')):
+        add(f'META_EXTRA_APP_SECRETS[{i}]', extra.strip())
+    return out
+
+
 def _verify_meta_signature(request, channel_label: str) -> tuple[bool, str | None]:
     """
-    Verify the X-Hub-Signature-256 header against the raw request body
-    using HMAC-SHA256 with META_APP_SECRET.
+    Verify the X-Hub-Signature-256 header against the raw request body using
+    HMAC-SHA256, trying each configured app secret.
 
     Returns (ok, error_message). On failure, the caller should return 403
     and the helper has already created a notification + audit row.
@@ -39,9 +65,9 @@ def _verify_meta_signature(request, channel_label: str) -> tuple[bool, str | Non
     if not required:
         return True, None
 
-    app_secret = os.getenv('META_APP_SECRET') or current_app.config.get('META_APP_SECRET')
-    if not app_secret:
-        return False, 'META_APP_SECRET is not configured — cannot verify signature'
+    candidates = _candidate_app_secrets()
+    if not candidates:
+        return False, 'No app secret configured — cannot verify signature'
 
     sig_header = request.headers.get('X-Hub-Signature-256', '')
     if not sig_header.startswith('sha256='):
@@ -50,23 +76,18 @@ def _verify_meta_signature(request, channel_label: str) -> tuple[bool, str | Non
     received_sig = sig_header[len('sha256='):]
     raw_body = request.get_data(cache=True)  # cache=True so subsequent get_json() still works
 
-    expected_sig = hmac.new(
-        app_secret.encode('utf-8'),
-        raw_body,
-        hashlib.sha256,
-    ).hexdigest()
+    for label, secret in candidates:
+        expected_sig = hmac.new(secret.encode('utf-8'), raw_body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(received_sig, expected_sig):
+            # Which app signed this tells us which app is actually delivering.
+            current_app.logger.info(f"[SIG OK] {channel_label} verified via {label}")
+            return True, None
 
-    if not hmac.compare_digest(received_sig, expected_sig):
-        # Diagnostic: log first 12 chars of each so we can compare without
-        # exposing the full secret-derived hash in logs.
-        current_app.logger.warning(
-            f"[SIG MISMATCH] received={received_sig[:12]}... expected={expected_sig[:12]}... "
-            f"body_len={len(raw_body)} secret_present={bool(app_secret)} "
-            f"secret_len={len(app_secret) if app_secret else 0}"
-        )
-        return False, 'Signature mismatch'
-
-    return True, None
+    current_app.logger.warning(
+        f"[SIG MISMATCH] {channel_label} received={received_sig[:12]}... "
+        f"body_len={len(raw_body)} tried={[l for l, _ in candidates]}"
+    )
+    return False, 'Signature mismatch'
 
 
 def _reject_bad_signature(channel_label: str, reason: str):
