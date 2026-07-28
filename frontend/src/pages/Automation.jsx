@@ -287,7 +287,7 @@ export default function Automation({ embedded = false }) {
               className={clsx(
                 'card p-2 sm:p-4 transition-all cursor-grab active:cursor-grabbing',
                 draggedId === rule.id && 'opacity-40 scale-95',
-                dragOverId === rule.id && draggedId !== rule.id && 'border-2 border-brand-400 bg-brand-50'
+                dragOverId === rule.id && draggedId !== rule.id && 'border border-brand-400 bg-brand-50'
               )}
             >
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-3">

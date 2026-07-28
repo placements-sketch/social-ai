@@ -35,7 +35,7 @@ export default function Activity() {
             key={key}
             onClick={() => select(key)}
             className={clsx(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b -mb-px transition-colors',
               tab === key
                 ? 'border-brand-600 text-gray-900'
                 : 'border-transparent text-gray-500 hover:text-gray-800'

@@ -597,56 +597,55 @@ const handleSend = async () => {
   const ConvList = (
     <div className={clsx(
       'border-r border-gray-100 flex flex-col bg-white',
-      'w-full lg:w-72 lg:shrink-0',
+      'w-full lg:w-80 lg:shrink-0',
       selected ? 'hidden lg:flex' : 'flex',
     )}>
-      <div className="p-2 sm:p-2.5 border-b border-gray-100 space-y-2 sm:space-y-2">
+      <div className="px-3 pt-3 pb-2.5 space-y-2.5">
         <input
-          className="input w-full text-xs rounded-lg border border-gray-200 bg-gray-50 focus:bg-white"
+          className="input w-full text-xs rounded-xl"
           placeholder="Search conversations…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <div className="flex gap-1 overflow-x-auto pb-2 -mx-3 px-3 sm:-mx-4 sm:px-4 sm:flex-wrap sm:pb-0">
+        <div className="flex gap-1.5 overflow-x-auto hide-scrollbar sm:flex-wrap">
           {channels.map(p => (
             <button
               key={p}
               onClick={() => setChannelFilter(p)}
               className={clsx(
-                'text-xs px-2 py-1 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 sm:shrink border',
+                'text-[11px] px-2.5 py-1 rounded-full font-semibold transition-all whitespace-nowrap shrink-0 sm:shrink',
                 channelFilter === p
-                  ? 'bg-black text-white border-black'
-                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                  ? 'bg-brand-500 text-black'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               )}
             >
               {p === 'all' ? 'All' : platformLabel(p)}
             </button>
           ))}
         </div>
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg p-1.5 border border-amber-100">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 min-w-0">
-              <span className="text-sm shrink-0">⚠️</span>
-              <span className="text-xs font-semibold text-amber-900">Needs Attention</span>
-            </div>
-            <button
-              onClick={() => setAttentionFilter(!attentionFilter)}
-              className={clsx(
-                'relative inline-flex w-7 h-3.5 rounded-full transition-all duration-300 shrink-0'
-              )}
-              style={{
-                backgroundColor: attentionFilter ? 'var(--toggle-on)' : 'var(--toggle-off)'
-              }}
-            >
-              <span
-                className="absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-all duration-300"
-                style={{ transform: attentionFilter ? 'translateX(10px)' : 'translateX(0px)' }}
-              />
-            </button>
-          </div>
-        </div>
+        <button
+          onClick={() => setAttentionFilter(!attentionFilter)}
+          className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl hover:bg-gray-50 transition-colors"
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full shrink-0 transition-colors',
+              attentionFilter ? 'bg-amber-400' : 'bg-gray-300'
+            )} />
+            <span className="text-xs font-medium text-gray-600">Needs attention</span>
+          </span>
+          <span
+            className="relative inline-flex w-8 h-4 rounded-full transition-all duration-300 shrink-0"
+            style={{ backgroundColor: attentionFilter ? 'var(--toggle-on)' : 'var(--toggle-off)' }}
+          >
+            <span
+              className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-300"
+              style={{ transform: attentionFilter ? 'translateX(16px)' : 'translateX(0px)' }}
+            />
+          </span>
+        </button>
       </div>
-      <div className="flex-1 overflow-y-auto hide-scrollbar">
+      <div className="flex-1 overflow-y-auto hide-scrollbar px-2 pb-3 space-y-1">
         {loadingList && (
           <div className="p-2 sm:p-3 space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -673,46 +672,69 @@ const handleSend = async () => {
             key={conv.id}
             onClick={() => openConversation(conv)}
             className={clsx(
-              'w-full text-left px-2 sm:px-3 py-1.5 sm:py-2 border-b border-gray-100 hover:bg-gray-50 transition-all relative group border-l-4',
-              attn ? (attn.urgent ? 'border-l-red-500' : 'border-l-amber-400')
-                   : (isActive ? 'border-l-black' : 'border-l-transparent'),
-              isActive && 'bg-blue-50'
+              'w-full text-left rounded-2xl px-3 py-3 transition-all relative group',
+              isActive
+                ? 'bg-brand-500/10 ring-1 ring-brand-500/30'
+                : 'hover:bg-gray-50'
             )}
           >
-            <div className="flex items-start justify-between gap-1.5 mb-1">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <div className="flex items-center justify-center w-5 h-5 rounded-lg bg-gray-100 group-hover:bg-gray-200 transition-colors shrink-0">
+            <div className="flex items-start gap-2.5">
+              {/* Avatar. Urgency shows as a dot on the corner rather than a
+                  left rule — keeps the row edge clean. */}
+              <div className="relative shrink-0">
+                <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center transition-colors">
                   {platformIcon(conv.platform)}
                 </div>
-                <span className="text-xs font-semibold text-gray-900 truncate">
-                  {conv.handle}
-                </span>
-                {conv.platform && conv.platform.includes('comment') && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 uppercase tracking-wide shrink-0">
-                    Comment
-                  </span>
+                {attn && (
+                  <span className={clsx(
+                    'absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full',
+                    attn.urgent ? 'bg-red-500' : 'bg-amber-400'
+                  )} />
                 )}
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{conv.last_message_at ? formatTimeAgo(conv.last_message_at) : conv.time}</span>
-                {conv.unread_count > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {conv.unread_count > 99 ? '99+' : conv.unread_count}
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className={clsx(
+                    'text-[13px] truncate',
+                    conv.unread_count > 0 ? 'font-bold text-gray-900' : 'font-semibold text-gray-900'
+                  )}>
+                    {conv.handle}
                   </span>
-                )}
-              </div>
-            </div>
-            <p className="text-xs text-gray-600 truncate mb-1.5 line-clamp-1">{conv.lastMessage}</p>
-            <div className="flex items-center gap-1 flex-wrap">
-              {attn?.badge && (
-                <span className={clsx(
-                  'text-[10px] font-bold px-1.5 py-0.5 rounded-md',
-                  attn.urgent ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  <span className="text-[11px] text-gray-400 shrink-0 whitespace-nowrap">
+                    {conv.last_message_at ? formatTimeAgo(conv.last_message_at) : conv.time}
+                  </span>
+                </div>
+
+                <p className={clsx(
+                  'text-xs truncate mt-1',
+                  conv.unread_count > 0 ? 'text-gray-700' : 'text-gray-500'
                 )}>
-                  {attn.badge}
-                </span>
-              )}
-              {handlerBadge(conv)}
+                  {conv.lastMessage}
+                </p>
+
+                <div className="flex items-center gap-1.5 mt-2">
+                  {conv.platform && conv.platform.includes('comment') && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700 uppercase tracking-wide shrink-0">
+                      Comment
+                    </span>
+                  )}
+                  {attn?.badge && (
+                    <span className={clsx(
+                      'text-[10px] font-bold px-1.5 py-0.5 rounded-md',
+                      attn.urgent ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                    )}>
+                      {attn.badge}
+                    </span>
+                  )}
+                  {handlerBadge(conv)}
+                  {conv.unread_count > 0 && (
+                    <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-brand-500 text-black text-[10px] font-bold flex items-center justify-center shrink-0">
+                      {conv.unread_count > 99 ? '99+' : conv.unread_count}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </button>
           )
@@ -1158,7 +1180,7 @@ const handleSend = async () => {
             <div className="border-t border-gray-100 bg-white">
               {/* Reply context bar */}
               {replyContext && (
-                <div className="px-3 md:px-4 pt-2 pb-1.5 flex items-start gap-2 border-l-2 border-brand-500 bg-brand-50/40 mx-2 sm:mx-3 md:mx-4 mt-2 rounded-tr-md">
+                <div className="px-3 md:px-4 pt-2 pb-1.5 flex items-start gap-2 border-l border-brand-500 bg-brand-50/40 mx-2 sm:mx-3 md:mx-4 mt-2 rounded-tr-md">
                   <div className="flex-1 min-w-0">
                     <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wide mb-0.5">
                       Replying to {replyContext.from === 'user' ? 'Customer' : replyContext.from === 'ai' ? 'AI' : 'Agent'}
@@ -1231,7 +1253,7 @@ const handleSend = async () => {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 md:px-6 lg:px-8 pt-3 lg:pt-4 pb-2 bg-white shrink-0">
-        <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Messages</h1>
+        <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Inbox</h1>
         <p className="text-xs lg:text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
       </div>
 

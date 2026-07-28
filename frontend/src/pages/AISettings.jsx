@@ -222,7 +222,7 @@ export default function AISettings({ embedded = false }) {
               key={tone}
               onClick={() => setFormData(prev => ({ ...prev, tone }))}
               className={clsx(
-                'px-2 py-1.5 rounded-lg text-xs font-semibold border-2 transition-all',
+                'px-2 py-1.5 rounded-lg text-xs font-semibold border transition-all',
                 formData.tone === tone
                   ? 'bg-brand-50 border-brand-500 text-brand-600'
                   : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'

@@ -262,7 +262,7 @@ function DangerPanel({ settings, setSettings }) {
                 <p className="text-xs text-red-800">Type <span className="font-bold font-mono">RESET</span> to confirm.</p>
                 <div className="flex flex-wrap gap-2">
                   <input
-                    className="flex-1 min-w-[120px] px-3 py-2 rounded-lg border border-red-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-400/40"
+                    className="flex-1 min-w-[120px] px-3 py-2 rounded-lg border border-red-300 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-red-400/40"
                     value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="RESET"
                   />
                   <button onClick={doReset} disabled={confirmText !== 'RESET' || resetting}
@@ -341,7 +341,7 @@ function HandoffPanel({ settings, setSettings }) {
   const [msg, setMsg] = useState(null)
 
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition'
+  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
 
   const save = async () => {
     setMsg(null)
@@ -427,7 +427,7 @@ function BusinessPanel({ settings, setSettings }) {
   const [msg, setMsg] = useState(null)
 
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition'
+  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
 
   const save = async () => {
     setMsg(null)
@@ -550,7 +550,7 @@ function DeliveryPanel({ settings, setSettings }) {
   const [msg, setMsg] = useState(null)
 
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition'
+  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
 
   const updateZone = (i, field, val) => setZones(zs => zs.map((z, idx) => idx === i ? { ...z, [field]: val } : z))
   const addZone = () => setZones(zs => [...zs, { name: '', fee: '', eta: '' }])
@@ -639,7 +639,7 @@ function NotificationsPanel({ settings, setSettings }) {
   const [msg, setMsg] = useState(null)
 
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition'
+  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
 
   const save = async () => {
     setMsg(null); setSaving(true)

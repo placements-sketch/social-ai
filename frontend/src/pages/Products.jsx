@@ -237,7 +237,7 @@ export default function Products() {
 
       {/* Sync diff modal */}
       {showSyncDiff && syncDiff && (
-        <div className="card p-6 border-2 border-blue-200 bg-blue-50 space-y-4">
+        <div className="card p-6 border border-blue-200 bg-blue-50 space-y-4">
           <div>
             <h3 className="text-base font-bold text-gray-900">Sync Preview</h3>
             <p className="text-sm text-gray-600 mt-1">Review the changes that will be applied</p>

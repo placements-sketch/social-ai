@@ -181,7 +181,7 @@ export default function CustomerAIChat() {
                 onKeyDown={onKeyDown}
                 rows={1}
                 placeholder="Ask about spenders, segments, cities…"
-                className="flex-1 resize-none text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-300 max-h-24"
+                className="flex-1 resize-none text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-200 focus:border-brand-300 max-h-24"
                 disabled={loading}
               />
               <button onClick={() => send()} disabled={loading || !input.trim()}

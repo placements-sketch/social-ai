@@ -203,7 +203,7 @@ html, body, #root {
 
   .input {
     @apply bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400
-           focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all;
+           focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-transparent transition-all;
   }
 
   .input:hover {
@@ -646,3 +646,16 @@ button:not(:disabled):active,
 .dark .bg-gray-500 { background-color: rgba(255, 255, 255, 0.30); }
 .dark .bg-gray-800 { background-color: rgba(255, 255, 255, 0.07); }
 .dark .bg-brand-50\/40 { background-color: rgba(199, 234, 70, 0.10); }
+
+/* ── Hairline borders ────────────────────────────────────────────────────────
+   Nothing thicker than 1px, anywhere. Thick borders read as bulky and fight
+   the glass surfaces. This also neutralises the utilities themselves, so a
+   stray border-2 added later can't reintroduce the problem.                 */
+.border-2, .border-4, .border-8 { border-width: 1px; }
+.border-t-2, .border-t-4 { border-top-width: 1px; }
+.border-b-2, .border-b-4 { border-bottom-width: 1px; }
+.border-l-2, .border-l-4 { border-left-width: 1px; }
+.border-r-2, .border-r-4 { border-right-width: 1px; }
+.border-x-2 { border-left-width: 1px; border-right-width: 1px; }
+.border-y-2 { border-top-width: 1px; border-bottom-width: 1px; }
+.ring-2, .ring-4, .ring-8 { --tw-ring-offset-width: 0px; box-shadow: 0 0 0 1px var(--tw-ring-color, rgba(199,234,70,0.45)); }

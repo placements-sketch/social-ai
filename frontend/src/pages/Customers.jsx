@@ -382,7 +382,7 @@ export default function Customers() {
                     className={clsx(
                       'w-full relative overflow-hidden p-2.5 rounded-lg border transition-all text-left text-xs group',
                       isActive
-                        ? `${meta.bg} ${meta.border} ring-2 ${meta.ring}`
+                        ? `${meta.bg} ${meta.border} ring-1 ${meta.ring}`
                         : 'bg-white border-gray-100 hover:border-gray-300'
                     )}
                   >

@@ -95,7 +95,7 @@ export default function Profile() {
     }
   }
 
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 transition'
+  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
   const labelCls = 'block text-xs font-semibold text-gray-600 mb-1.5'
   const Feedback = ({ msg }) => msg
     ? <p className={`text-xs mt-1 ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>

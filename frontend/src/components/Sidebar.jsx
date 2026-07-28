@@ -12,7 +12,7 @@ import szLogo from '../images/sz.png'
 
 const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
-  { to: '/messages',   icon: MessageSquare,   label: 'Messages',  roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
+  { to: '/messages',   icon: MessageSquare,   label: 'Inbox',  roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
 
   { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
     children: [
@@ -79,7 +79,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       style={{
         background: 'linear-gradient(180deg, #111111 0%, #0d0d0d 100%)',
         borderTop: '1px solid rgba(255,255,255,0.06)',
-        borderLeft: '2px solid #c7ea46',
+        borderLeft: '1px solid #c7ea46',
         minHeight: 0,
         maxHeight: '100vh',
       }}
@@ -252,7 +252,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
               <PresenceDot
                 status={user?.presence || 'online'}
                 size="md"
-                className="absolute bottom-0 right-0 ring-2 ring-[#0d0d0d]"
+                className="absolute bottom-0 right-0 ring-1 ring-[#0d0d0d]"
               />
             </div>
             <button

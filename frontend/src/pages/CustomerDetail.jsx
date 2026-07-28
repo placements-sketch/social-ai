@@ -268,13 +268,13 @@ export default function CustomerDetail() {
             {/* Avatar */}
             <div className="relative shrink-0">
               <div className={clsx(
-                'w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-lg bg-gradient-to-br ring-4',
+                'w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-lg bg-gradient-to-br ring-1',
                 meta.accent, meta.ring,
               )}>
                 {initials}
               </div>
               <div className={clsx(
-                'absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center shadow-md bg-white border-2',
+                'absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center shadow-md bg-white border',
                 meta.border,
               )}>
                 <SegIcon size={13} className={meta.color} />
