@@ -423,8 +423,8 @@ export default function CustomerDetail() {
               <AreaChart data={trend}>
                 <defs>
                   <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#ff5900" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#ff5900" stopOpacity={0} />
+                    <stop offset="0%"   stopColor="#c7ea46" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#c7ea46" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
@@ -437,8 +437,8 @@ export default function CustomerDetail() {
                     : [value, name]}
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                 />
-                <Area type="monotone" dataKey="spent" stroke="#ff5900" strokeWidth={2.5}
-                      fill="url(#spendGrad)" dot={{ r: 3, fill: '#ff5900' }} />
+                <Area type="monotone" dataKey="spent" stroke="#c7ea46" strokeWidth={2.5}
+                      fill="url(#spendGrad)" dot={{ r: 3, fill: '#c7ea46' }} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (

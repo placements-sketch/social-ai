@@ -635,7 +635,7 @@ const handleSend = async () => {
                 'relative inline-flex w-7 h-3.5 rounded-full transition-all duration-300 shrink-0'
               )}
               style={{
-                backgroundColor: attentionFilter ? '#000000' : '#e5e7eb'
+                backgroundColor: attentionFilter ? 'var(--toggle-on)' : 'var(--toggle-off)'
               }}
             >
               <span

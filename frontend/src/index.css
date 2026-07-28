@@ -18,31 +18,62 @@ html, body, #root {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ── Theme tokens ───────────────────────────────────────────────────────────
+   Consumed by CSS and by the few components that set colours inline (where a
+   class can't reach). Light is the fallback; .dark on <html> flips them.     */
+:root {
+  --bg:          #ffffff;
+  --surface:     #ffffff;
+  --surface-2:   #f9fafb;
+  --border:      #e5e7eb;
+  --text:        #111827;
+  --text-muted:  #6b7280;
+  --topbar-bg:   rgba(255, 255, 255, 0.8);
+  --topbar-line: rgba(0, 0, 0, 0.06);
+  --brand:       #c7ea46;
+  --toggle-on:   #000000;
+  --toggle-off:  #e5e7eb;
+}
+
+.dark {
+  --bg:          #0a0a0a;
+  --surface:     #141414;
+  --surface-2:   #1c1c1c;
+  --border:      #262626;
+  --text:        #f5f5f5;
+  --text-muted:  #a3a3a3;
+  --topbar-bg:   rgba(10, 10, 10, 0.8);
+  --topbar-line: rgba(255, 255, 255, 0.08);
+  --brand:       #c7ea46;
+  --toggle-on:   #c7ea46;
+  --toggle-off:  #333333;
+}
+
 @layer base {
   html, body, #root {
-    background-color: #FFFFFF !important;
+    background-color: var(--bg);
     overflow-x: hidden;
-  }
-
-  html {
-    overflow-x: hidden;
-    background-color: #FFFFFF !important;
   }
 
   body {
-    @apply bg-white text-gray-900 font-sans antialiased;
+    @apply font-sans antialiased;
+    background-color: var(--bg);
+    color: var(--text);
     overflow-x: hidden;
-    background-color: #FFFFFF !important;
   }
 
   ::-webkit-scrollbar {
     @apply w-2;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-gray-100;
+    background: var(--surface-2);
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 rounded-full hover:bg-gray-400;
+    background: var(--border);
+    @apply rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #404040;
   }
 }
 
@@ -219,3 +250,122 @@ input:-webkit-autofill:active {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* ── Dark theme override layer ───────────────────────────────────────────────
+   The app was built light-only — ~1,000 hardcoded bg-white / bg-gray-* /
+   text-gray-* utilities and no dark: variants anywhere. Rather than rewrite
+   every file, those utilities are remapped here under .dark.
+
+   `.dark .bg-white` (specificity 0,2,0) outranks `.bg-white` (0,1,0), so no
+   !important is needed and light mode is untouched.
+
+   Caveat: a NEW light utility used in a component won't be dark-aware unless
+   it's listed below. When a screen looks wrong in dark mode, the fix is
+   almost always adding the missing utility here.                            */
+
+/* Surfaces */
+.dark .bg-white     { background-color: var(--surface); }
+.dark .bg-gray-50   { background-color: var(--surface-2); }
+.dark .bg-gray-100  { background-color: var(--surface-2); }
+.dark .bg-gray-200  { background-color: #262626; }
+.dark .bg-gray-300  { background-color: #333333; }
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-100:hover { background-color: #1f1f1f; }
+.dark .hover\:bg-gray-200:hover { background-color: #2a2a2a; }
+.dark .hover\:bg-white:hover    { background-color: var(--surface-2); }
+
+/* Text */
+.dark .text-gray-900 { color: #f5f5f5; }
+.dark .text-gray-800 { color: #ededed; }
+.dark .text-gray-700 { color: #d4d4d4; }
+.dark .text-gray-600 { color: #a3a3a3; }
+.dark .text-gray-500 { color: #8f8f8f; }
+.dark .text-gray-400 { color: #737373; }
+.dark .text-gray-300 { color: #525252; }
+.dark .hover\:text-gray-900:hover { color: #ffffff; }
+.dark .hover\:text-gray-700:hover { color: #e5e5e5; }
+.dark .placeholder-gray-400::placeholder { color: #6b6b6b; }
+
+/* Borders */
+.dark .border-gray-100 { border-color: #1f1f1f; }
+.dark .border-gray-200 { border-color: var(--border); }
+.dark .border-gray-300 { border-color: #333333; }
+.dark .hover\:border-gray-300:hover { border-color: #404040; }
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border); }
+
+/* Primary action. Solid black reads as a hole punched in a dark page, so it
+   promotes to brand lime — and paired text-white would fail contrast on lime,
+   so that flips to near-black. Backdrops (bg-black/20, bg-black/40) are
+   distinct classes and correctly stay black. */
+.dark .bg-black { background-color: var(--brand); }
+.dark .bg-black.text-white,
+.dark .bg-black .text-white { color: #0a0a0a; }
+.dark .bg-black:hover,
+.dark .hover\:bg-gray-800:hover,
+.dark .hover\:bg-gray-900:hover { background-color: #b4d93a; }
+
+/* Tinted badges — the *-50 tints render near-white on dark, so soften them to
+   translucent washes and lift the paired text into readable range. */
+.dark .bg-green-50   { background-color: rgba(34, 197, 94, 0.12); }
+.dark .bg-red-50     { background-color: rgba(239, 68, 68, 0.12); }
+.dark .bg-yellow-50  { background-color: rgba(234, 179, 8, 0.12); }
+.dark .bg-blue-50    { background-color: rgba(59, 130, 246, 0.12); }
+.dark .bg-purple-50  { background-color: rgba(168, 85, 247, 0.12); }
+.dark .bg-orange-50  { background-color: rgba(249, 115, 22, 0.12); }
+.dark .bg-indigo-50  { background-color: rgba(99, 102, 241, 0.12); }
+.dark .bg-green-100  { background-color: rgba(34, 197, 94, 0.18); }
+.dark .bg-red-100    { background-color: rgba(239, 68, 68, 0.18); }
+.dark .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.18); }
+.dark .bg-blue-100   { background-color: rgba(59, 130, 246, 0.18); }
+.dark .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.18); }
+
+.dark .text-green-700,  .dark .text-green-600  { color: #4ade80; }
+.dark .text-red-700,    .dark .text-red-600    { color: #f87171; }
+.dark .text-yellow-700, .dark .text-yellow-600 { color: #facc15; }
+.dark .text-blue-700,   .dark .text-blue-600   { color: #60a5fa; }
+.dark .text-purple-700, .dark .text-purple-600 { color: #c084fc; }
+
+/* Component classes */
+.dark .stat-card,
+.dark .card {
+  background-color: var(--surface);
+  border-color: var(--border);
+  box-shadow: none;
+}
+.dark .stat-card:hover,
+.dark .card:hover { border-color: #333333; }
+
+.dark .btn-primary          { background-color: var(--brand); color: #0a0a0a; }
+.dark .btn-primary:hover    { background-color: #b4d93a; }
+.dark .btn-secondary        { background-color: var(--surface-2); color: #e5e5e5; }
+.dark .btn-secondary:hover  { background-color: #2a2a2a; }
+.dark .btn-ghost            { color: var(--text-muted); }
+.dark .btn-ghost:hover      { color: #ffffff; background-color: var(--surface-2); }
+
+.dark .input {
+  background-color: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+.dark .input::placeholder { color: #6b6b6b; }
+.dark .input:hover        { border-color: #404040; }
+
+.dark .badge-primary  { background-color: var(--surface-2); color: #e5e5e5; }
+.dark .divider        { border-color: var(--border); }
+.dark .section-title  { color: var(--text-muted); }
+.dark .accent-line    { background-color: var(--brand); }
+
+/* Brand text. brand-600 (#a6c62f) is chosen for contrast on white; on a dark
+   surface it's muddy, so lift it to the pure brand value. */
+.dark .text-brand-600 { color: var(--brand); }
+.dark .text-brand-700 { color: #d6f278; }
+.dark .bg-brand-50    { background-color: rgba(199, 234, 70, 0.12); }
+.dark .bg-brand-100   { background-color: rgba(199, 234, 70, 0.18); }
+
+/* Focus rings pick up the brand instead of grey */
+.dark .focus\:ring-gray-400:focus,
+.dark .focus\:ring-gray-300:focus { --tw-ring-color: rgba(199, 234, 70, 0.45); }
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb        { background: #2e2e2e; }
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover  { background: #404040; }
+.dark .custom-scrollbar { scrollbar-color: #2e2e2e transparent; }

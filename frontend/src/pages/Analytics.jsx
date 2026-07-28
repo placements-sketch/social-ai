@@ -13,10 +13,10 @@ import clsx from 'clsx'
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const ACCENT = '#ff5900'
+const ACCENT = '#c7ea46'
 
 // Coordinated donut palette: accent → warm → taupe → grays. Not a rainbow.
-const DONUT = ['#ff5900', '#ff8c4d', '#c99a86', '#8a8a93', '#a1a1aa', '#c4c4cc', '#d4d4d8']
+const DONUT = ['#c7ea46', '#d6f278', '#c99a86', '#8a8a93', '#a1a1aa', '#c4c4cc', '#d4d4d8']
 
 const DATE_RANGES = [
   { label: '7 days', days: 7 },
@@ -156,7 +156,7 @@ function TopProducts({ rows, emptyText = 'No product questions yet' }) {
           <Row key={p.handle || p.name || i} {...rowProps}
             className="group flex items-center gap-3.5 py-2.5 px-2 -mx-2 rounded-xl hover:bg-gray-50/80 transition-colors"
             style={{ animation: 'an-rise .4s ease both', animationDelay: `${i * 50}ms` }}>
-            <span className={clsx('text-xs font-bold w-4 text-center shrink-0 tabular-nums', i === 0 ? 'text-[#ff5900]' : 'text-gray-400')}>{i + 1}</span>
+            <span className={clsx('text-xs font-bold w-4 text-center shrink-0 tabular-nums', i === 0 ? 'text-brand-600' : 'text-gray-400')}>{i + 1}</span>
             <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center">
               {p.image
                 ? <img src={p.image} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -167,7 +167,7 @@ function TopProducts({ rows, emptyText = 'No product questions yet' }) {
               <p className="text-xs text-gray-500 mt-0.5">{p.price ? `KES ${Number(p.price).toLocaleString()}` : '—'}</p>
             </div>
             <div className="text-right shrink-0">
-              <p className={clsx('text-[15px] font-bold leading-none tabular-nums', i === 0 ? 'text-[#ff5900]' : 'text-gray-900')}>{p.mentions}</p>
+              <p className={clsx('text-[15px] font-bold leading-none tabular-nums', i === 0 ? 'text-brand-600' : 'text-gray-900')}>{p.mentions}</p>
               <Eyebrow className="block mt-0.5">asks</Eyebrow>
             </div>
           </Row>

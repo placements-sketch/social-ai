@@ -986,7 +986,7 @@ export default function Dashboard() {
                           {total > 0 ? (
                             <div className="flex h-full">
                               <div style={{ width: `${inboundShare}%`, background: '#d1d5db' }} title={`${inbound} inbound`} />
-                              <div style={{ width: `${aiShare}%`, background: '#ff5900' }} title={`${ai} AI replies`} />
+                              <div style={{ width: `${aiShare}%`, background: '#c7ea46' }} title={`${ai} AI replies`} />
                               <div style={{ width: `${humanShare}%`, background: '#f59e0b' }} title={`${human} human replies`} />
                             </div>
                           ) : null}

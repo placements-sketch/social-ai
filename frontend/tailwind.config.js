@@ -1,22 +1,33 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
+        // Shop Zetu lime. 500 is the exact brand value (#c7ea46) so the
+        // existing brand-500 usages land on-brand without being touched.
         brand: {
-          50:  '#fff4ee',
-          100: '#ffe4d0',
-          200: '#ffc5a0',
-          300: '#ff9d6a',
-          400: '#ff7233',
-          500: '#ff5900',
-          600: '#e04e00',
-          700: '#b83f00',
-          800: '#8f3100',
-          900: '#6b2500',
+          50:  '#f9fdec',
+          100: '#f1fbd2',
+          200: '#e4f7a8',
+          300: '#d6f278',
+          400: '#cdee57',
+          500: '#c7ea46',
+          600: '#a6c62f',
+          700: '#819a24',
+          800: '#64751f',
+          900: '#4b581c',
         },
         sidebar: '#0a0a0a',
+        // Dark surfaces, referenced by the theme layer in index.css.
+        ink: {
+          900: '#0a0a0a',  // page
+          800: '#141414',  // cards / panels
+          700: '#1c1c1c',  // raised (hover, inputs)
+          600: '#262626',  // borders
+          500: '#333333',  // strong borders
+        },
       },
       fontFamily: {
         sans: ['Quicksand', 'system-ui', 'sans-serif'],

@@ -6,9 +6,11 @@ import {
   Radio, RefreshCw as Sync, Users as UsersIcon, Shield,
   Zap, Bot, Trash2, UserPlus, UserCheck, Package,
   AlertOctagon, Settings as SettingsIcon, ShieldAlert,
+  Sun, Moon,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import { ModalPortal } from '../context/ModalPortal'
 import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
 import { useTimeAgo } from '../hooks/useTimeAgo'
@@ -60,8 +62,8 @@ function notifVisuals(type, severity) {
 
   const typeMap = {
     // Conversation / messaging
-    assigned:                       { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-orange-50' },
-    reassigned:                     { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-orange-50' },
+    assigned:                       { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-brand-50' },
+    reassigned:                     { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-brand-50' },
     unassigned:                     { Icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50'  },
     conversation_escalated:         { Icon: AlertOctagon,  color: 'text-red-600',   bg: 'bg-red-50'    },
     conversation_resolved:          { Icon: CheckCircle,   color: 'text-green-600', bg: 'bg-green-50'  },
@@ -84,13 +86,13 @@ function notifVisuals(type, severity) {
     your_account_changed:  { Icon: ShieldAlert,color: 'text-amber-600', bg: 'bg-amber-50' },
 
     // Automation
-    automation_rule_created: { Icon: Zap, color: 'text-brand-600', bg: 'bg-orange-50' },
-    automation_rule_updated: { Icon: Zap, color: 'text-brand-600', bg: 'bg-orange-50' },
+    automation_rule_created: { Icon: Zap, color: 'text-brand-600', bg: 'bg-brand-50' },
+    automation_rule_updated: { Icon: Zap, color: 'text-brand-600', bg: 'bg-brand-50' },
     automation_rule_deleted: { Icon: Zap, color: 'text-red-600',   bg: 'bg-red-50'    },
     automation_rule_toggled: { Icon: Zap, color: 'text-gray-600',  bg: 'bg-gray-100'  },
 
     // AI Settings
-    ai_settings_changed: { Icon: Bot, color: 'text-brand-600',  bg: 'bg-orange-50' },
+    ai_settings_changed: { Icon: Bot, color: 'text-brand-600',  bg: 'bg-brand-50' },
     ai_settings_reset:   { Icon: Bot, color: 'text-amber-600',  bg: 'bg-amber-50'  },
 
     // Security
@@ -170,6 +172,7 @@ export default function TopBar({ onMenuClick }) {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const { user, logout } = useAuth()
+  const { toggleTheme, isDark } = useTheme()
   const navigate = useNavigate()
 
   const now = new Date().toLocaleString('en-KE', {
@@ -382,7 +385,7 @@ export default function TopBar({ onMenuClick }) {
   }
 
   return (
-    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(8px)', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
+    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'var(--topbar-bg)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--topbar-line)' }}>
       <div className="flex items-center gap-3">
         {/* Hamburger */}
         <button
@@ -452,6 +455,15 @@ export default function TopBar({ onMenuClick }) {
       <div className="flex items-center gap-1 md:gap-2">
         {/* Date */}
         <span className="hidden md:block text-xs text-gray-400 font-normal mr-2">{now}</span>
+
+        <button
+          onClick={toggleTheme}
+          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors"
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
 
         <button
           onClick={() => window.location.reload()}

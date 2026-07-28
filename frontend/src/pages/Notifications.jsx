@@ -21,8 +21,8 @@ function notifVisuals(type, severity) {
       : null
 
   const typeMap = {
-    assigned:                       { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-orange-50' },
-    reassigned:                     { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-orange-50' },
+    assigned:                       { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-brand-50' },
+    reassigned:                     { Icon: UserCheck,     color: 'text-brand-600', bg: 'bg-brand-50' },
     unassigned:                     { Icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50'  },
     conversation_escalated:         { Icon: AlertOctagon,  color: 'text-red-600',   bg: 'bg-red-50'    },
     conversation_resolved:          { Icon: CheckCircle,   color: 'text-green-600', bg: 'bg-green-50'  },
@@ -37,11 +37,11 @@ function notifVisuals(type, severity) {
     user_updated:                   { Icon: UsersIcon,     color: 'text-gray-700',  bg: 'bg-gray-100'  },
     user_deleted:                   { Icon: Trash2,        color: 'text-red-600',   bg: 'bg-red-50'    },
     your_account_changed:           { Icon: ShieldAlert,   color: 'text-amber-600', bg: 'bg-amber-50'  },
-    automation_rule_created:        { Icon: Zap,           color: 'text-brand-600', bg: 'bg-orange-50' },
-    automation_rule_updated:        { Icon: Zap,           color: 'text-brand-600', bg: 'bg-orange-50' },
+    automation_rule_created:        { Icon: Zap,           color: 'text-brand-600', bg: 'bg-brand-50' },
+    automation_rule_updated:        { Icon: Zap,           color: 'text-brand-600', bg: 'bg-brand-50' },
     automation_rule_deleted:        { Icon: Zap,           color: 'text-red-600',   bg: 'bg-red-50'    },
     automation_rule_toggled:        { Icon: Zap,           color: 'text-gray-600',  bg: 'bg-gray-100'  },
-    ai_settings_changed:            { Icon: Bot,           color: 'text-brand-600', bg: 'bg-orange-50' },
+    ai_settings_changed:            { Icon: Bot,           color: 'text-brand-600', bg: 'bg-brand-50' },
     ai_settings_reset:              { Icon: Bot,           color: 'text-amber-600', bg: 'bg-amber-50'  },
     webhook_signature_failed:       { Icon: Shield,        color: 'text-red-600',   bg: 'bg-red-50'    },
   }

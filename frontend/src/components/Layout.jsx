@@ -30,7 +30,7 @@ export default function Layout() {
       display: 'flex', 
       height: '100vh', 
       overflow: 'hidden', 
-      backgroundColor: '#ffffff',
+      backgroundColor: 'var(--bg)',
       width: '100%',
       maxWidth: '100vw',
     }}>

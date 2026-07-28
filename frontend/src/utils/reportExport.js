@@ -1,7 +1,7 @@
 // src/utils/reportExport.js
 // Professional CSV + PDF analytics reports, shared by Dashboard and Analytics.
 
-const BRAND = [255, 89, 0]     // Shop Zetu orange
+const BRAND = [199, 234, 70]   // Shop Zetu lime
 const DARK  = [26, 26, 46]
 const MUTE  = [130, 130, 130]
 

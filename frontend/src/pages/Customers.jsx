@@ -463,7 +463,7 @@ export default function Customers() {
                     contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-                  <Bar yAxisId="rev" dataKey="revenue" name="Revenue (KES)" fill="#ff5900"
+                  <Bar yAxisId="rev" dataKey="revenue" name="Revenue (KES)" fill="#c7ea46"
                        radius={[3, 3, 0, 0]} maxBarSize={16} />
                   <Line yAxisId="ord" type="monotone" dataKey="orders" name="Orders" stroke="#111827"
                         strokeWidth={2} dot={{ r: 2 }} />

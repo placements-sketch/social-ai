@@ -199,7 +199,7 @@ export default function CustomerAIChat() {
         className="fixed z-50 flex items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 active:scale-95"
         style={{
           bottom: 24, right: 24, width: 56, height: 56,
-          background: 'linear-gradient(135deg, #ff7a33, #ff5900)',
+          background: 'linear-gradient(135deg, #d6f278, #c7ea46)',
           boxShadow: '0 8px 24px -6px rgba(255,89,0,0.5)',
         }}
         aria-label={open ? 'Close assistant' : 'Open customer assistant'}
