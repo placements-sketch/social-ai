@@ -21,80 +21,14 @@ from app.utils.logger import log_event
 GRAPH_API_VERSION = "v25.0"
 
 
-# Cached Page token derived from the delegated USER token. Page tokens don't
-# expire while the parent user token is valid, so one exchange per process.
-_delegated_cache = {"page_id": None, "token": None}
-
-
-def _delegated_enabled() -> bool:
-    return os.getenv("META_USE_DELEGATED", "false").lower() in ("1", "true", "yes")
-
-
-def _get_delegated_credentials():
-    """
-    Bridge credentials borrowed from an app that already holds Advanced Access
-    for instagram_manage_messages.
-
-    Our own app receives `comments` webhooks fine, but Meta withholds all DM
-    data from it until App Review grants Advanced Access — no webhooks, and
-    /conversations returns (#200). A delegated token from an approved app on
-    the same Page lets DMs flow in the meantime via polling.
-
-    TEMPORARY. Remove once our own app is approved: unset META_USE_DELEGATED.
-
-    Returns (page_id, page_access_token), or (None, None) when disabled or
-    misconfigured, so callers fall through to our own credentials.
-    """
-    if not _delegated_enabled():
-        return None, None
-
-    user_token = os.getenv("META_DELEGATED_USER_TOKEN")
-    page_id = os.getenv("META_DELEGATED_PAGE_ID") or os.getenv("FB_PAGE_ID")
-    if not user_token or not page_id:
-        log_event("warn", "integrations.meta.delegated_misconfigured",
-                  "META_USE_DELEGATED is on but token/page_id missing")
-        return None, None
-
-    if _delegated_cache["page_id"] == page_id and _delegated_cache["token"]:
-        return page_id, _delegated_cache["token"]
-
-    # Exchange the USER token for this Page's token.
-    try:
-        r = requests.get(
-            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}",
-            params={"fields": "access_token", "access_token": user_token},
-            timeout=15,
-        )
-        token = (r.json() or {}).get("access_token")
-    except requests.RequestException as e:
-        log_event("error", "integrations.meta.delegated_exchange_failed", str(e))
-        return None, None
-
-    if not token:
-        log_event("error", "integrations.meta.delegated_exchange_failed",
-                  f"No page token returned for page {page_id} (status {r.status_code})")
-        return None, None
-
-    _delegated_cache.update(page_id=page_id, token=token)
-    log_event("info", "integrations.meta.delegated_active",
-              f"Using delegated credentials for page {page_id}")
-    return page_id, token
-
-
 def _get_meta_credentials():
     """
-    Returns (page_id, page_access_token) — preferring delegated credentials
-    when enabled, then an active MetaConnection row in the DB (issued via
-    OAuth), falling back to the legacy env vars (FB_PAGE_ID + FB_ACCESS_TOKEN)
-    so existing setups keep working.
+    Returns (page_id, page_access_token) — preferring an active MetaConnection
+    row in the DB (issued via OAuth), falling back to the legacy env vars
+    (FB_PAGE_ID + FB_ACCESS_TOKEN) so existing setups keep working.
 
-    Both can be None if no source has them. Callers must handle that.
+    Both can be None if neither source has them. Callers must handle that.
     """
-    # 0. Delegated token from an Advanced-Access app, while our review pends.
-    d_page, d_token = _get_delegated_credentials()
-    if d_page and d_token:
-        return d_page, d_token
-
     # 1. Try DB (the OAuth-issued token, what App Review needs us to use)
     try:
         from app import db
