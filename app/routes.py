@@ -231,6 +231,10 @@ def instagram_webhook():
         return _reject_bad_signature('instagram_dm', err)
 
     data = request.get_json(silent=True) or {}
+    # Every other webhook handler logs its raw payload; this one didn't, so
+    # dropped events left no trace at all. Keep the shape visible — read
+    # receipts and echoes look identical to a lost DM from the access log.
+    current_app.logger.info(f"[IG webhook] payload: {data}")
 
     events = []          # DM events
     comment_events = []  # IG comment events
