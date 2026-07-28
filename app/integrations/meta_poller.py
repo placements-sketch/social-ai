@@ -14,7 +14,7 @@ and this poller can be disabled by setting IG_POLL_ENABLED=false.
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import requests
 from app.utils.logger import log_event
@@ -30,7 +30,33 @@ def _conversations_url():
         return None
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/conversations"
 
-POLL_INTERVAL_SECONDS = 300
+POLL_INTERVAL_SECONDS = int(os.getenv("IG_POLL_INTERVAL_SECONDS", "60"))
+
+# Asking for thread contents inline times out with subcode 2534084 ("too many
+# conversations with users who do not have a role on app") on busy accounts —
+# even WITH Advanced Access. So we fetch bare thread IDs first, then hydrate
+# each thread on its own. The list call still times out above a small limit,
+# and the ceiling moves, so try a descending ladder and take the first that
+# answers.
+POLL_THREAD_LIMITS = [5, 3, 1]
+POLL_MESSAGE_LIMIT = int(os.getenv("IG_POLL_MESSAGE_LIMIT", "10"))
+
+# Polling returns a thread's recent history, not just what's new. Without a
+# cutoff the first cycle would replay days of messages through process_message
+# and auto-reply to every one of them. Only act on messages this fresh.
+POLL_MAX_AGE_MINUTES = int(os.getenv("IG_POLL_MAX_AGE_MINUTES", "15"))
+
+
+def _is_too_old(created_time: str) -> bool:
+    """True if a Graph created_time ('2026-07-28T09:36:19+0000') is stale."""
+    if not created_time:
+        return False  # no timestamp — let the dedupe check decide
+    try:
+        ts = datetime.strptime(created_time, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return False
+    age = datetime.now(timezone.utc) - ts
+    return age > timedelta(minutes=POLL_MAX_AGE_MINUTES)
 
 # Module-level guard so we don't start the thread twice in debug mode
 # (Flask debug reloader spawns a second process; only the reloader-child
@@ -40,9 +66,33 @@ _poller_lock = threading.Lock()
 
 
 def start_poller(app=None):
-    from app.utils.logger import log_event
-    log_event("info", "ig_poller.retired", "Poller retired — webhook-only mode")
-    return
+    """
+    Start the background poll loop when IG_POLL_ENABLED is truthy.
+
+    Webhooks stay the preferred path and already handle comments. Polling is
+    the bridge for DMs, which Meta withholds from our app entirely until App
+    Review grants Advanced Access to instagram_manage_messages.
+    """
+    global _poller_started
+
+    if os.getenv("IG_POLL_ENABLED", "false").lower() not in ("1", "true", "yes"):
+        log_event("info", "ig_poller.disabled",
+                  "IG_POLL_ENABLED not set — webhook-only mode")
+        return
+
+    if app is None:
+        log_event("error", "ig_poller.no_app", "start_poller called without an app")
+        return
+
+    with _poller_lock:
+        if _poller_started:
+            return
+        _poller_started = True
+
+    threading.Thread(target=_poller_loop, args=(app,),
+                     daemon=True, name="ig-poller").start()
+    log_event("info", "ig_poller.started",
+              f"Polling every {POLL_INTERVAL_SECONDS}s")
 
 def _poller_loop(app):
     """The actual loop. Each tick: fetch threads, process new messages."""
@@ -64,24 +114,63 @@ def _poll_once():
     if not token or not url:
         return
 
-    params = {
-        "platform": "instagram",
-        "fields": "id,messages{id,message,from,to,timestamp},participants,updated_time",
-        "access_token": token,
-    }
+    # Phase 1: bare thread IDs, newest-updated first. Walk the limit ladder
+    # down until Graph answers instead of timing out.
+    thread_ids = []
+    last_err = None
+    for limit in POLL_THREAD_LIMITS:
+        try:
+            r = requests.get(url, params={
+                "platform": "instagram",
+                "fields": "id",
+                "limit": limit,
+                "access_token": token,
+            }, timeout=25)
+        except requests.RequestException as e:
+            # Graph stalls the connection rather than erroring when the thread
+            # scan is too big, so this IS the timeout signal — keep walking the
+            # ladder down instead of giving up.
+            last_err = f"{type(e).__name__}: {e}"
+            continue
 
-    try:
-        r = requests.get(url, params=params, timeout=15)
-        if r.status_code != 200:
-            log_event("error", "ig_poller.fetch",
-                      f"Conversations fetch failed ({r.status_code})",
-                      payload={"response": r.text[:400]})
-            return
+        if r.status_code == 200:
+            thread_ids = [t.get("id") for t in (r.json() or {}).get("data", []) if t.get("id")]
+            break
 
-        threads = (r.json() or {}).get("data", [])
-    except requests.RequestException as e:
-        log_event("error", "ig_poller.fetch", f"Network error: {e}")
+        last_err = r.text[:300]
+        # 2534084 = the thread-count timeout; anything else won't improve
+        # by asking for fewer, so stop early.
+        if "2534084" not in (last_err or ""):
+            break
+
+    if not thread_ids:
+        log_event("error", "ig_poller.fetch",
+                  "Could not list conversations at any limit",
+                  payload={"response": last_err, "limits_tried": POLL_THREAD_LIMITS})
         return
+
+    # Phase 2: hydrate each thread individually — cheap enough to succeed.
+    base = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+    threads = []
+    for tid in thread_ids:
+        try:
+            d = requests.get(f"{base}/{tid}", params={
+                "fields": "participants,updated_time,"
+                          f"messages.limit({POLL_MESSAGE_LIMIT})"
+                          "{id,message,from,to,created_time}",
+                "access_token": token,
+            }, timeout=20)
+        except requests.RequestException as e:
+            log_event("error", "ig_poller.thread", f"Network error on {tid}: {e}")
+            continue
+
+        if d.status_code != 200:
+            log_event("error", "ig_poller.thread",
+                      f"Thread fetch failed ({d.status_code})",
+                      payload={"thread": tid, "response": d.text[:300]})
+            continue
+
+        threads.append(d.json())
 
     new_count = 0
     for thread in threads:
@@ -158,6 +247,10 @@ def _process_thread(thread: dict) -> int:
         sender_id = sender.get("id")
 
         if not mid or not text or not sender_id:
+            continue
+
+        # Don't auto-reply to history the poll happened to return.
+        if _is_too_old(msg.get("created_time")):
             continue
 
         # Skip our own outbound messages — those are already in the DB

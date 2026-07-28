@@ -159,8 +159,19 @@ def create_app():
             traceback.print_exc()
             raise
 
-    # Instagram DM poller is RETIRED — webhook-only. New DMs/comments arrive via
-    # /webhook/instagram as they happen; we never backfill history. Do not
-    # re-enable start_poller.
+    # Instagram DM poller — was retired in favour of webhook-only, and comments
+    # do arrive that way. DMs do not: Meta withholds every message event from
+    # this app until App Review grants Advanced Access to
+    # instagram_manage_messages, so /webhook/instagram never fires for them.
+    # The poller is the bridge, reading via a delegated token from an already
+    # approved app (see _get_delegated_credentials).
+    #
+    # Off unless IG_POLL_ENABLED is set. Turn it off again — here and on
+    # Render — once our own app clears review.
+    try:
+        from app.integrations.meta_poller import start_poller
+        start_poller(app)
+    except Exception as e:
+        print(f"[APP ERROR] Failed to start IG poller: {str(e)}")
 
     return app
