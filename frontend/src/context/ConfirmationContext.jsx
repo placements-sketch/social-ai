@@ -52,9 +52,9 @@ function ConfirmationModal({
 }) {
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onCancel} />
+      <div className="fixed inset-0 bg-black/40 z-40 fade-in" onClick={onCancel} />
       <div className="relative z-50 pointer-events-auto">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+        <div className="glass pop-in rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
           {/* Header */}
           <div className="flex items-start gap-3">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${

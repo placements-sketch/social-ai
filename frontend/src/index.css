@@ -28,7 +28,7 @@ html, body, #root {
   --border:      #e5e7eb;
   --text:        #111827;
   --text-muted:  #6b7280;
-  --topbar-bg:   rgba(255, 255, 255, 0.8);
+  --topbar-bg:   rgba(255, 255, 255, 0.6);
   --topbar-line: rgba(0, 0, 0, 0.06);
   --brand:       #c7ea46;
   --toggle-on:   #000000;
@@ -42,11 +42,28 @@ html, body, #root {
   --border:      #262626;
   --text:        #f5f5f5;
   --text-muted:  #a3a3a3;
-  --topbar-bg:   rgba(10, 10, 10, 0.8);
+  --topbar-bg:   rgba(10, 10, 10, 0.5);
   --topbar-line: rgba(255, 255, 255, 0.08);
   --brand:       #c7ea46;
   --toggle-on:   #c7ea46;
   --toggle-off:  #333333;
+
+  --glass-bg:     rgba(22, 22, 22, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-hi:     rgba(255, 255, 255, 0.05);
+}
+
+/* ── Motion tokens ──────────────────────────────────────────────────────────
+   iOS curves. 0.32/0.72/0/1 is the sheet-presentation curve — fast departure,
+   long settle, no bounce. The spring curve overshoots slightly and is only for
+   small elements (toggles, badges); using it on large surfaces reads as wobble. */
+:root {
+  --ease-ios:    cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-fast: 180ms;
+  --dur:      280ms;
+  --dur-slow: 460ms;
 }
 
 @layer base {
@@ -369,3 +386,126 @@ input:-webkit-autofill:active {
 .dark .custom-scrollbar::-webkit-scrollbar-thumb        { background: #2e2e2e; }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover  { background: #404040; }
 .dark .custom-scrollbar { scrollbar-color: #2e2e2e transparent; }
+/* ── Ambient backdrop ────────────────────────────────────────────────────────
+   Glass has to refract something. Over a flat #0a0a0a page, backdrop-filter
+   produces plain grey — the classic "why doesn't my glassmorphism look like
+   the mockup" problem. These soft brand-tinted glows sit behind everything and
+   give the blur real content to pick up. Fixed + pointer-events:none so they
+   cost nothing interactively and don't scroll.                              */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55rem 55rem at 10% -15%, rgba(199, 234, 70, 0.07), transparent 60%),
+    radial-gradient(45rem 45rem at 105% 5%,  rgba(199, 234, 70, 0.05), transparent 55%),
+    radial-gradient(40rem 40rem at 50% 115%, rgba(255, 255, 255, 0.03), transparent 60%);
+}
+
+.dark body::before {
+  background:
+    radial-gradient(55rem 55rem at 10% -15%, rgba(199, 234, 70, 0.13), transparent 60%),
+    radial-gradient(45rem 45rem at 105% 5%,  rgba(199, 234, 70, 0.07), transparent 55%),
+    radial-gradient(40rem 40rem at 50% 115%, rgba(255, 255, 255, 0.04), transparent 60%);
+}
+
+/* ── Glass surfaces ──────────────────────────────────────────────────────────
+   Applied to the structural surfaces only — cards, top bar, modals. Deliberately
+   NOT to every bg-white: nested translucency compounds into milky soup, and
+   backdrop-filter is genuinely expensive to composite. Use .glass to opt any
+   other element in.                                                          */
+.card,
+.stat-card,
+.glass {
+  background-color: rgba(255, 255, 255, 0.66);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.05);
+  transition: transform var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out),
+              border-color var(--dur) var(--ease-out);
+}
+
+.dark .card,
+.dark .stat-card,
+.dark .glass {
+  background-color: var(--glass-bg);
+  border-color: var(--glass-border);
+  /* Inset top highlight = the lit edge that sells the material. */
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 10px 34px rgba(0, 0, 0, 0.45);
+}
+
+.card:hover,
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05), 0 16px 40px rgba(0, 0, 0, 0.07);
+}
+
+.dark .card:hover,
+.dark .stat-card:hover {
+  border-color: rgba(199, 234, 70, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+/* ── iOS-style motion ────────────────────────────────────────────────────────
+   Retimes Tailwind's transition utilities. These live outside @layer so they
+   emit after the utilities and win on equal specificity.                     */
+.transition-all,
+.transition-colors,
+.transition-transform,
+.transition-opacity,
+.transition {
+  transition-timing-function: var(--ease-out);
+  transition-duration: var(--dur-fast);
+}
+
+/* Tactile press. Anything with an explicit Tailwind active: transform
+   (e.g. active:rotate-180) has higher specificity and keeps its own behaviour. */
+button:not(:disabled),
+[role='button'],
+a[href] {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+button:not(:disabled):active,
+[role='button']:active {
+  transform: scale(0.97);
+}
+
+/* Entrance animations — add .pop-in to a modal panel, .sheet-in to a bottom
+   sheet or drawer, .fade-in to a backdrop. */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.pop-in   { animation: pop-in   var(--dur) var(--ease-out) both; }
+.sheet-in { animation: sheet-in var(--dur-slow) var(--ease-ios) both; }
+.fade-in  { animation: fadeIn   var(--dur-fast) var(--ease-out) both; }
+
+/* Momentum-style scrolling */
+.scroll-x,
+.custom-scrollbar,
+.hide-scrollbar {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Respect the OS setting — motion sickness is not a style choice. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card:hover,
+  .stat-card:hover { transform: none; }
+  button:not(:disabled):active { transform: none; }
+}

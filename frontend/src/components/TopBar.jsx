@@ -385,7 +385,7 @@ export default function TopBar({ onMenuClick }) {
   }
 
   return (
-    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'var(--topbar-bg)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--topbar-line)' }}>
+    <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'var(--topbar-bg)', backdropFilter: 'blur(20px) saturate(180%)', borderBottom: '1px solid var(--topbar-line)' }}>
       <div className="flex items-center gap-3">
         {/* Hamburger */}
         <button
