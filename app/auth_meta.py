@@ -37,6 +37,7 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models import AuthUser, MetaConnection
 from app.auth import current_user_id, log_audit
+from app.integrations.meta import subscribe_page_webhooks
 from app.utils.logger import log_event
 
 auth_meta_bp = Blueprint('auth_meta', __name__, url_prefix='/api/auth/facebook')
@@ -288,10 +289,20 @@ def oauth_finish():
                 is_active=True,
             ))
 
+        # Subscribe this app to the Page's webhooks. Without this, Meta delivers
+        # no DM/comment events for the Page no matter what the App Dashboard
+        # shows as "Subscribed". Non-fatal: the connection is still usable for
+        # outbound sends and polling if this fails.
+        subscribed, sub_body = subscribe_page_webhooks(page_id, page_token)
+        if not subscribed:
+            log_event("error", "auth_meta.finish.subscribe_failed",
+                      f"page={page_id} response={sub_body}")
+
         connections_made.append({
             'page_id': page_id,
             'page_name': page_name,
             'ig_username': ig_username,
+            'webhooks_subscribed': subscribed,
         })
 
     db.session.commit()

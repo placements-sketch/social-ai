@@ -48,6 +48,90 @@ def _get_meta_credentials():
     return os.getenv("FB_PAGE_ID"), os.getenv("FB_ACCESS_TOKEN")
 
 
+# ─────────────────────────────────────────────
+# Webhook subscription management
+# ─────────────────────────────────────────────
+# Subscribing in the App Dashboard only declares which fields the APP wants.
+# Each Page must ALSO be subscribed via POST /{page-id}/subscribed_apps or Meta
+# delivers nothing — while the dashboard "Test" button still works, because it
+# posts a canned payload straight to the callback URL and consults none of this.
+SUBSCRIBED_FIELDS_DEFAULT = (
+    "messages,message_echoes,messaging_postbacks,"
+    "message_deliveries,message_reads,feed,mention"
+)
+
+
+def _subscribed_fields():
+    return os.getenv("META_SUBSCRIBED_FIELDS", SUBSCRIBED_FIELDS_DEFAULT)
+
+
+def subscribe_page_webhooks(page_id: str = None, page_token: str = None,
+                            fields: str = None) -> tuple[bool, dict]:
+    """
+    Subscribe this app to a Page's webhook events.
+
+    Falls back to the configured credentials when page_id/page_token are omitted.
+    Returns (ok, response_body). Never raises — callers keep going on failure.
+    """
+    if not page_id or not page_token:
+        cfg_id, cfg_token = _get_meta_credentials()
+        page_id = page_id or cfg_id
+        page_token = page_token or cfg_token
+    if not page_id or not page_token:
+        return False, {"error": "No page_id / page_access_token available"}
+
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/subscribed_apps",
+            params={
+                "subscribed_fields": fields or _subscribed_fields(),
+                "access_token": page_token,
+            },
+            timeout=15,
+        )
+        try:
+            body = r.json()
+        except ValueError:
+            body = {"raw": (r.text or "")[:500]}
+    except requests.RequestException as e:
+        log_event("error", "integrations.meta.subscribe_failed", str(e))
+        return False, {"error": str(e)}
+
+    ok = r.ok and bool(body.get("success"))
+    # Log the raw Graph response either way — a rejected field name shows up
+    # here and nowhere else.
+    log_event(
+        "info" if ok else "error",
+        "integrations.meta.subscribe_page",
+        f"page={page_id} ok={ok} status={r.status_code} body={body}",
+    )
+    return ok, body
+
+
+def get_page_webhook_subscriptions(page_id: str = None,
+                                   page_token: str = None) -> tuple[int, dict]:
+    """Read back which apps are subscribed to a Page, and to which fields."""
+    if not page_id or not page_token:
+        cfg_id, cfg_token = _get_meta_credentials()
+        page_id = page_id or cfg_id
+        page_token = page_token or cfg_token
+    if not page_id or not page_token:
+        return 400, {"error": "No page_id / page_access_token available"}
+
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/subscribed_apps",
+            params={"access_token": page_token},
+            timeout=15,
+        )
+        try:
+            return r.status_code, r.json()
+        except ValueError:
+            return r.status_code, {"raw": (r.text or "")[:500]}
+    except requests.RequestException as e:
+        return 502, {"error": str(e)}
+
+
 def _send_url():
     """FB Graph send URL for the configured Page."""
     page_id, _ = _get_meta_credentials()
