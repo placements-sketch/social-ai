@@ -724,7 +724,7 @@ const handleSend = async () => {
   // ── Chat thread panel ────────────────────────────────────────────────────
   const ChatPanel = (
     <div className={clsx(
-      'flex-1 flex flex-col min-w-0 min-h-0 bg-[#FAFAFA]',
+      'flex-1 flex flex-col min-w-0 min-h-0 bg-gray-50',
       !selected ? 'hidden lg:flex' : 'flex',
     )}>
       {!selected && (
