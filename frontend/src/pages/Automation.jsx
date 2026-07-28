@@ -7,7 +7,7 @@ import { ModalPortal } from '../context/ModalPortal'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
-export default function Automation() {
+export default function Automation({ embedded = false }) {
   const [rules, setRules] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
