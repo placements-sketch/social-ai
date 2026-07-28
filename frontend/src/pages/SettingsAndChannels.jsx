@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { Settings as SettingsIcon, Radio } from 'lucide-react'
+import { Settings as SettingsIcon, Radio, Activity } from 'lucide-react'
 import Settings from './Settings'
 import Channels from './Channels'
+import MetaDiagnostics from './MetaDiagnostics'
 
 const TABS = [
   { key: 'settings', label: 'General',  Icon: SettingsIcon, Comp: Settings },
   { key: 'channels', label: 'Channels', Icon: Radio,        Comp: Channels },
+  { key: 'diagnostics', label: 'Meta Diagnostics', Icon: Activity, Comp: MetaDiagnostics },
 ]
 
 export default function SettingsAndChannels() {

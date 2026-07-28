@@ -39,36 +39,10 @@ _poller_started = False
 _poller_lock = threading.Lock()
 
 
-def start_poller(app):
-    """
-    Spawn the polling background thread. Called once from create_app().
-    Idempotent — safe to call multiple times.
-    """
-    global _poller_started
-    with _poller_lock:
-        if _poller_started:
-            return
-        if os.getenv("IG_POLL_ENABLED", "true").lower() != "true":
-            log_event("info", "ig_poller", "IG poller disabled via IG_POLL_ENABLED env var")
-            return
-        from app.integrations.meta import _get_meta_credentials
-        _, token = _get_meta_credentials()
-        if not token:
-            log_event("warning", "ig_poller", "No Meta token available (DB + env empty) — poller will not start")
-            return
-        if not os.getenv("FB_PAGE_ID"):
-            log_event("warning", "ig_poller", "FB_PAGE_ID not set — poller will not start")
-            return
-
-        thread = threading.Thread(
-            target=_poller_loop,
-            args=(app,),
-            daemon=True,
-            name="ig_poller",
-        )
-        thread.start()
-        _poller_started = True
-        log_event("info", "ig_poller", "Instagram DM poller started (5min safety-net interval)")
+def start_poller(app=None):
+    from app.utils.logger import log_event
+    log_event("info", "ig_poller.retired", "Poller retired — webhook-only mode")
+    return
 
 def _poller_loop(app):
     """The actual loop. Each tick: fetch threads, process new messages."""

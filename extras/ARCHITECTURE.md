@@ -268,3 +268,5 @@ Payment methods — M-Pesa, cards, etc.
 
 
 run this to test before deployment: python -m pytest
+
+The captions are a goldmine you're not using yet. Look at them — each names the vendor and category explicitly: "leather jackets by Stylish Sisters", "cozy sets from Inroses Glitz", "kaftan dresses from Silk House", each ending "Link in bio - OUTERWEAR / LOUNGEWEAR / MAXI DRESSES". When someone comments "how much?" on a post, that caption tells the AI the exact product line far more reliably than vision guessing. That's the thing that would genuinely fix the product-matching for comments — the caption is ground truth, and you're fetching it but (per the earlier wiring) only feeding it partially. Worth revisiting once comments are live.

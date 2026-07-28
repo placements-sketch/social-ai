@@ -118,6 +118,7 @@ def create_app():
         from app.health import health_bp
         from app.settings import settings_bp
         from app.ai_assistant import ai_assistant_bp
+        from app.meta_test import meta_test_bp
 
         app.register_blueprint(bp)
         app.register_blueprint(auth_bp)
@@ -138,6 +139,7 @@ def create_app():
         app.register_blueprint(health_bp)
         app.register_blueprint(settings_bp)
         app.register_blueprint(ai_assistant_bp, url_prefix='/api')
+        app.register_blueprint(meta_test_bp)
 
         print("[APP] All blueprints registered successfully")
     except Exception as e:
@@ -157,8 +159,8 @@ def create_app():
             traceback.print_exc()
             raise
 
-# Start Instagram DM poller (background thread)
-    # from app.integrations.meta_poller import start_poller
-    # start_poller(app)
-    
+    # Instagram DM poller is RETIRED — webhook-only. New DMs/comments arrive via
+    # /webhook/instagram as they happen; we never backfill history. Do not
+    # re-enable start_poller.
+
     return app
