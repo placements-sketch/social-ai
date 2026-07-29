@@ -89,10 +89,10 @@ const NO_REPLY_LABELS = {
 // How often Live Activity refetches. Short enough to deserve the "Live"
 // badge, long enough not to hammer the API from an idle dashboard.
 const ACTIVITY_POLL_MS = 20000
-// Rows rendered in the feed. ~20 fills the card on a tall screen so no dead
-// space shows, without becoming a wall to scroll through; the rest is a click
-// away on the Logs page.
-const ACTIVITY_FEED_LIMIT = 20
+// Rows rendered in the feed — a glance at what's happening, not a log tail.
+// The rest is a click away via "View All". Also the fetch size: asking for 50
+// and showing a fraction just wasted the request.
+const ACTIVITY_FEED_LIMIT = 12
 
 const CHANNEL_META = {
   instagram: { name: 'Instagram', color: '#ec4899', icon: Instagram },
@@ -323,7 +323,7 @@ export default function Dashboard() {
     const load = async (isFirst) => {
       if (isFirst) setLoadingActivity(true)
       try {
-        const data = await getMyLogs({ per_page: 50 })
+        const data = await getMyLogs({ per_page: ACTIVITY_FEED_LIMIT })
         if (!cancelled) setActivityLogs(data.logs || [])
       } catch (err) {
         console.error('Failed to load activity logs:', err)
@@ -481,11 +481,8 @@ export default function Dashboard() {
   }
 
   const getActivityFeed = () => {
-    // Sized to fill a tall card without turning into an endless scroll. It was
-    // 12 of 50 fetched — too few to fill the card once the scroll area could
-    // grow, and 38 rows wasted. Rendering all 50 then overshot the other way.
-    // ACTIVITY_FEED_LIMIT is the middle: a glance at what's happening, with
-    // "View All" for the rest.
+    // Belt and braces — the fetch already asks for exactly this many, but the
+    // slice keeps the panel bounded if the endpoint ever returns more.
     return activityLogs.slice(0, ACTIVITY_FEED_LIMIT).map(log => {
       // Prefer payload.channel (now richly populated); fall back to source-based guess.
       const src = (log.source || '').toLowerCase()
