@@ -26,7 +26,7 @@ additive, so the running code keeps working against the new columns.
 
 ## Dashboard page
 
-Run steps 1 → 6 in order. Steps 5 and 6 are not database changes.
+Run steps 1 → 7 in order. Steps 5–7 are queries and deploy notes, not changes.
 
 ### Step 1 — Where is production right now?
 
@@ -168,11 +168,33 @@ LEFT JOIN channels ch ON ch.channel = c.channel
 WHERE c.id = m.conversation_id
   AND m.direction    = 'inbound'
   AND m.ai_eligible IS NULL;
+
+-- 4. PUBLIC COMMENTS THE AI DELIBERATELY IGNORED. Comments are public, so the
+--    AI only answers questions — it stays out of "Love this 😍". That gate
+--    was never captured in the snapshot, so those comments counted as
+--    conversations the AI failed to answer. Scoped hard: only comments in
+--    conversations that both logged the suppression AND never got an AI
+--    reply, so a genuine question is never demoted by mistake.
+UPDATE messages m
+SET ai_eligible = false
+FROM conversations c
+WHERE c.id = m.conversation_id
+  AND m.direction    = 'inbound'
+  AND m.channel   LIKE '%_comment'
+  AND m.ai_eligible IS DISTINCT FROM false
+  AND NOT EXISTS (SELECT 1 FROM messages r
+                   WHERE r.conversation_id = c.id
+                     AND r.direction = 'outbound' AND r.sender = 'ai')
+  AND EXISTS (SELECT 1 FROM logs l
+               WHERE l.conversation_id = c.id
+                 AND l.source = 'services.ai_suppressed'
+                 AND l.payload->>'reason' = 'not_a_question');
 ```
 
-Local dev: 25 / 0 / 0 rows, moving the distribution from `false: 44, true: 83`
-to `false: 19, true: 108`. Success Rate went 18.8% → 21.9%, and WhatsApp and
-Facebook went from "AI off here" to 100% answered.
+Local dev: 25 / 0 / 0 / 1 rows, moving the distribution from
+`false: 44, true: 83` to `false: 20, true: 107`. Success Rate went
+18.8% → 22.6%, WhatsApp and Facebook went from "AI off here" to 100%
+answered, and Instagram's "never answered" dropped from 2 to 1.
 
 **What this does not fix.** There is no history for `channels.enabled` or the
 global AI master switch, so messages with no AI reply and no recorded disable
@@ -204,7 +226,31 @@ SELECT
 Local dev after all steps: `7, 11, 108, 19, 0, 0`. **`still_to_fix` and
 `eligible_null` must both be 0.**
 
-### Step 6 — Not database changes
+### Step 6 — Optional: see why anything went unanswered
+
+No changes to run — this is the query behind the sheet's new "why" lines, for
+when you want the detail per conversation.
+
+```sql
+SELECT l.conversation_id,
+       c.channel,
+       l.payload->>'reason' AS reason,
+       l.payload->>'detail' AS detail,
+       l.created_at
+FROM logs l
+JOIN conversations c ON c.id = l.conversation_id
+WHERE l.source = 'services.no_reply_sent'
+  AND l.created_at >= now() - interval '7 days'
+ORDER BY l.created_at DESC;
+```
+
+`level = 'error'` rows are faults (`dispatch_failed`, `pipeline_exception`,
+`settings_unreadable`); `info` rows are the system working as designed.
+Conversations with no row at all show as **No reason recorded** in the sheet —
+that means the message predates this logging, so expect all historical seed
+data to look that way.
+
+### Step 7 — Not database changes
 
 **`tzdata` dependency.** The deploy crashes without it — analytics resolves
 calendar windows in the business timezone, and `zoneinfo` has no tz database

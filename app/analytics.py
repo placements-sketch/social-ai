@@ -814,10 +814,30 @@ def summary():
         ).all():
             escalated.setdefault(ch, set()).add(cid)
 
-        return counts, eligible, answered, escalated, human_answered
+        # Why the AI didn't reply, straight from services.no_reply_sent. This
+        # is what turns "3 never answered" from a dead end into something the
+        # system can explain on its own.
+        # Log.payload is declared as generic JSON but is jsonb in Postgres, so
+        # `->>` via text() is the accessor that works — same approach as the
+        # failure_breakdown query below.
+        from sqlalchemy import text as _sql_text
+        reason_col = _sql_text("logs.payload ->> 'reason'")
+        no_reply_reasons = {}
+        for ch, cid, reason in _scope_filter(
+            db.session.query(conv_fam.label('channel'), Conversation.id, reason_col)
+              .join(Log, Log.conversation_id == Conversation.id)
+              .filter(Log.source == 'services.no_reply_sent')
+              .filter(Log.created_at >= start_dt)
+              .filter(Log.created_at < end_dt),
+            Conversation, user,
+        ).all():
+            no_reply_reasons.setdefault(ch, {}).setdefault(reason or 'unknown', set()).add(cid)
+
+        return counts, eligible, answered, escalated, human_answered, no_reply_reasons
 
     try:
-        cur_counts, cur_elig, cur_ans, cur_esc, cur_hum = _channel_perf(win.start, win.end)
+        cur_counts, cur_elig, cur_ans, cur_esc, cur_hum, cur_reasons = \
+            _channel_perf(win.start, win.end)
         prev_counts, *_ = _channel_perf(win.prev_start, win.prev_end)
 
         total_inbound_all = sum(int(r.inbound) for r in cur_counts.values()) or 1
@@ -844,6 +864,20 @@ def summary():
             # hanging with no explanation.
             unanswered = elig - ans
             picked_up = unanswered & cur_hum.get(ch, set())
+            # Reasons, restricted to the conversations actually counted as
+            # never-answered — a suppression logged on a conversation the AI
+            # went on to answer is not an explanation for anything.
+            silent = unanswered - picked_up
+            reasons = {}
+            for reason, cids in cur_reasons.get(ch, {}).items():
+                hits = len(cids & silent)
+                if hits:
+                    reasons[reason] = hits
+            explained = sum(reasons.values())
+            if len(silent) > explained:
+                # No log covers these. Naming the gap is the point — silence
+                # here is what sent us digging through the database by hand.
+                reasons['no_reason_recorded'] = len(silent) - explained
             channel_performance.append({
                 'channel':        ch,
                 'inbound':        inbound,
@@ -855,7 +889,8 @@ def summary():
                 'handled_convos': len(elig),
                 'answered_convos':  len(elig & ans),
                 'human_convos':     len(picked_up),
-                'no_reply_convos':  len(unanswered - picked_up),
+                'no_reply_convos':  len(silent),
+                'no_reply_reasons': reasons,
                 'escalated':      len(cur_esc.get(ch, set())),
                 'avg_response_time_ms': (
                     int(row.avg_ms) if (row and row.avg_ms is not None) else None

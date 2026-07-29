@@ -70,6 +70,22 @@ const alertStyles = {
   info:    { icon: Info,          cls: 'border-blue-200 bg-blue-50 text-blue-600'    },
 }
 
+// Mirrors NO_REPLY_LABELS in app/services.py — keep the two in sync.
+// 'no_reason_recorded' is synthesised by the analytics layer for conversations
+// no log accounts for; it is deliberately conspicuous.
+const NO_REPLY_LABELS = {
+  duplicate_webhook:           'Duplicate webhook',
+  ai_master_switch_off:        'AI master switch off',
+  settings_unreadable:         'Settings unreadable',
+  channel_disabled:            'Channel disabled',
+  conversation_ai_off:         'AI off for this chat',
+  not_a_question:              "Comment wasn't a question",
+  superseded_by_newer_message: 'Answered as part of a later message',
+  dispatch_failed:             'Send to platform failed',
+  pipeline_exception:          'Pipeline error',
+  no_reason_recorded:          'No reason recorded',
+}
+
 const CHANNEL_META = {
   instagram: { name: 'Instagram', color: '#ec4899', icon: Instagram },
   whatsapp:  { name: 'WhatsApp',  color: '#22c55e', icon: Smartphone },
@@ -1135,6 +1151,28 @@ export default function Dashboard() {
                                 </span>
                               )}
                             </div>
+
+                            {/* Why. Sourced from services.no_reply_sent, so the
+                                system explains its own silence instead of
+                                someone having to read the database. */}
+                            {c.no_reply_convos > 0 && (
+                              <ul className="mt-2 pt-2 border-t border-gray-200/70 space-y-0.5">
+                                {Object.entries(c.no_reply_reasons || {})
+                                  .sort((a, b) => b[1] - a[1])
+                                  .map(([reason, n]) => (
+                                    <li key={reason} className="text-[11px] text-gray-500 flex items-start gap-1.5">
+                                      <span className="text-gray-300">↳</span>
+                                      <span>
+                                        <span className="font-bold text-gray-900 tabular-nums">{n}</span>
+                                        {' '}
+                                        <span className={reason === 'no_reason_recorded' ? 'text-red-600 font-medium' : ''}>
+                                          {NO_REPLY_LABELS[reason] || reason}
+                                        </span>
+                                      </span>
+                                    </li>
+                                  ))}
+                              </ul>
+                            )}
                           </div>
                         )}
 

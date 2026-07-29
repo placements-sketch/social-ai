@@ -31,6 +31,70 @@ import re
 # anyone calling process_message synchronously.
 AI_SUPPRESSED = ""
 
+# ── Why a customer got no AI reply ───────────────────────────────────────────
+# Every path out of process_message() that does NOT dispatch a reply records
+# one of these via _record_no_reply(), on the single log source
+# 'services.no_reply_sent'. One query then answers "why wasn't this answered?"
+# for any conversation — previously the reasons were spread across five
+# different log sources and some paths (exceptions, failed sends) logged
+# nothing at all, leaving gaps nobody could explain.
+NO_REPLY_DUPLICATE_WEBHOOK     = "duplicate_webhook"
+NO_REPLY_MASTER_SWITCH_OFF     = "ai_master_switch_off"
+NO_REPLY_SETTINGS_UNREADABLE   = "settings_unreadable"
+NO_REPLY_CHANNEL_DISABLED      = "channel_disabled"
+NO_REPLY_CONVERSATION_AI_OFF   = "conversation_ai_off"
+NO_REPLY_NOT_A_QUESTION        = "not_a_question"
+NO_REPLY_SUPERSEDED            = "superseded_by_newer_message"
+NO_REPLY_DISPATCH_FAILED       = "dispatch_failed"
+NO_REPLY_EXCEPTION             = "pipeline_exception"
+
+# Reasons that mean the system worked as designed. Everything else is a fault
+# worth surfacing, and is logged at 'error' so it reaches the alerts feed.
+NO_REPLY_BY_DESIGN = {
+    NO_REPLY_DUPLICATE_WEBHOOK,
+    NO_REPLY_MASTER_SWITCH_OFF,
+    NO_REPLY_CHANNEL_DISABLED,
+    NO_REPLY_CONVERSATION_AI_OFF,
+    NO_REPLY_NOT_A_QUESTION,
+    NO_REPLY_SUPERSEDED,
+}
+
+# Human-readable, for the Dashboard. Keep in sync with the constants above.
+NO_REPLY_LABELS = {
+    NO_REPLY_DUPLICATE_WEBHOOK:   "Duplicate webhook",
+    NO_REPLY_MASTER_SWITCH_OFF:   "AI master switch off",
+    NO_REPLY_SETTINGS_UNREADABLE: "Settings unreadable",
+    NO_REPLY_CHANNEL_DISABLED:    "Channel disabled",
+    NO_REPLY_CONVERSATION_AI_OFF: "AI off for this chat",
+    NO_REPLY_NOT_A_QUESTION:      "Comment wasn't a question",
+    NO_REPLY_SUPERSEDED:          "Answered as part of a later message",
+    NO_REPLY_DISPATCH_FAILED:     "Send to platform failed",
+    NO_REPLY_EXCEPTION:           "Pipeline error",
+}
+
+
+def _record_no_reply(reason: str, channel: str, user_id: str,
+                     conversation_id: int | None = None, detail: str | None = None):
+    """
+    The one place that records "this inbound got no AI reply, and here's why".
+
+    Faults log at 'error' so they surface in System Alerts; by-design
+    suppressions log at 'info' so they don't cry wolf.
+    """
+    log_event(
+        "info" if reason in NO_REPLY_BY_DESIGN else "error",
+        "services.no_reply_sent",
+        f"No AI reply on [{channel}] for {user_id}: {reason}"
+        + (f" — {detail}" if detail else ""),
+        payload={
+            "reason": reason,
+            "channel": channel,
+            "user_external_id": user_id,
+            "detail": detail,
+        },
+        conversation_id=conversation_id,
+    )
+
 def _conversation_history_for_ai(conversation_id: int, limit: int = 8) -> list[dict]:
     """
     Pull the recent message history of a conversation, formatted for Claude's
@@ -188,7 +252,35 @@ def _burst_already_answered(inbound_record):
         log_event("warn", "services._burst_already_answered", str(e))
         return False
 
-def process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None, image_urls: list | None = None) -> str:
+def process_message(message: str, user_id: str, channel: str, external_id: str | None = None,
+                    media_id: str | None = None, image_urls: list | None = None) -> str:
+    """
+    Public pipeline entry point — a thin wrapper that guarantees an unanswered
+    message is always explainable.
+
+    Every deliberate exit inside _process_message() records its own reason. An
+    *undeliberate* one — anything raising past all the inner handlers — used to
+    escape with no trace at all, which is exactly the unexplainable gap this
+    logging exists to remove. So the last resort is caught here.
+
+    Swallows rather than re-raises: webhook senders retry on a non-200, and a
+    retry storm on a message we cannot process helps nobody. The inbound row is
+    already saved, so an agent can still answer by hand.
+    """
+    try:
+        return _process_message(message, user_id, channel, external_id, media_id, image_urls)
+    except Exception as e:
+        import traceback
+        _record_no_reply(NO_REPLY_EXCEPTION, channel, user_id,
+                         detail=f"{type(e).__name__}: {e}")
+        log_event("error", "services.pipeline_exception",
+                  f"Unhandled error processing [{channel}] message from {user_id}: {e}",
+                  payload={"channel": channel, "user_external_id": user_id,
+                           "traceback": traceback.format_exc()[-2000:]})
+        return AI_SUPPRESSED
+
+
+def _process_message(message: str, user_id: str, channel: str, external_id: str | None = None, media_id: str | None = None, image_urls: list | None = None) -> str:
     """
     Main pipeline entry point. Called by every webhook route.
 
@@ -216,13 +308,9 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         if already_replied:
             # We've already processed this exact webhook. Skip entirely
             # to prevent re-sending the AI reply to the customer.
-            log_event("info", "services.duplicate_webhook",
-                      f"Duplicate webhook for mid={external_id} — skipping",
-                      payload={
-                          "external_id": external_id,
-                          "user_external_id": user_id,
-                          "channel": channel,
-                      })
+            _record_no_reply(NO_REPLY_DUPLICATE_WEBHOOK, channel, user_id,
+                             conversation_id=already_replied.conversation_id,
+                             detail=f"mid={external_id}")
             return AI_SUPPRESSED
         
     log_event("info", "services.inbound",
@@ -260,20 +348,12 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     #                            Channels admin page)
     #   - Conversation.ai_enabled (per-thread, flipped when a human takes
     #                              over a specific conversation)
-    if not _ai_should_respond(channel=channel, user_id=user_id, message=message):
-        reason = (
-            "not_a_question"
-            if channel.endswith("_comment")
-            else "channel_disabled_or_handed_over"
-        )
-        log_event("info", "services.ai_suppressed",
-                  f"AI suppressed for [{channel}] {user_id}: {reason}",
-                  payload={
-                      "user_external_id": user_id,
-                      "channel": channel,
-                      "reason": reason,
-                  },
-                  conversation_id=(inbound_record.conversation_id if inbound_record else None))
+    should_reply, gate_reason = _ai_should_respond(
+        channel=channel, user_id=user_id, message=message)
+    if not should_reply:
+        _record_no_reply(gate_reason, channel, user_id,
+                         conversation_id=(inbound_record.conversation_id
+                                          if inbound_record else None))
         return AI_SUPPRESSED
 
     # ── Step 3: Detect ALL intents in the message ──────────────────────────
@@ -293,9 +373,9 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         import time
         time.sleep(_DEBOUNCE_SECONDS)
         if _has_newer_inbound(inbound_record):
-            log_event("info", "services.debounce_superseded",
-                      "Newer message arrived during quiet window — deferring to it",
-                      conversation_id=inbound_record.conversation_id)
+            _record_no_reply(NO_REPLY_SUPERSEDED, channel, user_id,
+                             conversation_id=inbound_record.conversation_id,
+                             detail="newer message arrived during the quiet window")
             return AI_SUPPRESSED
         message, image_urls = _coalesce_recent_inbound(inbound_record)
 
@@ -605,25 +685,35 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
                         db.session.rollback()
                     except Exception:
                         pass
-            log_event("info", "services.debounce_superseded_late",
-                      "Newer inbound arrived during AI generation — dropping this reply",
-                      conversation_id=inbound_record.conversation_id)
+            _record_no_reply(NO_REPLY_SUPERSEDED, channel, user_id,
+                             conversation_id=inbound_record.conversation_id,
+                             detail="newer inbound arrived during AI generation")
             return AI_SUPPRESSED
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,
                                  comment_external_id=external_id, product_url=product_url)
 
-    log_event("info", "services.ai_reply",
-              f"AI replied via {channel} to {user_id}",
-              payload={
-                  "user_external_id": user_id,
-                  "channel": channel,
-                  "intents": intents,
-                  "reply_preview": reply[:160],
-                  "utm_token": utm_token,
-              },
-              conversation_id=conversation_id)
+    # A None here means the send failed (or the channel has no dispatcher yet).
+    # This used to log services.ai_reply unconditionally, so a reply that never
+    # left the building was recorded — and counted — as answered. The row is
+    # still persisted below so an agent can resend by hand; what changes is
+    # that we no longer claim the customer heard from us.
+    if new_ext_id is None:
+        _record_no_reply(NO_REPLY_DISPATCH_FAILED, channel, user_id,
+                         conversation_id=conversation_id,
+                         detail=f"reply generated but not delivered via {channel}")
+    else:
+        log_event("info", "services.ai_reply",
+                  f"AI replied via {channel} to {user_id}",
+                  payload={
+                      "user_external_id": user_id,
+                      "channel": channel,
+                      "intents": intents,
+                      "reply_preview": reply[:160],
+                      "utm_token": utm_token,
+                  },
+                  conversation_id=conversation_id)
 
     # ── Step 7: Finalize the outbound row IMMEDIATELY ──────────────────────
     # No delay here. While the row sits as 'ai_pending' the coalescer can't
@@ -646,9 +736,19 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
 # Gate helpers
 # ─────────────────────────────────────────────
 
-def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -> bool:
+def _ai_should_respond(channel: str, user_id: str, message: str | None = None):
     """
-    Returns True iff:
+    Decide whether the AI answers this message.
+
+    Returns (should_respond, reason). `reason` is None when the answer is yes,
+    and otherwise one of the NO_REPLY_* constants — it is what makes an
+    unanswered conversation explainable after the fact. This used to return a
+    bare bool, and the caller re-derived a coarse two-value reason from the
+    channel name, which collapsed five distinct causes into "not_a_question"
+    or "channel_disabled_or_handed_over".
+
+    Says yes iff:
+      - the global master switch is on, AND
       - the channel is enabled (or no Channel row exists — fail open), AND
       - the conversation has ai_enabled (or no conversation exists yet — fail open), AND
       - for *_comment channels: the message looks like a question
@@ -656,9 +756,6 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
     The question-gate exists because comments are PUBLIC. We don't want
     the bot replying to "love this!" or pure emoji praise on a post.
     DMs reply to everything (private 1:1, expected behavior).
-
-    A global master switch (settings → "ai.enabled") is checked FIRST and
-    overrides everything below.
     """
     # Global kill switch. Deliberately FAILS CLOSED: if the setting can't be
     # read we stay silent rather than risk auto-replying to real customers
@@ -666,28 +763,30 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
     try:
         from app.settings import get_section
         if not get_section("ai").get("enabled", True):
-            log_event("info", "services.ai_disabled_globally",
-                      "AI master switch is OFF — no automated reply",
-                      payload={"channel": channel, "user_id": user_id})
-            return False
+            return False, NO_REPLY_MASTER_SWITCH_OFF
     except Exception as e:
         log_event("error", "services.ai_switch_unreadable",
                   f"Could not read AI master switch, staying silent: {e}")
-        return False
+        return False, NO_REPLY_SETTINGS_UNREADABLE
+
+    def _comment_gate(is_q_input):
+        """Comments must look like a question; DMs always pass."""
+        from app.utils.intent import is_question
+        if channel.endswith("_comment") and is_q_input is not None:
+            return (True, None) if is_question(is_q_input) else (False, NO_REPLY_NOT_A_QUESTION)
+        return True, None
+
     try:
         from app.models import Channel, Conversation, User
-        from app.utils.intent import is_question
 
         ch = Channel.query.filter_by(channel=channel).first()
         if ch is not None and not ch.enabled:
-            return False
+            return False, NO_REPLY_CHANNEL_DISABLED
 
         customer = User.query.filter_by(external_id=user_id, channel=channel).first()
         if customer is None:
             # Brand new customer — apply the comment gate but still allow DMs
-            if channel.endswith("_comment") and message is not None:
-                return is_question(message)
-            return True
+            return _comment_gate(message)
 
         conv = (
             Conversation.query
@@ -696,22 +795,19 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None) -
             .first()
         )
         if conv is None:
-            if channel.endswith("_comment") and message is not None:
-                return is_question(message)
-            return True
+            return _comment_gate(message)
 
         if not bool(conv.ai_enabled):
-            return False
+            return False, NO_REPLY_CONVERSATION_AI_OFF
 
-        # Final gate: for comments, must be a question
-        if channel.endswith("_comment") and message is not None:
-            return is_question(message)
-
-        return True
+        return _comment_gate(message)
 
     except Exception as e:
+        # Fails OPEN here on purpose: a DB hiccup shouldn't silence the AI for
+        # a customer who is waiting. The gate above fails closed because a
+        # deliberate kill switch is a stronger signal than a transient error.
         log_event("error", "services._ai_should_respond", str(e))
-        return True
+        return True, None
 
 # ─────────────────────────────────────────────
 # Internal helpers (extraction)
@@ -1038,19 +1134,29 @@ def _save_message(user_id, channel, content, intent, direction,
         #
         # This must mirror every gate in _ai_should_respond(), because a
         # message the AI was never allowed to answer must not count against
-        # it: the global master switch, the per-channel toggle, and the
-        # per-conversation toggle. Missing the master switch meant that with
-        # AI globally off, every inbound message was still recorded as
-        # "eligible" and then scored as an AI failure.
+        # it: the global master switch, the per-channel toggle, the
+        # per-conversation toggle, and — on comment channels only — the
+        # question gate. Missing the master switch meant that with AI globally
+        # off, every inbound message was still recorded as "eligible" and then
+        # scored as an AI failure. Missing the question gate did the same to
+        # public comments: "Love this 😍" is deliberately left unanswered
+        # because comments are public and we don't reply to praise, yet it
+        # counted as a conversation the AI failed to answer.
         ai_eligible = None
         if direction == "inbound":
             try:
                 from app.models import Channel
                 from app.settings import get_section
+                from app.utils.intent import is_question
                 global_ok  = bool(get_section("ai").get("enabled", True))
                 ch = Channel.query.filter_by(channel=channel).first()
                 channel_ok = True if ch is None else bool(ch.enabled)
-                ai_eligible = global_ok and channel_ok and bool(conversation.ai_enabled)
+                # is_question() is a pure function of the text, so it can be
+                # evaluated here even though the real gate runs later.
+                question_ok = (is_question(content or "")
+                               if channel.endswith("_comment") else True)
+                ai_eligible = (global_ok and channel_ok
+                               and bool(conversation.ai_enabled) and question_ok)
             except Exception:
                 # Same reasoning as the gate: unreadable settings mean the AI
                 # stays silent, so this message was never its to answer.
