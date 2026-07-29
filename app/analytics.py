@@ -6,7 +6,8 @@ Endpoints (JWT-protected, /api prefix):
   GET /api/analytics/summary    aggregated data for the Analytics page
   GET /api/analytics/agents     per-agent breakdown (supervisor + admin only)
 
-Shared query params:
+Shared query params (precedence: start/end → period → days):
+  ?start=&end=               explicit YYYY-MM-DD range, both ends inclusive
   ?period=today|week|month   calendar period in the business timezone
   ?days=N                    rolling N-day window (default 7, max 365)
 
@@ -61,9 +62,25 @@ def _local_midnight(d, tz):
                    .astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _parse_date_arg(name):
+    """A YYYY-MM-DD query arg as a date, or None if absent. Raises on garbage."""
+    raw = (request.args.get(name) or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, '%Y-%m-%d').date()
+    except ValueError:
+        raise ValueError(f'{name} must be a date in YYYY-MM-DD format, got "{raw}".')
+
+
 def _resolve_window():
     """
-    Resolve the reporting window. Two modes:
+    Resolve the reporting window. Three modes, in precedence order:
+
+      ?start=YYYY-MM-DD&end=YYYY-MM-DD
+          An explicit range of LOCAL calendar days, both ends inclusive, so
+          start == end is a single day. The previous window is the same number
+          of days immediately before it.
 
       ?period=today|week|month
           CALENDAR periods in the business timezone — today runs from local
@@ -81,6 +98,8 @@ def _resolve_window():
     The timezone matters: timestamps are stored as naive UTC, so a UTC-based
     "today" would start at 3am in Nairobi and bucket the whole evening into
     the following day.
+
+    Raises ValueError on a malformed range; callers turn that into a 400.
     """
     from app.settings import business_timezone, week_starts_on_sunday
 
@@ -88,6 +107,32 @@ def _resolve_window():
     now_local = datetime.now(tz)
     today_local = now_local.date()
     end = datetime.utcnow()
+
+    # ── Explicit range ───────────────────────────────────────────────────
+    start_date, end_date = _parse_date_arg('start'), _parse_date_arg('end')
+    if start_date or end_date:
+        if not (start_date and end_date):
+            raise ValueError('start and end must be given together.')
+        if start_date > end_date:
+            raise ValueError('start must be on or before end.')
+        span = (end_date - start_date).days + 1
+        if span > MAX_DAYS:
+            raise ValueError(f'Range is {span} days; the maximum is {MAX_DAYS}.')
+
+        # end_date is inclusive, so the window runs to midnight after it —
+        # clamped to now, so picking a range ending today doesn't reach into
+        # hours that haven't happened yet.
+        win_end = min(_local_midnight(end_date + timedelta(days=1), tz), end)
+        return _Window(
+            days=span,
+            start=_local_midnight(start_date, tz),
+            end=win_end,
+            prev_start=_local_midnight(start_date - timedelta(days=span), tz),
+            prev_end=_local_midnight(start_date, tz),
+            dates=[start_date + timedelta(days=i) for i in range(span)],
+            utc_offset=now_local.utcoffset() or timedelta(0),
+            period='custom',
+        )
 
     period = (request.args.get('period') or '').strip().lower()
     if period in CALENDAR_PERIODS:
@@ -198,7 +243,10 @@ def summary():
     if err:
         return err
 
-    win = _resolve_window()
+    try:
+        win = _resolve_window()
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     days, cutoff = win.days, win.start
 
     # ── KPIs: current window + previous window ───────────────────────────
@@ -693,7 +741,10 @@ def per_agent():
     if user.role not in {'admin', 'supervisor'}:
         return jsonify({'error': 'Forbidden'}), 403
 
-    days, cutoff = _window()
+    try:
+        days, cutoff = _window()
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     agents = (AuthUser.query
               .filter(AuthUser.role == 'agent', AuthUser.status == 'active')

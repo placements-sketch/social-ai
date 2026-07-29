@@ -38,17 +38,22 @@ async function handle(fetchPromise) {
  */
 
 /**
- * Get analytics summary. Pass EITHER:
- *   period — 'today' | 'week' | 'month', a calendar period in the business
- *            timezone (today = since local midnight, week = since the start of
- *            the week, month = since the 1st). Compared against the matching
- *            prior calendar period.
- *   days   — a rolling N×24h window ending now, compared against the N days
- *            before it.
- * @param {{period?: string, days?: number}} opts
+ * Get analytics summary. Pass ONE of:
+ *   start + end — explicit YYYY-MM-DD range of local calendar days, both ends
+ *                 inclusive, so start === end is a single day. Compared
+ *                 against the same number of days immediately before.
+ *   period      — 'today' | 'week' | 'month', a calendar period in the
+ *                 business timezone (today = since local midnight, week =
+ *                 since the start of the week, month = since the 1st).
+ *                 Compared against the matching prior calendar period.
+ *   days        — a rolling N×24h window ending now, compared against the N
+ *                 days before it.
+ * @param {{start?: string, end?: string, period?: string, days?: number}} opts
  */
-export function getAnalyticsSummary({ period, days = 7 } = {}) {
-  const params = new URLSearchParams(period ? { period } : { days })
+export function getAnalyticsSummary({ start, end, period, days = 7 } = {}) {
+  const params = new URLSearchParams(
+    start && end ? { start, end } : period ? { period } : { days }
+  )
   return handle(
     fetch(`${API_BASE}/analytics/summary?${params}`, {
       method: 'GET',

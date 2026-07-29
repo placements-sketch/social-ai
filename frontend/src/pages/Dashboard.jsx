@@ -1,7 +1,7 @@
 import {
   MessageSquare, Inbox, Bot, UserCheck, XCircle, PackageX, UserRound, Activity,
   AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
-  Download, FileText, File, Calendar, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
+  Download, FileText, File, Calendar, CalendarRange, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
@@ -154,7 +154,10 @@ export default function Dashboard() {
   const [periodOpen, setPeriodOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
 
-  const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month'
+  const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month' | 'custom'
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
+  const [rangeError, setRangeError] = useState(null)
 
   // These are CALENDAR periods resolved server-side in the business timezone —
   // today starts at local midnight, week at the start of the week, month on
@@ -162,23 +165,39 @@ export default function Dashboard() {
   // the 3rd mostly showed last month.
   const PERIOD_LABELS = { today: 'Today', week: 'This week', month: 'This month' }
   const PREVIOUS_LABELS = { today: 'yesterday', week: 'last week', month: 'last month' }
+  const PERIOD_OPTIONS = [
+    { key: 'today',  label: 'Today',      icon: Clock },
+    { key: 'week',   label: 'This week',  icon: Calendar },
+    { key: 'month',  label: 'This month', icon: ChartTrendingUp },
+    { key: 'custom', label: 'Custom',     icon: CalendarRange },
+  ]
+
+  const todayISO = new Date().toISOString().split('T')[0]
+  const customReady = Boolean(customStart && customEnd && customStart <= customEnd)
 
   // Load analytics summary
   useEffect(() => {
+    // A half-filled custom range isn't an error yet — the user is still
+    // picking. Leave the last good data on screen rather than blanking it.
+    if (period === 'custom' && !customReady) return
+
     const load = async () => {
       setLoadingAnalytics(true)
       try {
-        const data = await getAnalyticsSummary({ period })
+        const data = await getAnalyticsSummary(
+          period === 'custom' ? { start: customStart, end: customEnd } : { period }
+        )
         setAnalyticsData(data)
+        setRangeError(null)
       } catch (err) {
         console.error('Failed to load analytics:', err)
-        // Fall back to dummy data
+        setRangeError(err.message)
       } finally {
         setLoadingAnalytics(false)
       }
     }
     load()
-  }, [period])
+  }, [period, customStart, customEnd, customReady])
 
   // Load system alerts
   useEffect(() => {
@@ -373,8 +392,11 @@ export default function Dashboard() {
   )
   const trimmedWeekly = firstActiveIdx === -1 ? weekly : weekly.slice(firstActiveIdx)
 
+  // Weekday names only stay unambiguous for a week or less; past that the axis
+  // would repeat "Mon, Tue…" and a custom 3-week range would read as nonsense.
+  const dateAxis = (analyticsData?.window_days || 0) > 7
   const chartData = trimmedWeekly.map(w => ({
-    time: period === 'month'
+    time: dateAxis
       ? (parseBackendTime(w.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || w.day)
       : w.day,
     // Instagram
@@ -395,10 +417,30 @@ export default function Dashboard() {
     tiktok_human: w.tiktok_human || 0,
   }))
 
+  // "9 Jun" for a single day, "30 May – 18 Jun" for a range. Parsed as local
+  // noon so a plain YYYY-MM-DD isn't dragged back a day by the UTC offset.
+  const fmtDay = (iso) => {
+    if (!iso) return ''
+    const [y, m, d] = iso.split('-').map(Number)
+    return new Date(y, m - 1, d, 12).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+  const periodLabel = period !== 'custom'
+    ? PERIOD_LABELS[period]
+    : !customReady
+      ? 'Custom range'
+      : customStart === customEnd
+        ? fmtDay(customStart)
+        : `${fmtDay(customStart)} – ${fmtDay(customEnd)}`
+  const previousLabel = period !== 'custom'
+    ? PREVIOUS_LABELS[period]
+    : (analyticsData?.window_days === 1
+        ? 'the day before'
+        : `the previous ${analyticsData?.window_days || ''} days`.replace('  ', ' '))
+
   const exportMeta = () => ({
-    periodLabel: PERIOD_LABELS[period],
+    periodLabel,
     generatedAt: new Date().toLocaleString(),
-    periodSlug: period,
+    periodSlug: period === 'custom' && customReady ? `${customStart}_${customEnd}` : period,
     dateSlug: new Date().toISOString().split('T')[0],
   })
   const exportToCSV = () => exportAnalyticsCSV(analyticsData || {}, exportMeta())
@@ -416,11 +458,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
           {/* Desktop: Button group */}
           <div className="hidden sm:flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
-            {[
-              { key: 'today', label: 'Today', icon: Clock },
-              { key: 'week', label: 'This week', icon: Calendar },
-              { key: 'month', label: 'This month', icon: ChartTrendingUp },
-            ].map(({ key, label, icon: Icon }) => (
+            {PERIOD_OPTIONS.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setPeriod(key)}
@@ -441,28 +479,23 @@ export default function Dashboard() {
           <div className="sm:hidden relative">
             <button onClick={() => setPeriodOpen(o => !o)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
               <Clock size={14} />
-              <span>{PERIOD_LABELS[period]}</span>
+              <span>{periodLabel}</span>
               <ChevronDown size={14} className={clsx('transition-transform', periodOpen && 'rotate-180')} />
             </button>
             {periodOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setPeriodOpen(false)} />
                 <div className="absolute left-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                  {[
-                    { key: 'today', label: 'Today', icon: Clock },
-                    { key: 'week', label: 'This week', icon: Calendar },
-                    { key: 'month', label: 'This month', icon: ChartTrendingUp },
-                  ].map(({ key, label, icon: Icon }) => (
+                  {PERIOD_OPTIONS.map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}
                       onClick={() => { setPeriod(key); setPeriodOpen(false) }}
                   className={clsx(
                     'w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center gap-2 transition-colors',
+                    'first:rounded-t-lg last:rounded-b-lg',
                     period === key
                       ? 'bg-black text-white'
-                      : 'text-gray-700 hover:bg-gray-50',
-                    key === 'today' && 'first:rounded-t-lg',
-                    key === 'month' && 'last:rounded-b-lg'
+                      : 'text-gray-700 hover:bg-gray-50'
                   )}
                 >
                   <Icon size={13} />
@@ -499,6 +532,48 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Custom range picker — only while 'Custom' is the active period.
+          Both ends are inclusive, so leaving them equal reports a single day. */}
+      {period === 'custom' && (
+        <div className="card p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="flex-1 min-w-0">
+            <label className="block text-[11px] font-semibold text-gray-700 mb-1.5">From</label>
+            <input
+              type="date"
+              value={customStart}
+              max={customEnd || todayISO}
+              onChange={e => setCustomStart(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <label className="block text-[11px] font-semibold text-gray-700 mb-1.5">To</label>
+            <input
+              type="date"
+              value={customEnd}
+              min={customStart || undefined}
+              max={todayISO}
+              onChange={e => setCustomEnd(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => { setCustomStart(todayISO); setCustomEnd(todayISO) }}
+            className="shrink-0 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors"
+          >
+            Just today
+          </button>
+          <p className="text-[11px] text-gray-400 sm:ml-1 sm:pb-2.5 shrink-0">
+            {rangeError
+              ? <span className="text-red-600 font-medium">{rangeError}</span>
+              : customReady
+                ? `${analyticsData?.window_days ?? ''} day${analyticsData?.window_days === 1 ? '' : 's'} · vs ${previousLabel}`
+                : 'Pick both dates'}
+          </p>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {statCardsData.map((card) => (
@@ -506,7 +581,7 @@ export default function Dashboard() {
             key={`${card.label}-${period}`}
             {...card}
             kpis={analyticsData?.kpis || {}}
-            periodLabel={PREVIOUS_LABELS[period]}
+            periodLabel={previousLabel}
           />
         ))}
       </div>
@@ -609,7 +684,7 @@ export default function Dashboard() {
               <div key={label} className={`card ${colors.bg} border ${colors.border} p-4`}>
                 <p className={`text-[11px] ${colors.upper} font-semibold uppercase tracking-wider`}>{label}</p>
                 <p className={`text-2xl font-bold ${colors.text} mt-2`}>{value}</p>
-                <p className={`text-xs ${colors.text} mt-1 opacity-75`}>{PERIOD_LABELS[period]}</p>              </div>
+                <p className={`text-xs ${colors.text} mt-1 opacity-75`}>{periodLabel}</p>              </div>
             )
           })}
         </div>
@@ -676,7 +751,7 @@ export default function Dashboard() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="section-title">AI Performance</p>
-              <span className="text-[10px] font-semibold text-gray-400">{PERIOD_LABELS[period]}</span>
+              <span className="text-[10px] font-semibold text-gray-400">{periodLabel}</span>
             </div>
             {(() => {
               const kpis = analyticsData?.kpis || {}
@@ -742,7 +817,7 @@ export default function Dashboard() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="section-title">Conversion Rate</p>
-              <span className="text-[10px] font-semibold text-gray-400">{PERIOD_LABELS[period]}</span>
+              <span className="text-[10px] font-semibold text-gray-400">{periodLabel}</span>
             </div>
             {(() => {
               const conv = analyticsData?.conversion || {}
@@ -812,7 +887,7 @@ export default function Dashboard() {
             <div className="shrink-0 bg-white/90 backdrop-blur-xl border-b border-gray-100 px-5 sm:px-6 py-5 flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <h2 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">Channel Performance</h2>
-                <p className="text-sm text-gray-500 mt-1">Message analytics across all platforms • {PERIOD_LABELS[period]}</p>
+                <p className="text-sm text-gray-500 mt-1">Message analytics across all platforms • {periodLabel}</p>
               </div>
               <button
                 onClick={() => setShowChannelModal(false)}
