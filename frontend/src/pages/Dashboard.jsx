@@ -198,6 +198,7 @@ export default function Dashboard() {
   const [periodOpen, setPeriodOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
 
+  const [selectedChannel, setSelectedChannel] = useState('all')  // 'all' | channel key
   const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month' | 'custom'
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -501,6 +502,19 @@ export default function Dashboard() {
   // Slug comes from the window the API actually resolved, not from what's
   // typed in the pickers — mid-edit those disagree, and the filename must
   // describe the data inside the file.
+  // Which lines the chart draws. "All" = one inbound series per channel, so
+  // channels are comparable at a glance. A single channel = its three series,
+  // so you can see whether AI or a human is carrying it.
+  const chartSeries = selectedChannel === 'all'
+    ? ['instagram', 'whatsapp', 'facebook', 'tiktok'].map(k => ({
+        dataKey: k, name: CHANNEL_META[k].name, stroke: CHANNEL_META[k].color, dash: undefined,
+      }))
+    : [
+        { dataKey: selectedChannel,             name: 'Inbound',      stroke: CHANNEL_META[selectedChannel].color, dash: undefined },
+        { dataKey: `${selectedChannel}_ai`,     name: 'AI replies',   stroke: CHANNEL_META[selectedChannel].color, dash: '4 2' },
+        { dataKey: `${selectedChannel}_human`,  name: 'Human replies', stroke: '#f59e0b',                          dash: '8 4' },
+      ]
+
   const exportMeta = () => ({
     // A custom range's label IS its dates, and the exporter prints those
     // exactly (with the year) anyway — passing it too gives "Jun 10 (Jun 10,
@@ -668,18 +682,54 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Graph: 3/4 width */}
         <div className="lg:col-span-3 card p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="min-w-0">
               <h2 className="text-lg font-bold text-gray-900">Channel Performance</h2>
-              <p className="text-xs text-gray-500 mt-1">Inbound messages (solid) vs AI replies (dotted) vs Human replies (dashed)</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {selectedChannel === 'all'
+                  ? 'Inbound volume per channel — pick one to see how it’s being answered'
+                  : `${CHANNEL_META[selectedChannel].name}: inbound vs AI replies vs human replies`}
+              </p>
             </div>
             <button
               onClick={() => setShowChannelModal(true)}
-              className="text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors whitespace-nowrap"
+              className="text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors whitespace-nowrap shrink-0"
             >
               View Details →
             </button>
           </div>
+
+          {/* Channel selector. "All" compares channels against each other on a
+              single series each; picking one switches to the diagnostic view
+              of who is answering it. Showing all 12 series at once — 4
+              channels x inbound/AI/human — was unreadable and told you
+              nothing you could act on. */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-5">
+            {[{ key: 'all', name: 'All channels', color: '#111111' },
+              ...['instagram', 'whatsapp', 'facebook', 'tiktok'].map(k => ({ key: k, ...CHANNEL_META[k] }))
+            ].map(({ key, name, color }) => {
+              const active = selectedChannel === key
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedChannel(key)}
+                  className={clsx(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors',
+                    active ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'
+                  )}
+                >
+                  {key !== 'all' && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: active ? '#fff' : color }}
+                    />
+                  )}
+                  {name}
+                </button>
+              )
+            })}
+          </div>
+
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
@@ -695,56 +745,32 @@ export default function Dashboard() {
                 tickLine={false}
               />
               <Tooltip content={<CustomTooltip />} />
-              {/* Instagram */}
-              <Line type="natural" dataKey="instagram"       name="Instagram (Inbound)"   stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="instagram_ai"    name="Instagram (AI)"        stroke="#ec4899" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="instagram_human" name="Instagram (Human)"     stroke="#ec4899" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
-              {/* WhatsApp */}
-              <Line type="natural" dataKey="whatsapp"        name="WhatsApp (Inbound)"    stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="whatsapp_ai"     name="WhatsApp (AI)"         stroke="#22c55e" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="whatsapp_human"  name="WhatsApp (Human)"      stroke="#22c55e" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
-              {/* Facebook */}
-              <Line type="natural" dataKey="facebook"        name="Facebook (Inbound)"    stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="facebook_ai"     name="Facebook (AI)"         stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="facebook_human"  name="Facebook (Human)"      stroke="#3b82f6" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
-              {/* TikTok */}
-              <Line type="natural" dataKey="tiktok"          name="TikTok (Inbound)"      stroke="#111111" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="tiktok_ai"       name="TikTok (AI)"           stroke="#111111" strokeWidth={2} strokeDasharray="4 2" dot={false} activeDot={{ r: 6 }} />
-              <Line type="natural" dataKey="tiktok_human"    name="TikTok (Human)"        stroke="#111111" strokeWidth={2} strokeDasharray="8 4" dot={false} activeDot={{ r: 6 }} />
+              {chartSeries.map(({ dataKey, name, stroke, dash }) => (
+                <Line
+                  key={dataKey}
+                  type="natural"
+                  dataKey={dataKey}
+                  name={name}
+                  stroke={stroke}
+                  strokeWidth={2}
+                  strokeDasharray={dash}
+                  dot={false}
+                  activeDot={{ r: 6 }}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
-          
-          {/* Legend */}
-          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 mt-5 text-[11px]">
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#ec4899" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">IG</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#22c55e" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">WA</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#3b82f6" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">FB</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#111111" strokeWidth="2" /></svg>
-              <span className="text-gray-600 font-medium">TT</span>
-            </div>
-            <span className="text-gray-400 mx-2">|</span>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" /></svg>
-              <span className="text-gray-600 font-medium">Inbound</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="4 2" /></svg>
-              <span className="text-gray-600 font-medium">AI</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#000" strokeWidth="1.5" strokeDasharray="8 4" /></svg>
-              <span className="text-gray-600 font-medium">Human</span>
-            </div>
+
+          {/* Legend — mirrors whatever the selector is currently showing */}
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5 mt-5 text-[11px]">
+            {chartSeries.map(({ dataKey, name, stroke, dash }) => (
+              <div key={dataKey} className="flex items-center gap-1.5">
+                <svg width="16" height="2">
+                  <line x1="0" y1="1" x2="16" y2="1" stroke={stroke} strokeWidth="2" strokeDasharray={dash} />
+                </svg>
+                <span className="text-gray-600 font-medium">{name}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -1061,26 +1087,62 @@ export default function Dashboard() {
                               <div style={{ width: `${100 - aiShare}%`, background: '#f59e0b' }} />
                             </div>
                             <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500 tabular-nums">
+                              {/* Spelled out as REPLIES because the block
+                                  below counts conversations — two units, one
+                                  row, was exactly what made the old layout
+                                  misread. */}
                               <span className="flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta.color }} />
-                                {c.ai_replies} AI
+                                {c.ai_replies} AI replies
                               </span>
                               <span className="flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                {c.human_replies} human
+                                {c.human_replies} human replies
                               </span>
                             </div>
                           </div>
                         )}
 
-                        {/* The three numbers that decide whether to act */}
-                        <div className="flex items-center gap-5 text-[11px]">
-                          <div>
-                            <span className="font-bold text-gray-900 tabular-nums">
-                              {c.response_rate == null ? '—' : `${(c.response_rate * 100).toFixed(0)}%`}
-                            </span>
-                            <span className="text-gray-500"> answered</span>
+                        {/* What became of every conversation the AI was on
+                            duty for. The answered rate alone left the
+                            remainder unexplained — and being a CONVERSATION
+                            rate sitting beside message counts, it read as if
+                            it were about messages. This spells out both. */}
+                        {c.handled_convos > 0 && (
+                          <div className="mb-3 rounded-xl bg-gray-50 px-3 py-2.5">
+                            <p className="text-[11px] text-gray-500 mb-1.5">
+                              <span className="font-bold text-gray-900 tabular-nums">{c.handled_convos}</span>
+                              {' '}conversation{c.handled_convos === 1 ? '' : 's'} the AI was on duty for
+                            </p>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                <span className="font-bold text-gray-900 tabular-nums">{c.answered_convos}</span>
+                                <span className="text-gray-500">answered by AI</span>
+                              </span>
+                              {c.human_convos > 0 && (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                  <span className="font-bold text-gray-900 tabular-nums">{c.human_convos}</span>
+                                  <span className="text-gray-500">picked up by a human</span>
+                                </span>
+                              )}
+                              {c.no_reply_convos > 0 && (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                  <span className="font-bold text-red-600 tabular-nums">{c.no_reply_convos}</span>
+                                  <span className="text-gray-500">never answered</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
+                        )}
+
+                        {/* Speed and escalation. The answered RATE used to sit
+                            here too — dropped, because the breakdown above now
+                            says the same thing in whole conversations, without
+                            a percentage to misread. */}
+                        <div className="flex items-center gap-5 text-[11px]">
                           <div>
                             <span className="font-bold text-gray-900 tabular-nums">
                               {c.avg_response_time_ms == null

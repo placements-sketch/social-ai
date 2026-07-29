@@ -38,9 +38,72 @@ WHERE direction = 'inbound'
 GROUP BY 1;
 ```
 
-Local dev returns the column plus `false: 44, true: 83`. If production differs
-— missing, or mostly NULL — stop and say so; it needs its own backfill, which
-does not exist yet.
+If the column is **missing entirely**, stop and say so — that needs a separate
+piece of work. If it exists, carry on to the repair below.
+
+### 0b. Repair `messages.ai_eligible`
+
+`ai_eligible` is meant to be a snapshot of whether the AI was allowed to
+answer a message **at the moment it arrived**. The original backfill instead
+derived it from whatever `conversations.ai_enabled` and `channels.enabled`
+happened to say at backfill time, so any conversation or channel switched off
+later had its entire history retroactively marked ineligible — including
+messages the AI verifiably answered.
+
+That matters because Success Rate, Response Rate and every per-channel
+answered rate filter on this column. On local dev, **25 inbound messages were
+marked ineligible despite the AI having replied in that conversation
+afterwards.**
+
+The three statements below go from strongest evidence to weakest, and each is
+guarded so it can't overwrite a better answer:
+
+```sql
+-- 1. HARD EVIDENCE: the AI replied in this conversation at or after this
+--    message, so it was demonstrably switched on at the time.
+UPDATE messages m
+SET ai_eligible = true
+WHERE m.direction = 'inbound'
+  AND m.ai_eligible IS DISTINCT FROM true
+  AND EXISTS (
+        SELECT 1 FROM messages r
+         WHERE r.conversation_id = m.conversation_id
+           AND r.direction = 'outbound'
+           AND r.sender    = 'ai'
+           AND r.created_at >= m.created_at);
+
+-- 2. HARD EVIDENCE the other way: the message arrived after the AI was
+--    switched off for that conversation. Only fills gaps, never overwrites.
+UPDATE messages m
+SET ai_eligible = false
+FROM conversations c
+WHERE c.id = m.conversation_id
+  AND m.direction    = 'inbound'
+  AND m.ai_eligible IS NULL
+  AND c.ai_disabled_at IS NOT NULL
+  AND m.created_at >= c.ai_disabled_at;
+
+-- 3. NO EVIDENCE: fall back to the current gates. Same guess the original
+--    backfill made, but now only for rows nothing better could be said about.
+UPDATE messages m
+SET ai_eligible = COALESCE(ch.enabled, true) AND c.ai_enabled
+FROM conversations c
+LEFT JOIN channels ch ON ch.channel = c.channel
+WHERE c.id = m.conversation_id
+  AND m.direction    = 'inbound'
+  AND m.ai_eligible IS NULL;
+```
+
+Run **after** section 1/2 below, since statement 2 reads `ai_disabled_at`.
+
+Local dev: 25 / 0 / 0 rows, moving the distribution from `false: 44, true: 83`
+to `false: 19, true: 108`. Success Rate went 18.8% → 21.9% and WhatsApp and
+Facebook went from "AI off here" to 100% answered.
+
+**What this does not fix.** There is no history for `channels.enabled` or the
+global AI master switch, so messages with no AI reply and no recorded
+disable stay as they are — genuinely ambiguous. Locally that's 17 rows.
+Snapshots taken from the deploy onwards are captured live and are exact.
 
 ### 1. Escalation timestamps — schema
 

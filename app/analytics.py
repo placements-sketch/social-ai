@@ -779,6 +779,21 @@ def summary():
         ).all():
             answered.setdefault(ch, set()).add(cid)
 
+        # Conversations a human replied to. Needed to say what became of the
+        # ones the AI didn't answer — "75% unanswered" is useless on its own
+        # when most of that 75% was picked up by a person.
+        human_answered = {}
+        for ch, cid in _scope_filter(
+            db.session.query(fam.label('channel'), Message.conversation_id)
+              .filter(Message.created_at >= start_dt)
+              .filter(Message.created_at < end_dt)
+              .filter(Message.direction == 'outbound')
+              .filter(Message.sender == 'human')
+              .distinct(),
+            Message, user,
+        ).all():
+            human_answered.setdefault(ch, set()).add(cid)
+
         # Escalations, from the same two sources as the KPI card.
         conv_fam = _channel_family(Conversation.channel)
         escalated = {}
@@ -799,11 +814,11 @@ def summary():
         ).all():
             escalated.setdefault(ch, set()).add(cid)
 
-        return counts, eligible, answered, escalated
+        return counts, eligible, answered, escalated, human_answered
 
     try:
-        cur_counts, cur_elig, cur_ans, cur_esc = _channel_perf(win.start, win.end)
-        prev_counts, _, _, _ = _channel_perf(win.prev_start, win.prev_end)
+        cur_counts, cur_elig, cur_ans, cur_esc, cur_hum = _channel_perf(win.start, win.end)
+        prev_counts, *_ = _channel_perf(win.prev_start, win.prev_end)
 
         total_inbound_all = sum(int(r.inbound) for r in cur_counts.values()) or 1
         channel_performance = []
@@ -823,6 +838,12 @@ def summary():
                 pass
             elig = cur_elig.get(ch, set())
             ans = cur_ans.get(ch, set())
+            # Where every AI-on-duty conversation ended up. The three outcomes
+            # are mutually exclusive and sum to handled_convos, so the UI can
+            # account for all of it instead of leaving "75% unanswered"
+            # hanging with no explanation.
+            unanswered = elig - ans
+            picked_up = unanswered & cur_hum.get(ch, set())
             channel_performance.append({
                 'channel':        ch,
                 'inbound':        inbound,
@@ -832,6 +853,9 @@ def summary():
                 'share':          round(100 * inbound / total_inbound_all, 1),
                 'response_rate':  round(len(elig & ans) / len(elig), 4) if elig else None,
                 'handled_convos': len(elig),
+                'answered_convos':  len(elig & ans),
+                'human_convos':     len(picked_up),
+                'no_reply_convos':  len(unanswered - picked_up),
                 'escalated':      len(cur_esc.get(ch, set())),
                 'avg_response_time_ms': (
                     int(row.avg_ms) if (row and row.avg_ms is not None) else None
