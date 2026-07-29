@@ -70,6 +70,32 @@ const alertStyles = {
   info:    { icon: Info,          cls: 'border-blue-200 bg-blue-50 text-blue-600'    },
 }
 
+const CHANNEL_META = {
+  instagram: { name: 'Instagram', color: '#ec4899', icon: Instagram },
+  whatsapp:  { name: 'WhatsApp',  color: '#22c55e', icon: Smartphone },
+  facebook:  { name: 'Facebook',  color: '#3b82f6', icon: MessageSquare },
+  tiktok:    { name: 'TikTok',    color: '#111111', icon: Music },
+  other:     { name: 'Other',     color: '#6b7280', icon: Inbox },
+}
+
+// The verdict that makes a channel row actionable instead of decorative.
+// Order matters — the first condition that trips is the one worth acting on.
+const channelStatus = (c) => {
+  if (c.inbound === 0)
+    return { label: 'No traffic', cls: 'bg-gray-100 text-gray-500' }
+  // No AI-eligible inbound at all: the AI was switched off for everything
+  // that arrived here, so there's nothing to grade — it's a config choice.
+  if (c.response_rate == null)
+    return { label: 'AI off here', cls: 'bg-gray-100 text-gray-600' }
+  if (c.handled_convos > 0 && c.escalated / c.handled_convos > 0.3)
+    return { label: 'High escalation', cls: 'bg-purple-50 text-purple-700' }
+  if (c.response_rate < 0.5)
+    return { label: 'Low AI coverage', cls: 'bg-red-50 text-red-700' }
+  if (c.avg_response_time_ms != null && c.avg_response_time_ms > 5000)
+    return { label: 'Slow replies', cls: 'bg-amber-50 text-amber-700' }
+  return { label: 'Healthy', cls: 'bg-green-50 text-green-700' }
+}
+
 const channelIcon = (ch) => {
   if (ch === 'instagram_dm' || ch === 'instagram_comment') return <Instagram size={13} className="text-pink-500" />
   if (ch === 'whatsapp')       return <Smartphone size={13} className="text-green-500" />
@@ -132,11 +158,17 @@ function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDire
     movedWell                          ? 'text-green-600' :
                                          'text-red-600'
 
-  // "pts", not "%": success rate moving 10% → 13.5% is a 3.5 percentage-POINT
-  // gain (and a 35% relative one). Writing it as "↑ 3.5%" conflated the two.
-  const changeDisplay = isPercentage
-    ? `${Math.abs(change * 100).toFixed(1)} pts`
-    : Math.abs(change)
+  // Rates show RELATIVE change — 10% → 13.5% reads "↑ 35%", i.e. a third
+  // better than last period. That's a true percentage, so it avoids the
+  // original trap of printing "↑ 3.5%" for what was a 3.5 percentage-POINT
+  // move. With no previous value there's nothing to divide by, so say so
+  // rather than render Infinity.
+  const relativeChange = previousValue !== 0 ? (change / Math.abs(previousValue)) * 100 : null
+  const changeDisplay = !isPercentage
+    ? Math.abs(change)
+    : relativeChange === null
+      ? (change === 0 ? '0%' : 'new')
+      : `${Math.abs(relativeChange).toFixed(1)}%`
 
   return (
     <div className="stat-card min-w-0">
@@ -389,6 +421,20 @@ export default function Dashboard() {
   const statCardsData = getStatCards()
   const systemAlertsData = getSystemAlerts()
   const activityFeedData = getActivityFeed()
+
+  // Per-channel health, computed server-side against the same window as the
+  // KPI cards, so the sheet can't disagree with the page behind it.
+  const channelPerf = analyticsData?.channel_performance || []
+
+  // Tiles beside the graph. Sourced from channel_performance rather than
+  // re-bucketing channel_split by name, so a new channel variant (say
+  // 'instagram_story') can't quietly fall out of the totals.
+  const perfByChannel = Object.fromEntries(channelPerf.map(c => [c.channel, c]))
+  const channelTiles = ['instagram', 'whatsapp', 'facebook', 'tiktok'].map(key => ({
+    key,
+    ...CHANNEL_META[key],
+    row: perfByChannel[key] || { inbound: 0, prev_inbound: 0, escalated: 0, response_rate: null, handled_convos: 0 },
+  }))
 
   // Real channel totals from analytics, scoped to the selected period.
   const channelSplit = analyticsData?.channel_split || []
@@ -702,21 +748,41 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Stats: 1/4 width - each in own card */}
+        {/* Stats: 1/4 width. Each tile carries the volume AND whether that
+            volume is moving, so it's a signal rather than a decorated number.
+            Clicking opens the sheet for the full per-channel breakdown. */}
         <div className="lg:col-span-1 space-y-3">
-          {channelStats.map(({ label, value }) => {
-            const colorMap = {
-              'Instagram': { bg: 'bg-pink-50', border: 'border-pink-100', text: 'text-pink-600', upper: 'text-pink-600' },
-              'WhatsApp': { bg: 'bg-green-50', border: 'border-green-100', text: 'text-green-600', upper: 'text-green-600' },
-              'Facebook': { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-600', upper: 'text-blue-600' },
-              'TikTok': { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-600', upper: 'text-gray-600' },
-            }
-            const colors = colorMap[label] || colorMap['Instagram']
+          {channelTiles.map(({ key, name, color, row }) => {
+            const delta = row.inbound - row.prev_inbound
+            const status = channelStatus(row)
             return (
-              <div key={label} className={`card ${colors.bg} border ${colors.border} p-4`}>
-                <p className={`text-[11px] ${colors.upper} font-semibold uppercase tracking-wider`}>{label}</p>
-                <p className={`text-2xl font-bold ${colors.text} mt-2`}>{value}</p>
-                <p className={`text-xs ${colors.text} mt-1 opacity-75`}>{periodLabel}</p>              </div>
+              <button
+                key={key}
+                onClick={() => setShowChannelModal(true)}
+                className="card w-full text-left p-4 hover:border-gray-300 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 truncate">{name}</span>
+                  </span>
+                  <span className={clsx(
+                    'text-[10px] font-semibold tabular-nums shrink-0',
+                    delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-600' : 'text-gray-400'
+                  )}>
+                    {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta)}
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums">{row.inbound}</p>
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <span className="text-[11px] text-gray-400 truncate">inbound · {periodLabel}</span>
+                  {status.label !== 'Healthy' && (
+                    <span className={clsx('shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold', status.cls)}>
+                      {status.label}
+                    </span>
+                  )}
+                </div>
+              </button>
             )
           })}
         </div>
@@ -919,7 +985,7 @@ export default function Dashboard() {
             <div className="shrink-0 bg-white/90 backdrop-blur-xl border-b border-gray-100 px-5 sm:px-6 py-5 flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <h2 className="text-lg sm:text-xl font-semibold text-gray-900 truncate">Channel Performance</h2>
-                <p className="text-sm text-gray-500 mt-1">Message analytics across all platforms • {periodLabel}</p>
+                <p className="text-sm text-gray-500 mt-1">Where the AI is coping, and where it isn’t • {periodLabel}</p>
               </div>
               <button
                 onClick={() => setShowChannelModal(false)}
@@ -930,187 +996,120 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
-              {/* Key Metrics */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                {(() => {
-                  const totalInbound = chartData.reduce((sum, d) => sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0)
-                  const totalAI = chartData.reduce((sum, d) => sum + d.instagram_ai + d.whatsapp_ai + d.facebook_ai + d.tiktok_ai, 0)
-                  const totalHuman = chartData.reduce((sum, d) => sum + d.instagram_human + d.whatsapp_human + d.facebook_human + d.tiktok_human, 0)
-                  const responseRate = totalInbound > 0 ? Math.round(((totalAI + totalHuman) / totalInbound) * 100) : 0
-                  return [
-                    { label: 'Total Inbound', value: totalInbound, Icon: Inbox, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
-                    { label: 'AI Replies', value: totalAI, Icon: Bot, iconBg: 'bg-brand-50', iconColor: 'text-brand-600' },
-                    { label: 'Human Replies', value: totalHuman, Icon: UserRound, iconBg: 'bg-amber-50', iconColor: 'text-amber-600' },
-                    { label: 'Response Rate', value: `${((analyticsData?.kpis?.ai_response_rate || 0) * 100).toFixed(1)}%`, Icon: Activity, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
-                  ]
-                })().map(({ label, value, Icon, iconBg, iconColor }) => (
-                  <div key={label} className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-5 hover:border-gray-200 hover:shadow-sm transition-all min-w-0">
-                    <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center mb-3', iconBg)}>
-                      <Icon size={18} className={iconColor} />
-                    </div>
-                    <p className="text-2xl sm:text-3xl font-bold text-gray-900 tabular-nums leading-none truncate">{value}</p>
-                    <p className="text-xs text-gray-500 font-semibold mt-2 uppercase tracking-wide truncate">{label}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Per-channel breakdown - Minimal cards */}
-              <div>
-                <h3 className="text-base font-semibold text-gray-900 mb-5">Messages by Channel</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {[
-                    { name: 'Instagram', color: '#ec4899', icon: Instagram, key: 'instagram' },
-                    { name: 'WhatsApp', color: '#22c55e', icon: Smartphone, key: 'whatsapp' },
-                    { name: 'Facebook', color: '#3b82f6', icon: MessageSquare, key: 'facebook' },
-                    { name: 'TikTok', color: '#111111', icon: Music, key: 'tiktok' },
-                  ].map(({ name, color, icon: Icon, key }) => {
-                    const inbound = chartData.reduce((sum, d) => sum + (d[key] || 0), 0)
-                    const ai = chartData.reduce((sum, d) => sum + (d[`${key}_ai`] || 0), 0)
-                    const human = chartData.reduce((sum, d) => sum + (d[`${key}_human`] || 0), 0)
-                    const total = inbound + ai + human
-                    const inboundPct = total > 0 ? ((inbound / total) * 100).toFixed(1) : 0
-                    const aiPct = total > 0 ? ((ai / total) * 100).toFixed(1) : 0
-                    const humanPct = total > 0 ? ((human / total) * 100).toFixed(1) : 0
-                    
-                    // Platform's share of TOTAL CUSTOMER TRAFFIC (inbound only,
-                    // so AI/human replies don't double-count the same convo).
-                    const grandInbound = chartData.reduce((sum, d) =>
-                      sum + d.instagram + d.whatsapp + d.facebook + d.tiktok, 0)
-                    const platformShare = grandInbound > 0 ? ((inbound / grandInbound) * 100).toFixed(0) : 0
+            {/* Content — one row per channel, ranked by volume.
+                Deliberately NOT a KPI grid: the four tiles that used to sit
+                here (Total Inbound / AI Replies / Human Replies / Response
+                Rate) restated the cards already on the page behind the sheet,
+                and derived them by re-summing the chart series, so they
+                silently dropped the 'other' bucket and could disagree with
+                those cards. The sheet's job is the one thing the Dashboard
+                can't tell you: WHICH channel needs attention. */}
+            <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5">
+              {channelPerf.length === 0 ? (
+                <p className="py-12 text-center text-sm text-gray-400">
+                  No channel activity in this period.
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {channelPerf.map((c) => {
+                    const meta = CHANNEL_META[c.channel] || CHANNEL_META.other
+                    const Icon = meta.icon
+                    const status = channelStatus(c)
+                    const delta = c.inbound - c.prev_inbound
+                    // Who is carrying this channel's replies.
+                    const replies = c.ai_replies + c.human_replies
+                    const aiShare = replies > 0 ? (c.ai_replies / replies) * 100 : 0
 
                     return (
-                      <div
-                        key={name}
-                        className="rounded-2xl p-5 transition-all relative overflow-hidden"
-                        style={{
-                          background: `linear-gradient(135deg, ${color}08 0%, ${color}02 100%)`,
-                          border: `1px solid ${color}20`,
-                        }}
-                      >
-                        {/* Platform header */}
-                        <div className="flex items-center justify-between mb-5">
+                      <div key={c.channel} className="py-5 first:pt-0 last:pb-0">
+                        {/* Identity + volume */}
+                        <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <div
-                              className="w-11 h-11 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
-                              style={{ background: color }}
+                              className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0"
+                              style={{ background: meta.color }}
                             >
-                              <Icon size={20} />
+                              <Icon size={17} />
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-semibold text-gray-900 text-sm truncate">{name}</h4>
-                              <p className="text-xs font-medium" style={{ color }}>
-                                {platformShare}% of total volume
+                              <h4 className="font-semibold text-gray-900 text-sm truncate">{meta.name}</h4>
+                              <p className="text-[11px] text-gray-500">
+                                {c.share}% of inbound
                               </p>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-2xl font-bold text-gray-900 leading-none">{total}</p>
-                            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-wide">messages</p>
+                            <p className="text-xl font-bold text-gray-900 leading-none tabular-nums">{c.inbound}</p>
+                            <p className="text-[11px] mt-1 tabular-nums">
+                              <span className={clsx(
+                                'font-semibold',
+                                delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-600' : 'text-gray-400'
+                              )}>
+                                {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta)}
+                              </span>
+                              <span className="text-gray-400"> vs {previousLabel}</span>
+                            </p>
                           </div>
                         </div>
 
-                        {/* Stacked composition bar */}
-                        {total > 0 && (
-                          <div className="mb-4">
-                            <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100">
-                              <div style={{ width: `${inboundPct}%`, background: color, opacity: 1 }} />
-                              <div style={{ width: `${aiPct}%`, background: color, opacity: 0.55 }} />
-                              <div style={{ width: `${humanPct}%`, background: color, opacity: 0.25 }} />
+                        {/* Who replied — AI vs human. A channel drifting to
+                            human is the thing worth seeing at a glance. */}
+                        {replies > 0 && (
+                          <div className="mb-3">
+                            <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-100">
+                              <div style={{ width: `${aiShare}%`, background: meta.color }} />
+                              <div style={{ width: `${100 - aiShare}%`, background: '#f59e0b' }} />
+                            </div>
+                            <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500 tabular-nums">
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta.color }} />
+                                {c.ai_replies} AI
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                {c.human_replies} human
+                              </span>
                             </div>
                           </div>
                         )}
 
-                        {/* Three-up stats row */}
-                        <div className="grid grid-cols-3 gap-2">
-                          {[
-                            { label: 'Inbound', count: inbound, pct: inboundPct, opacity: 1 },
-                            { label: 'AI', count: ai, pct: aiPct, opacity: 0.55 },
-                            { label: 'Human', count: human, pct: humanPct, opacity: 0.25 },
-                          ].map(({ label, count, pct, opacity }) => (
-                            <div key={label} className="bg-white/60 backdrop-blur-sm rounded-lg p-2.5 border border-white/40">
-                              <div className="flex items-center gap-1.5 mb-1">
-                                <span
-                                  className="w-2 h-2 rounded-full shrink-0"
-                                  style={{ background: color, opacity }}
-                                />
-                                <span className="text-[10px] font-semibold text-gray-600 uppercase tracking-wide truncate">{label}</span>
-                              </div>
-                              <p className="text-base font-bold text-gray-900 leading-none">{count}</p>
-                              <p className="text-[10px] text-gray-500 mt-0.5">{pct}%</p>
-                            </div>
-                          ))}
+                        {/* The three numbers that decide whether to act */}
+                        <div className="flex items-center gap-5 text-[11px]">
+                          <div>
+                            <span className="font-bold text-gray-900 tabular-nums">
+                              {c.response_rate == null ? '—' : `${(c.response_rate * 100).toFixed(0)}%`}
+                            </span>
+                            <span className="text-gray-500"> answered</span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-gray-900 tabular-nums">
+                              {c.avg_response_time_ms == null
+                                ? '—'
+                                : c.avg_response_time_ms < 1000
+                                  ? `${c.avg_response_time_ms}ms`
+                                  : `${(c.avg_response_time_ms / 1000).toFixed(1)}s`}
+                            </span>
+                            <span className="text-gray-500"> avg reply</span>
+                          </div>
+                          <div>
+                            <span className={clsx(
+                              'font-bold tabular-nums',
+                              c.escalated > 0 ? 'text-purple-600' : 'text-gray-900'
+                            )}>{c.escalated}</span>
+                            <span className="text-gray-500"> escalated</span>
+                          </div>
+                          <span className={clsx(
+                            'ml-auto shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                            status.cls
+                          )}>
+                            {status.label}
+                          </span>
                         </div>
                       </div>
                     )
                   })}
                 </div>
-              </div>
-
-              {/* Response Mix by Platform */}
-              <div className="bg-white border border-gray-100 rounded-2xl p-6">
-                <div className="flex items-start justify-between mb-1">
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-900">Response Mix by Platform</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">How each channel splits between AI and human replies</p>
-                  </div>
-                  <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300" />Inbound</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand-500" />AI</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />Human</span>
-                  </div>
-                </div>
-
-                <div className="mt-6 space-y-5">
-                  {[
-                    { name: 'Instagram', key: 'instagram', color: '#ec4899' },
-                    { name: 'WhatsApp', key: 'whatsapp', color: '#22c55e' },
-                    { name: 'Facebook', key: 'facebook', color: '#3b82f6' },
-                    { name: 'TikTok', key: 'tiktok', color: '#111111' },
-                  ].map(({ name, key, color }) => {
-                    const inbound = chartData.reduce((s, d) => s + (d[key] || 0), 0)
-                    const ai = chartData.reduce((s, d) => s + (d[`${key}_ai`] || 0), 0)
-                    const human = chartData.reduce((s, d) => s + (d[`${key}_human`] || 0), 0)
-                    const total = inbound + ai + human
-                    // Scale across all platforms so bars are comparable
-                    const grandMax = Math.max(
-                      ...['instagram', 'whatsapp', 'facebook', 'tiktok'].map(k =>
-                        chartData.reduce((s, d) => s + (d[k] || 0) + (d[`${k}_ai`] || 0) + (d[`${k}_human`] || 0), 0)
-                      )
-                    )
-                    const widthPct = grandMax > 0 ? (total / grandMax) * 100 : 0
-                    const inboundShare = total > 0 ? (inbound / total) * 100 : 0
-                    const aiShare = total > 0 ? (ai / total) * 100 : 0
-                    const humanShare = total > 0 ? (human / total) * 100 : 0
-
-                    return (
-                      <div key={name}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-                            <span className="text-xs font-semibold text-gray-700">{name}</span>
-                          </div>
-                          <div className="flex items-center gap-3 text-[11px] font-medium text-gray-500 tabular-nums">
-                            <span><span className="text-gray-900 font-bold">{inbound}</span> in</span>
-                            <span><span className="text-gray-900 font-bold">{ai}</span> ai</span>
-                            <span><span className="text-gray-900 font-bold">{human}</span> hu</span>
-                          </div>
-                        </div>
-                        <div className="h-6 rounded-lg bg-gray-50 overflow-hidden" style={{ width: `${Math.max(widthPct, 2)}%`, minWidth: '40px', transition: 'width 600ms' }}>
-                          {total > 0 ? (
-                            <div className="flex h-full">
-                              <div style={{ width: `${inboundShare}%`, background: '#d1d5db' }} title={`${inbound} inbound`} />
-                              <div style={{ width: `${aiShare}%`, background: '#c7ea46' }} title={`${ai} AI replies`} />
-                              <div style={{ width: `${humanShare}%`, background: '#f59e0b' }} title={`${human} human replies`} />
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>,

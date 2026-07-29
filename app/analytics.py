@@ -33,6 +33,21 @@ analytics_bp = Blueprint('analytics', __name__, url_prefix='/api')
 MAX_DAYS = 365
 DEFAULT_DAYS = 7
 
+# Platform families. Messages arrive on 'instagram_dm', 'instagram_comment'
+# etc; everything reports at the platform level.
+CHANNEL_FAMILIES = ('instagram', 'whatsapp', 'facebook', 'tiktok')
+
+
+def _channel_family(col):
+    """SQL expression folding a channel column into its platform family."""
+    return case(
+        (col.like('instagram%'), 'instagram'),
+        (col.like('facebook%'),  'facebook'),
+        (col.like('tiktok%'),    'tiktok'),
+        (col == 'whatsapp',      'whatsapp'),
+        else_='other',
+    )
+
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -613,13 +628,7 @@ def summary():
     # Per-channel-per-day counts for the Dashboard channel graph.
     # We group all instagram_* into 'instagram', facebook_* into 'facebook', etc.
     # Three counts per (day, channel): inbound, ai_replied, human_replied
-    channel_group = case(
-        (Message.channel.like('instagram%'), 'instagram'),
-        (Message.channel.like('facebook%'),  'facebook'),
-        (Message.channel.like('tiktok%'),    'tiktok'),
-        (Message.channel == 'whatsapp',      'whatsapp'),
-        else_='other',
-    )
+    channel_group = _channel_family(Message.channel)
     per_channel_q = _scope_filter(
         db.session.query(
             local_day.label('day'),
@@ -717,6 +726,122 @@ def summary():
         key=lambda x: x['count'], reverse=True,
     )
 
+    # ── Channel performance ───────────────────────────────────────────────
+    # Per-platform health, for the "which channel needs attention?" sheet.
+    # It answers three questions the raw counts can't: is the AI keeping up
+    # here, how fast is it, and how often does this channel end up with a
+    # human. The sheet used to derive its numbers by re-summing the chart
+    # series, which silently dropped the 'other' bucket and could disagree
+    # with the KPI cards above it.
+    def _channel_perf(start_dt, end_dt):
+        fam = _channel_family(Message.channel)
+        counts = {
+            r.channel: r for r in _scope_filter(
+                db.session.query(
+                    fam.label('channel'),
+                    func.count(case((Message.direction == 'inbound', 1))).label('inbound'),
+                    func.count(case((db.and_(Message.direction == 'outbound',
+                                             Message.sender == 'ai'), 1))).label('ai'),
+                    func.count(case((db.and_(Message.direction == 'outbound',
+                                             Message.sender == 'human'), 1))).label('human'),
+                    func.avg(Message.ai_response_time_ms).label('avg_ms'),
+                ).filter(Message.created_at >= start_dt)
+                 .filter(Message.created_at < end_dt)
+                 .group_by(fam),
+                Message, user,
+            ).all()
+        }
+
+        # Conversation-level response rate, per channel — same basis as the
+        # top-level one: only conversations the AI was on duty for, and a
+        # conversation counts as answered if it got any AI reply.
+        eligible = {}
+        for ch, cid in _scope_filter(
+            db.session.query(fam.label('channel'), Message.conversation_id)
+              .filter(Message.created_at >= start_dt)
+              .filter(Message.created_at < end_dt)
+              .filter(Message.direction == 'inbound')
+              .filter(Message.ai_eligible.is_(True))
+              .distinct(),
+            Message, user,
+        ).all():
+            eligible.setdefault(ch, set()).add(cid)
+
+        answered = {}
+        for ch, cid in _scope_filter(
+            db.session.query(fam.label('channel'), Message.conversation_id)
+              .filter(Message.created_at >= start_dt)
+              .filter(Message.created_at < end_dt)
+              .filter(Message.direction == 'outbound')
+              .filter(Message.sender == 'ai')
+              .distinct(),
+            Message, user,
+        ).all():
+            answered.setdefault(ch, set()).add(cid)
+
+        # Escalations, from the same two sources as the KPI card.
+        conv_fam = _channel_family(Conversation.channel)
+        escalated = {}
+        for ch, cid in _scope_filter(
+            db.session.query(conv_fam.label('channel'), Conversation.id)
+              .filter(Conversation.escalated_at >= start_dt)
+              .filter(Conversation.escalated_at < end_dt),
+            Conversation, user,
+        ).all():
+            escalated.setdefault(ch, set()).add(cid)
+        for ch, cid in _scope_filter(
+            db.session.query(conv_fam.label('channel'), Conversation.id)
+              .join(Log, Log.conversation_id == Conversation.id)
+              .filter(Log.source == 'handoff.triggered')
+              .filter(Log.created_at >= start_dt)
+              .filter(Log.created_at < end_dt),
+            Conversation, user,
+        ).all():
+            escalated.setdefault(ch, set()).add(cid)
+
+        return counts, eligible, answered, escalated
+
+    try:
+        cur_counts, cur_elig, cur_ans, cur_esc = _channel_perf(win.start, win.end)
+        prev_counts, _, _, _ = _channel_perf(win.prev_start, win.prev_end)
+
+        total_inbound_all = sum(int(r.inbound) for r in cur_counts.values()) or 1
+        channel_performance = []
+        # Include every family that saw traffic in either window, plus 'other'
+        # only when it actually has some — an empty "other" row is noise.
+        seen = set(cur_counts) | set(prev_counts)
+        for ch in list(CHANNEL_FAMILIES) + ['other']:
+            row = cur_counts.get(ch)
+            prev = prev_counts.get(ch)
+            inbound = int(row.inbound) if row else 0
+            prev_inbound = int(prev.inbound) if prev else 0
+            if ch == 'other' and inbound == 0 and prev_inbound == 0:
+                continue
+            if ch not in seen and inbound == 0:
+                # Keep the four known platforms visible even at zero, so a
+                # channel that has gone silent is conspicuous rather than absent.
+                pass
+            elig = cur_elig.get(ch, set())
+            ans = cur_ans.get(ch, set())
+            channel_performance.append({
+                'channel':        ch,
+                'inbound':        inbound,
+                'prev_inbound':   prev_inbound,
+                'ai_replies':     int(row.ai) if row else 0,
+                'human_replies':  int(row.human) if row else 0,
+                'share':          round(100 * inbound / total_inbound_all, 1),
+                'response_rate':  round(len(elig & ans) / len(elig), 4) if elig else None,
+                'handled_convos': len(elig),
+                'escalated':      len(cur_esc.get(ch, set())),
+                'avg_response_time_ms': (
+                    int(row.avg_ms) if (row and row.avg_ms is not None) else None
+                ),
+            })
+        channel_performance.sort(key=lambda c: c['inbound'], reverse=True)
+    except Exception as e:
+        log_event("warn", "analytics.channel_performance_failed", str(e))
+        channel_performance = []
+
     # ── Top products (by ACTUAL product recommended) ──────────────────────
     # product_url carries the real handle (…/products/{handle}?utm=…), whereas
     # product_keyword is just the raw search word. Count by handle, then map to
@@ -782,6 +907,7 @@ def summary():
         'weekly': weekly,
         'intent_breakdown': intent_breakdown,
         'channel_split': channel_split,
+        'channel_performance': channel_performance,
         'top_products': top_products,
         'failure_breakdown': failure_breakdown,
     }), 200
