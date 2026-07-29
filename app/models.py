@@ -196,6 +196,15 @@ class Conversation(db.Model):
     # Full history lives in the logs table.
     handoff_reason = db.Column(db.String(64), nullable=True)
 
+    # WHEN the AI last escalated, and when a human last switched the AI off.
+    # Analytics needs the event time: keying "Escalated" off last_message_at
+    # counted conversations *touched* in a window that had *ever* escalated,
+    # so one June escalation recounted in every later window it stayed active
+    # in. These are set by handoff._trigger() and the takeover paths in
+    # app/messages.py; both stay NULL until the event happens.
+    escalated_at   = db.Column(db.DateTime, nullable=True, index=True)
+    ai_disabled_at = db.Column(db.DateTime, nullable=True, index=True)
+
     # Relationships use explicit foreign_keys because there are 3 FKs to auth_users
     assignee   = db.relationship("AuthUser", foreign_keys=[assigned_to])
     assigner   = db.relationship("AuthUser", foreign_keys=[assigned_by])

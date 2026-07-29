@@ -290,6 +290,8 @@ def send_reply(conversation_id):
     conv.last_message_at = now
     if sender == 'human':
         conv.status = 'human_override'
+        if conv.ai_enabled:                          # only stamp the transition
+            conv.ai_disabled_at = now
         conv.ai_enabled = False                      # human takes over → pause Claude
         if conv.assigned_to is None:                 # and claim it, so it's not falsely "In queue"
             conv.assigned_to = current_user.id
@@ -465,19 +467,25 @@ def toggle_ai(conversation_id):
     if 'ai_enabled' not in data:
         return jsonify({'error': 'ai_enabled (boolean) is required'}), 400
 
+    now = datetime.utcnow()
+    was_enabled = conv.ai_enabled
     conv.ai_enabled = bool(data['ai_enabled'])
     if conv.ai_enabled:
         # AI taking back over → clear the stale handoff state so the
         # conversation returns to normal AI-handled, not half-escalated.
         conv.handoff_reason = None
+        conv.escalated_at = None
+        conv.ai_disabled_at = None
         if conv.status == 'human_override':
             conv.status = 'active'
     else:
         # Human taking over manually via the toggle → mark it handed over,
         # consistent with how a manual reply flips the conversation.
+        if was_enabled:                 # only stamp the transition, not a re-save
+            conv.ai_disabled_at = now
         if conv.status == 'active':
             conv.status = 'human_override'
-    conv.updated_at = datetime.utcnow()
+    conv.updated_at = now
     db.session.commit()
 
     log_audit(

@@ -99,10 +99,15 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     """Flip the conversation into human_override and record the handoff."""
     from app.assignment import pick_next_agent
 
+    now = datetime.utcnow()
     conversation.ai_enabled = False
     conversation.status = "human_override"
     conversation.handoff_reason = reason
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = now
+    # Stamp WHEN, so analytics can count escalations that happened in a window
+    # rather than conversations that merely have one in their history.
+    conversation.escalated_at = now
+    conversation.ai_disabled_at = now
 
     # Auto-assign to the agent with the lightest current load.
     # Skip if already assigned (e.g. agent was already handling it).

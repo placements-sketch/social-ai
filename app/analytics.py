@@ -23,7 +23,7 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func, case
 
 from app import db
-from app.models import AuthUser, Conversation, Message
+from app.models import AuthUser, Conversation, Log, Message
 from app.auth import current_user_id
 from app.utils.logger import log_event
 
@@ -122,13 +122,17 @@ def _resolve_window():
         # end_date is inclusive, so the window runs to midnight after it —
         # clamped to now, so picking a range ending today doesn't reach into
         # hours that haven't happened yet.
+        win_start = _local_midnight(start_date, tz)
         win_end = min(_local_midnight(end_date + timedelta(days=1), tz), end)
+        prev_start = _local_midnight(start_date - timedelta(days=span), tz)
         return _Window(
             days=span,
-            start=_local_midnight(start_date, tz),
+            start=win_start,
             end=win_end,
-            prev_start=_local_midnight(start_date - timedelta(days=span), tz),
-            prev_end=_local_midnight(start_date, tz),
+            prev_start=prev_start,
+            # Same elapsed duration, so a range ending today (and therefore
+            # part-way through its last day) isn't measured against a full one.
+            prev_end=min(prev_start + (win_end - win_start), win_start),
             dates=[start_date + timedelta(days=i) for i in range(span)],
             utc_offset=now_local.utcoffset() or timedelta(0),
             period='custom',
@@ -153,12 +157,26 @@ def _resolve_window():
 
         start = _local_midnight(start_date, tz)
         days = (today_local - start_date).days + 1   # calendar days so far
+        prev_start = _local_midnight(prev_start_date, tz)
+
+        # LIKE-FOR-LIKE comparison. The current window is nearly always
+        # partial — "this week" on a Wednesday is 3 days, "this month" on the
+        # 1st is a few hours — so measuring it against a COMPLETE previous
+        # period made every count card crash at the start of each period,
+        # regardless of performance. On 1 June the old maths reported a red
+        # ↓ (5 vs all 8 of May) where the honest comparison is a green ↑
+        # (5 vs 0 on 1 May). So: truncate the previous window to the same
+        # elapsed duration, clamped to its own end so a long month compared
+        # against a short one can't bleed past it.
+        elapsed = end - start
+        prev_end = min(prev_start + elapsed, _local_midnight(prev_end_date, tz))
+
         return _Window(
             days=days,
             start=start,
             end=end,
-            prev_start=_local_midnight(prev_start_date, tz),
-            prev_end=_local_midnight(prev_end_date, tz),
+            prev_start=prev_start,
+            prev_end=prev_end,
             dates=[start_date + timedelta(days=i) for i in range(days)],
             utc_offset=now_local.utcoffset() or timedelta(0),
             period=period,
@@ -212,12 +230,16 @@ def _scope_filter(query, model, user):
     assigned_conv_ids = (
         db.session.query(Conversation.id)
         .filter(Conversation.assigned_to == user.id)
-        .subquery()
+        .scalar_subquery()
     )
     if model is Conversation:
         return query.filter(Conversation.id.in_(assigned_conv_ids))
     if model is Message:
         return query.filter(Message.conversation_id.in_(assigned_conv_ids))
+    if model is Log:
+        # Logs with no conversation (system-level events) belong to nobody in
+        # particular, so an agent shouldn't see them counted as theirs.
+        return query.filter(Log.conversation_id.in_(assigned_conv_ids))
     return query
 
 
@@ -282,12 +304,51 @@ def summary():
             Message, user,
         ).scalar()
 
-        total_convs    = conv_q.count()
-        human_override = conv_q.filter(
-            Conversation.ai_enabled == False,
-            Conversation.handoff_reason.is_(None),
+        total_convs = conv_q.count()
+
+        # ── Escalations and overrides: count the EVENT, in this window ────
+        # These used to be conv_q filters, i.e. "conversations whose
+        # last_message_at falls in the window AND which carry a
+        # handoff_reason". Two things were wrong with that:
+        #   - It counted state, not events. One June escalation recounted in
+        #     July, August, and every window the thread stayed alive in.
+        #   - handoff_reason is cleared when an agent switches the AI back on
+        #     (app/messages.py), so re-enabling a conversation ERASED its
+        #     escalation from the figures. Conversation 47 escalated three
+        #     times in June and counted zero.
+        # Sourcing from handoff.triggered logs fixes both: it's append-only,
+        # timestamped, and survives the flag being cleared. Conversation
+        # .escalated_at covers rows that predate handoff logging — union the
+        # two and count distinct conversations, so a thread that ping-ponged
+        # several times in one window still counts once.
+        esc_from_logs = set(
+            cid for (cid,) in _scope_filter(
+                db.session.query(Log.conversation_id)
+                  .filter(Log.source == 'handoff.triggered')
+                  .filter(Log.conversation_id.isnot(None))
+                  .filter(Log.created_at >= start_dt)
+                  .filter(Log.created_at < end_dt),
+                Log, user,
+            ).distinct().all()
+        )
+        esc_from_col = set(
+            cid for (cid,) in _scope_filter(
+                db.session.query(Conversation.id)
+                  .filter(Conversation.escalated_at >= start_dt)
+                  .filter(Conversation.escalated_at < end_dt),
+                Conversation, user,
+            ).all()
+        )
+        escalated = len(esc_from_logs | esc_from_col)
+
+        # A human switching the AI off by hand — no escalation involved.
+        human_override = _scope_filter(
+            Conversation.query
+              .filter(Conversation.ai_disabled_at >= start_dt)
+              .filter(Conversation.ai_disabled_at < end_dt)
+              .filter(Conversation.handoff_reason.is_(None)),
+            Conversation, user,
         ).count()
-        escalated      = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
 
         # ── AI eligibility: inbound on convs where AI was supposed to reply ─
         # A message is "AI-eligible" iff, at the moment it arrived, all three
@@ -321,12 +382,15 @@ def summary():
         # reply. This used to be (eligible_inbound - ai_replies), which counted
         # normal coalescing — 3 messages answered by 1 reply scored 2
         # "failures" — so the number climbed even when nothing was wrong.
-        from app.models import Log
-        failed = (db.session.query(func.count(Log.id))
-                  .filter(Log.source == 'ai.generator.failure')
-                  .filter(Log.created_at >= start_dt)
-                  .filter(Log.created_at < end_dt)
-                  .scalar() or 0)
+        # Scoped like every other KPI on this card: an agent was seeing
+        # company-wide failure counts sitting next to their own numbers.
+        failed = _scope_filter(
+            db.session.query(func.count(Log.id))
+              .filter(Log.source == 'ai.generator.failure')
+              .filter(Log.created_at >= start_dt)
+              .filter(Log.created_at < end_dt),
+            Log, user,
+        ).scalar() or 0
 
         # Still worth tracking separately: inbound with no AI reply. Mostly
         # legitimate (coalesced bursts, skipped non-question comments), so it
@@ -497,7 +561,6 @@ def summary():
     # Groups ai.generator.failure logs in the window by their structured
     # `reason`. Wrapped so a query issue can't 500 the dashboard.
     try:
-        from app.models import Log
         from sqlalchemy import text
         reason_expr = text("payload ->> 'reason'")
         rows = (db.session.query(reason_expr, func.count(Log.id))

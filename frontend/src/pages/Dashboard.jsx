@@ -1,6 +1,6 @@
 import {
-  MessageSquare, Inbox, Bot, UserCheck, XCircle, PackageX, UserRound, Activity,
-  AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag, TrendingUp,
+  MessageSquare, Inbox, Bot, UserCheck, XCircle, Flag, Target, UserRound, Activity,
+  AlertTriangle, AlertCircle, Info, Instagram, Smartphone, ShoppingBag,
   Download, FileText, File, Calendar, CalendarRange, Clock, TrendingUp as ChartTrendingUp, ChevronDown, X, Music,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -103,7 +103,7 @@ function ActivityItem({ item }) {
 // level of a component. Calling it inside .map() + an if/else (as before)
 // breaks the Rules of Hooks — the animated value stopped re-targeting when
 // the period filter changed, so the KPI cards looked frozen.
-function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, kpis, periodLabel }) {
+function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDirection, kpis, periodLabel }) {
   const prev = kpis.previous || {}
   const currentValue = kpiKey ? (kpis[kpiKey] ?? 0) : 0
   const previousValue = kpiKey ? (prev[kpiKey] ?? 0) : 0
@@ -118,12 +118,24 @@ function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, kpis, pe
 
   const change = currentValue - previousValue
   const arrow = change > 0 ? '↑' : change < 0 ? '↓' : '→'
+
+  // Colour says "is this good news?", not "did the number go up?". Rising
+  // Failed Replies and rising Escalations were both painted green, which
+  // rewarded exactly the wrong movement. 'neutral' metrics (raw human reply
+  // volume) stay grey — they're neither good nor bad on their own.
+  const movedWell =
+    goodDirection === 'up'   ? change > 0 :
+    goodDirection === 'down' ? change < 0 :
+                               null
   const colorClass =
-    change > 0 ? 'text-green-600' :
-    change < 0 ? 'text-red-600'   :
-                 'text-gray-500'
+    change === 0 || movedWell === null ? 'text-gray-500' :
+    movedWell                          ? 'text-green-600' :
+                                         'text-red-600'
+
+  // "pts", not "%": success rate moving 10% → 13.5% is a 3.5 percentage-POINT
+  // gain (and a 35% relative one). Writing it as "↑ 3.5%" conflated the two.
   const changeDisplay = isPercentage
-    ? `${(change * 100).toFixed(1)}%`
+    ? `${Math.abs(change * 100).toFixed(1)} pts`
     : Math.abs(change)
 
   return (
@@ -233,16 +245,19 @@ export default function Dashboard() {
 
 // Stat card definitions — same for empty + populated; the render block
   // reads kpiKey from analyticsData.kpis directly.
+  // goodDirection drives the arrow's colour — see StatCard. 'neutral' means
+  // the metric carries no inherent verdict: more human replies isn't good or
+  // bad on its own, it depends entirely on why.
   const getStatCards = () => [
     // Inbound
-    { label: 'Inbound',         kpiKey: 'inbound_total',        icon: MessageSquare, color: 'text-blue-500',   bg: 'bg-blue-50'   },
+    { label: 'Inbound',         kpiKey: 'inbound_total',        icon: MessageSquare, color: 'text-blue-500',   bg: 'bg-blue-50',   goodDirection: 'up'      },
     // Outbound — split by who replied
-    { label: 'AI Replies',      kpiKey: 'ai_replies_total',     icon: Bot,           color: 'text-brand-500',  bg: 'bg-brand-50'  },
-    { label: 'Human Replies',   kpiKey: 'human_replies_total',  icon: UserCheck,     color: 'text-indigo-500', bg: 'bg-indigo-50' },
+    { label: 'AI Replies',      kpiKey: 'ai_replies_total',     icon: Bot,           color: 'text-brand-500',  bg: 'bg-brand-50',  goodDirection: 'up'      },
+    { label: 'Human Replies',   kpiKey: 'human_replies_total',  icon: UserCheck,     color: 'text-indigo-500', bg: 'bg-indigo-50', goodDirection: 'neutral' },
     // Quality
-    { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50'    },
-    { label: 'Escalated',       kpiKey: 'escalated_total',      icon: TrendingUp,    color: 'text-purple-500', bg: 'bg-purple-50' },
-    { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: PackageX,      color: 'text-green-500',  bg: 'bg-green-50',  isPercentage: true },
+    { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50',    goodDirection: 'down'    },
+    { label: 'Escalated',       kpiKey: 'escalated_total',      icon: Flag,          color: 'text-purple-500', bg: 'bg-purple-50', goodDirection: 'down'    },
+    { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: Target,        color: 'text-green-500',  bg: 'bg-green-50',  goodDirection: 'up', isPercentage: true },
   ]
 
   // Map system logs to alert format
