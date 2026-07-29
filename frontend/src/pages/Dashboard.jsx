@@ -622,7 +622,12 @@ export default function Dashboard() {
               Live
             </span>
           </div>
-          <div className="overflow-y-auto pr-2 -mr-2 custom-scrollbar" style={{ maxHeight: '600px' }}>
+          {/* The card is a grid item, so it stretches to the height of the
+              taller right-hand column. A fixed 600px scroller left dead space
+              below it on tall/fullscreen windows — flex-1 makes the list fill
+              the card instead. min-h-0 lets it shrink; the cap only applies
+              on small screens, where the card sizes to its own content. */}
+          <div className="flex-1 min-h-0 max-h-[600px] lg:max-h-none overflow-y-auto pr-2 -mr-2 custom-scrollbar">
             <div className="space-y-3">
               {loadingActivity ? (
                 <div className="py-8 text-center text-xs text-gray-400">Loading activity…</div>
@@ -703,7 +708,7 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-500 mt-1.5 font-medium">Engagement rate</p>
                       </div>
                       <p className="text-[11px] text-gray-400 text-right leading-snug">
-                        {engaged} of {handled}<br/>convos handled &amp; engaged
+                        {engaged} of {handled}<br/>convos AI was on for
                       </p>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">

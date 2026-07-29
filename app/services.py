@@ -1035,15 +1035,26 @@ def _save_message(user_id, channel, content, intent, direction,
         # Snapshot AI-eligibility NOW. Analytics used to join the live
         # conversation.ai_enabled flag, so switching AI off today silently
         # rewrote yesterday's figures. Freezing it here makes history stable.
+        #
+        # This must mirror every gate in _ai_should_respond(), because a
+        # message the AI was never allowed to answer must not count against
+        # it: the global master switch, the per-channel toggle, and the
+        # per-conversation toggle. Missing the master switch meant that with
+        # AI globally off, every inbound message was still recorded as
+        # "eligible" and then scored as an AI failure.
         ai_eligible = None
         if direction == "inbound":
             try:
                 from app.models import Channel
+                from app.settings import get_section
+                global_ok  = bool(get_section("ai").get("enabled", True))
                 ch = Channel.query.filter_by(channel=channel).first()
                 channel_ok = True if ch is None else bool(ch.enabled)
-                ai_eligible = bool(conversation.ai_enabled) and channel_ok
+                ai_eligible = global_ok and channel_ok and bool(conversation.ai_enabled)
             except Exception:
-                ai_eligible = None
+                # Same reasoning as the gate: unreadable settings mean the AI
+                # stays silent, so this message was never its to answer.
+                ai_eligible = False
 
         msg = Message(
             conversation_id=conversation.id,

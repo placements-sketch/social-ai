@@ -20,7 +20,7 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func, case
 
 from app import db
-from app.models import AuthUser, Conversation, Message, Channel
+from app.models import AuthUser, Conversation, Message
 from app.auth import current_user_id
 from app.utils.logger import log_event
 
@@ -138,20 +138,13 @@ def summary():
         escalated      = conv_q.filter(Conversation.handoff_reason.isnot(None)).count()
 
         # ── AI eligibility: inbound on convs where AI was supposed to reply ─
-        # A message is "AI-eligible" iff its conversation has ai_enabled=True
-        # AND its channel has enabled=True (or has no Channel row — fail open).
-        # Disabled channels are admin-suppressed and excluded from failure count.
-        disabled_channels = (
-            db.session.query(Channel.channel)
-            .filter(Channel.enabled == False)
-            .subquery()
-        )
-        ai_eligible_conv_ids = (
-            db.session.query(Conversation.id)
-            .filter(Conversation.ai_enabled == True)
-            .subquery()
-        )
-        # Frozen snapshot, not a live join — see Message.ai_eligible.
+        # A message is "AI-eligible" iff, at the moment it arrived, all three
+        # gates were open: the global AI master switch (settings → ai.enabled),
+        # its channel (enabled=True, or no Channel row — fail open), and its
+        # conversation (ai_enabled=True). Anything the AI was switched off for
+        # is admin/agent-suppressed and can't be counted as an AI failure.
+        # Frozen snapshot, not a live join — see Message.ai_eligible, written
+        # by services._save_message.
         eligible_msg_q = _scope_filter(
             Message.query
               .filter(Message.created_at >= start_dt)
@@ -211,22 +204,30 @@ def summary():
         ) if inbound_conv_ids else 0.0
 
         # ── SUCCESS rate ──────────────────────────────────────────────────
-        # A conversation "succeeds" when the AI handled it WITHOUT escalating
-        # to a human AND the customer engaged (multi-turn OR ordered).
-        #   denominator = AI-handled conversations active in the window
-        #                 (never escalated: handoff_reason IS NULL)
-        #   numerator   = those with >=2 inbound msgs (multi-turn) OR an
-        #                 attributed order.
+        # Only judge the AI on conversations it was actually ON DUTY for: at
+        # least one inbound message arrived in this window while every gate
+        # said "answer this" — the global master switch, the channel toggle
+        # and the per-conversation toggle. That set is `inbound_conv_ids`,
+        # built from the frozen Message.ai_eligible snapshot, so a mid-window
+        # toggle splits cleanly at the message that flipped it.
+        #
+        # The old denominator was "conversations active in the window that
+        # never escalated", which was wrong at both ends:
+        #   - It swept in conversations with the AI switched off — by an agent
+        #     on a single chat, or by an admin globally. Those carry no
+        #     handoff_reason, so they landed in the denominator and, never
+        #     having been allowed to reply, scored as failures. Silencing the
+        #     AI dragged down the AI's own score.
+        #   - It dropped escalated conversations entirely, so punting to a
+        #     human was free. A punt is the AI declining a conversation it was
+        #     on duty for, so it belongs in the denominator as a miss.
+        #
+        #   denominator = AI was on and expected to respond
+        #   numerator   = customer engaged (>=2 inbound msgs OR an attributed
+        #                 order) AND the AI never punted to a human.
         from app.models import ConversionAttribution
 
-        handled_conv_ids_q = _scope_filter(
-            Conversation.query
-                .filter(Conversation.last_message_at >= start_dt)
-                .filter(Conversation.last_message_at < end_dt)
-                .filter(Conversation.handoff_reason.is_(None)),   # never escalated
-            Conversation, user,
-        )
-        handled_conv_ids = [c.id for c in handled_conv_ids_q.with_entities(Conversation.id).all()]
+        handled_conv_ids = list(inbound_conv_ids)
         handled_total = len(handled_conv_ids)
 
         engaged_total = 0
@@ -247,7 +248,16 @@ def summary():
                     .distinct()
                     .all()
             )
-            engaged_total = len(multiturn_ids | ordered_ids)
+            # Punted: handed off to a human. handoff_reason is only ever set by
+            # the escalation path — a plain manual takeover leaves it NULL —
+            # so this is the AI's own decision to stop, not an agent's.
+            punted_ids = set(
+                cid for (cid,) in db.session.query(Conversation.id)
+                    .filter(Conversation.id.in_(handled_conv_ids))
+                    .filter(Conversation.handoff_reason.isnot(None))
+                    .all()
+            )
+            engaged_total = len((multiturn_ids | ordered_ids) - punted_ids)
 
         success_rate = (engaged_total / handled_total) if handled_total else 0.0
 
