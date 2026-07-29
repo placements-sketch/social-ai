@@ -492,6 +492,24 @@ def summary():
 
         success_rate = (engaged_total / handled_total) if handled_total else 0.0
 
+        # Override rate, on the SAME population as the success rate: of the
+        # conversations the AI was on duty for, how many did a human take over?
+        # The Dashboard used to divide human_override_total (events timed by
+        # ai_disabled_at) by conversations_total (conversations merely active in
+        # the window) — two different populations, so the figure could exceed
+        # 100% and meant nothing precise at any value. Nested sets can't.
+        overridden_in_handled = 0
+        if handled_conv_ids:
+            overridden_in_handled = (
+                db.session.query(func.count(Conversation.id))
+                .filter(Conversation.id.in_(handled_conv_ids))
+                .filter(Conversation.ai_disabled_at >= start_dt)
+                .filter(Conversation.ai_disabled_at < end_dt)
+                .filter(Conversation.handoff_reason.is_(None))
+                .scalar() or 0
+            )
+        override_rate = (overridden_in_handled / handled_total) if handled_total else 0.0
+
         return {
             'messages_total':      total_msgs,
             'inbound_total':       inbound,
@@ -505,6 +523,8 @@ def summary():
             'ai_handled_total':    handled_total,             # denominator, for context
             'ai_engaged_total':    engaged_total,             # numerator, for context
             'human_override_total': human_override,
+            'override_rate':       round(override_rate, 4),   # of AI-on-duty convos
+            'overridden_in_handled': overridden_in_handled,   # numerator, for context
             'escalated_total':     escalated,
             'conversations_total': total_convs,
         }

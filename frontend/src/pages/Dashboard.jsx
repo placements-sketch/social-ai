@@ -1044,15 +1044,29 @@ export default function Dashboard() {
                   : avgResponseMs < 1000
                     ? `${avgResponseMs}ms`
                     : `${(avgResponseMs / 1000).toFixed(1)}s`
-              const aiReplies = kpis.ai_replies_total || 0
-              const overrides = kpis.human_override_total || 0
               const escalated = kpis.escalated_total || 0
               const failed = kpis.failed_responses || 0
-              // Both sides must be CONVERSATIONS. Dividing conversations by
-              // message count made this shrink as the AI got chattier.
-              const convTotal = kpis.conversations_total || 0
-              const overrideRate = convTotal > 0 ? ((overrides / convTotal) * 100).toFixed(1) : '0.0'
+              // Computed server-side now. It used to divide human_override_total
+              // (events timed by ai_disabled_at) by conversations_total
+              // (conversations merely ACTIVE in the window) — two different
+              // populations, so the rate could exceed 100%. It's now the share
+              // of AI-on-duty conversations a human took over, the same
+              // denominator as the success rate above it.
+              const overrideRate = ((kpis.override_rate || 0) * 100).toFixed(1)
               const responseRate = ((kpis.ai_response_rate || 0) * 100).toFixed(1)
+
+              // Trend on the headline number, same relative-% convention as the
+              // KPI cards. The card carried no comparison at all, so a 57%
+              // success rate read the same whether it had doubled or halved.
+              const prevSuccess = (kpis.previous?.ai_success_rate || 0) * 100
+              const delta = successRate - prevSuccess
+              const relDelta = prevSuccess !== 0 ? (delta / prevSuccess) * 100 : null
+
+              // Conversations the AI was on duty for and never answered, across
+              // all channels. Summed from channel_performance, which covers
+              // every channel including 'other', so it reconciles with the
+              // handled figure beside it.
+              const neverAnswered = channelPerf.reduce((s, c) => s + (c.no_reply_convos || 0), 0)
 
               return (
                 <>
@@ -1060,22 +1074,41 @@ export default function Dashboard() {
                   <div className="mb-4">
                     <div className="flex items-end justify-between mb-2">
                       <div>
-                        <p className="text-3xl font-bold text-green-600 leading-none">{successRate.toFixed(1)}%</p>
-                        <p className="text-xs text-gray-500 mt-1.5 font-medium">Success rate</p>
+                        <div className="flex items-baseline gap-2">
+                          <p className="text-3xl font-bold text-brand-500 leading-none">{successRate.toFixed(1)}%</p>
+                          {relDelta !== null && Math.abs(delta) >= 0.05 && (
+                            <span className={clsx(
+                              'text-[11px] font-semibold',
+                              delta > 0 ? 'text-green-600' : 'text-red-600'
+                            )}>
+                              {delta > 0 ? '↑' : '↓'} {Math.abs(relDelta).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1.5 font-medium">
+                          Success rate
+                          {relDelta !== null && <span className="text-gray-400"> · vs {previousLabel}</span>}
+                        </p>
                       </div>
                       <p className="text-[11px] text-gray-400 text-right leading-snug">
                         {engaged} of {handled}<br/>convos AI was on for
                       </p>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.min(successRate, 100)}%` }} />
+                      <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${Math.min(successRate, 100)}%` }} />
                     </div>
+                    {neverAnswered > 0 && (
+                      <p className="text-[11px] text-gray-500 mt-2">
+                        <span className="font-bold text-red-600 tabular-nums">{neverAnswered}</span>
+                        {' '}never answered — nobody replied at all
+                      </p>
+                    )}
                   </div>
 
                   {/* Metrics strip */}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-3 border-t border-gray-100">
                     {[
-                      { label: 'Response rate', value: `${responseRate}%`,   color: 'text-teal-600'  },
+                      { label: 'Response rate', value: `${responseRate}%`,   color: 'text-brand-600' },
                       { label: 'Avg response',  value: avgResponseStr,       color: 'text-gray-900'  },
                       { label: 'Override rate', value: `${overrideRate}%`,    color: 'text-amber-600' },
                       { label: 'Escalated',     value: escalated,            color: 'text-purple-600'},

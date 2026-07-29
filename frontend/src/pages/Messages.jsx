@@ -173,6 +173,7 @@ export default function Messages() {
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
   const [channelFilter, setChannelFilter] = useState('all') // filters by DB `channel`
   const [attentionFilter, setAttentionFilter] = useState(false) // show only conversations needing attention
+  const [assignedFilter, setAssignedFilter] = useState(null)    // null | 'me' | 'unassigned' (set by deep links)
   const [search, setSearch]             = useState('')
 
   const [conversations, setConversations] = useState([])
@@ -412,6 +413,33 @@ export default function Messages() {
     if (isInitialLoad) setIsInitialLoad(false)
   }, [isInitialLoad])
 
+  // ── Deep links from the Dashboard ─────────────────────────────────────────
+  // /messages?conversation=57       → open that thread
+  // /messages?assigned_to=unassigned → show only the unclaimed queue
+  // /messages?assigned_to=me         → show only what's assigned to me
+  //
+  // Live Activity rows and the alert panel link here. Without this the page
+  // read no query string at all, so every one of those links just dumped you
+  // on the inbox and left you to find the conversation yourself.
+  const [deepLinkDone, setDeepLinkDone] = useState(false)
+  useEffect(() => {
+    if (deepLinkDone || loadingList) return
+    const params = new URLSearchParams(window.location.search)
+    const convId = parseInt(params.get('conversation'), 10)
+    const assigned = params.get('assigned_to')
+
+    if (Number.isFinite(convId)) {
+      // Open from the list when it's there, but don't require it — a
+      // conversation outside the loaded page still opens by id.
+      const match = conversations.find(c => c.id === convId)
+      openConversation(match || { id: convId, unread_count: 0 })
+    }
+    if (assigned === 'unassigned' || assigned === 'me') {
+      setAssignedFilter(assigned)
+    }
+    setDeepLinkDone(true)
+  }, [deepLinkDone, loadingList, conversations])   // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Load a single conversation's full thread ──────────────────────────────
   const openConversation = useCallback(async (conv) => {
     setSelected(conv.id)
@@ -447,9 +475,15 @@ export default function Messages() {
   }
 
   // Attention filter uses the exact same flag shown on the rows.
-  const filteredConversations = attentionFilter
+  // The assignment filter is set by deep links from the Dashboard alerts.
+  const filteredConversations = (attentionFilter
     ? conversations.filter(c => attentionInfo(c) !== null)
     : conversations
+  ).filter(c => (
+    assignedFilter === 'unassigned' ? !c.assigned_to :
+    assignedFilter === 'me'         ? c.assigned_to === user?.id :
+                                      true
+  ))
 
   // Effective AI state for the open conversation — the global master switch
   // overrides the per-conversation flag.
@@ -685,6 +719,21 @@ const handleSend = async () => {
           </span>
         </button>
       </div>
+      {/* A deep link silently hiding most of the inbox would look like an
+          empty inbox. Say what's filtered, and make it one click to clear. */}
+      {assignedFilter && (
+        <div className="mx-2 mb-2 flex items-center justify-between gap-2 rounded-lg bg-brand-50 border border-brand-100 px-3 py-2">
+          <span className="text-[11px] font-semibold text-brand-700 truncate">
+            Showing {assignedFilter === 'me' ? 'your conversations' : 'unassigned only'}
+          </span>
+          <button
+            onClick={() => setAssignedFilter(null)}
+            className="text-[11px] font-semibold text-brand-700 hover:text-brand-800 shrink-0"
+          >
+            Clear
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto hide-scrollbar px-2 pb-3 space-y-1">
         {loadingList && (
           <div className="p-2 sm:p-3 space-y-2">
