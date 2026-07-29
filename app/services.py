@@ -313,7 +313,12 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                              detail=f"mid={external_id}")
             return AI_SUPPRESSED
         
-    log_event("info", "services.inbound",
+    # Logged BEFORE the save, deliberately: if _save_message fails we still
+    # want a record that the message arrived. The conversation doesn't exist
+    # yet at this point, so the row is linked back once it does — see just
+    # below. Without that link this was the one feed line you couldn't click
+    # through to, which is also the most important one.
+    inbound_log = log_event("info", "services.inbound",
               f"Inbound [{channel}] from {user_id}: {message[:80]}",
               payload={
                   "user_external_id": user_id,
@@ -335,6 +340,20 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
         intent=None, direction="inbound", external_id=external_id,
         media_id=media_id, image_urls=image_urls,
     )
+
+    # Link the arrival log to the conversation now that we have one. Kept
+    # best-effort — a logging detail must never break message handling.
+    if inbound_log is not None and inbound_record is not None:
+        try:
+            from app import db
+            inbound_log.conversation_id = inbound_record.conversation_id
+            db.session.commit()
+        except Exception:
+            try:
+                from app import db
+                db.session.rollback()
+            except Exception:
+                pass
 
     # ── Step 1.5: Notify the assigned agent of new inbound (if any) ────────
     # If this conversation is assigned to someone AND the AI isn't going to

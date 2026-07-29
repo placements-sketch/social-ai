@@ -226,6 +226,37 @@ SELECT
 Local dev after all steps: `7, 11, 108, 19, 0, 0`. **`still_to_fix` and
 `eligible_null` must both be 0.**
 
+### Step 5b — Link historical inbound logs to their conversations
+
+`services.inbound` was logged before the conversation row existed, so the most
+important line in Live Activity — *"a customer sent a message"* — was the one
+you couldn't click through to. New rows link themselves; this fixes the old
+ones by matching each log to the first inbound message saved after it.
+
+```sql
+WITH matched AS (
+  SELECT DISTINCT ON (l.id) l.id AS log_id, m.conversation_id
+  FROM logs l
+  JOIN users u    ON u.external_id = l.payload->>'user_external_id'
+  JOIN messages m ON m.user_id   = u.id
+                 AND m.channel   = l.payload->>'channel'
+                 AND m.direction = 'inbound'
+                 AND m.created_at >= l.created_at - interval '5 seconds'
+  WHERE l.source = 'services.inbound'
+    AND l.conversation_id IS NULL
+  ORDER BY l.id, m.created_at ASC
+)
+UPDATE logs l
+SET conversation_id = matched.conversation_id
+FROM matched
+WHERE matched.log_id = l.id;
+```
+
+The message join matters: 8 users in local dev have more than one
+conversation on the same channel, so matching on user + channel alone picks an
+arbitrary one. `DISTINCT ON` plus the timestamp ordering pins each log to the
+message it was actually about. Local dev: 74 rows linked, 0 left unlinked.
+
 ### Step 6 — Optional: see why anything went unanswered
 
 No changes to run — this is the query behind the sheet's new "why" lines, for
@@ -249,6 +280,26 @@ ORDER BY l.created_at DESC;
 Conversations with no row at all show as **No reason recorded** in the sheet —
 that means the message predates this logging, so expect all historical seed
 data to look that way.
+
+### Step 6b — Schedule the unclaimed-queue check
+
+No database change. A new cron endpoint alerts when a conversation sits in the
+human queue with nobody assigned. Point your scheduler at it every ~5 minutes,
+same auth as the other cron jobs:
+
+```
+POST /api/cron/check-unclaimed      header: X-Cron-Secret: <CRON_SECRET>
+```
+
+Threshold is `handoff.unclaimed_alert_minutes` in settings (default 15, or the
+`UNCLAIMED_ALERT_MINUTES` env var). It alerts **once per waiting spell**, not
+once per tick, so a short interval is safe.
+
+To see the queue without waiting for an alert (supervisor/admin only):
+
+```
+GET /api/conversations/unclaimed?threshold_minutes=0
+```
 
 ### Step 7 — Not database changes
 

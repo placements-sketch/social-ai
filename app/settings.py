@@ -19,6 +19,11 @@ DEFAULTS = {
     "handoff": {
         "max_agent_load": int(os.getenv("MAX_AGENT_LOAD", "10")),
         "presence_window_seconds": int(os.getenv("PRESENCE_WINDOW_SECONDS", "300")),
+        # How long a conversation may sit in the human queue with nobody on it
+        # before supervisors are told. Escalations auto-assign, so anything
+        # reaching this threshold means auto-assignment couldn't place it (no
+        # active agents) or someone deliberately unassigned it.
+        "unclaimed_alert_minutes": int(os.getenv("UNCLAIMED_ALERT_MINUTES", "15")),
         "bridging_reply": (
             "Thanks for reaching out — I'm connecting you with a member of our team "
             "who'll get back to you shortly. We appreciate your patience."

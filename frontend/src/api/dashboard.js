@@ -63,6 +63,19 @@ export function getAnalyticsSummary({ start, end, period, days = 7 } = {}) {
 }
 
 /**
+ * Get current system alerts — faults only, grouped by source, newest first,
+ * plus the unassigned-queue warning. Admin and supervisor only.
+ * @param {{hours?: number, limit?: number}} opts
+ */
+export function getAlerts({ hours, limit = 6 } = {}) {
+  const params = new URLSearchParams({ limit })
+  if (hours) params.set('hours', hours)
+  return handle(
+    fetch(`${API_BASE}/alerts?${params}`, { method: 'GET', headers: authHeaders() })
+  )
+}
+
+/**
  * Get system logs (alerts)
  * @param {{page?:number, per_page?:number, level?:string, search?:string}} opts
  * @returns {Promise<{logs:Array, total:number, page:number, per_page:number}>}

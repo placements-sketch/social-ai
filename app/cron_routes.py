@@ -1067,3 +1067,24 @@ def cron_prune_notifications():
         'old_pruned': old_deleted,
         'pruned_at': now.isoformat(),
     }), 200
+
+@cron_bp.route('/check-unclaimed', methods=['POST'])
+@require_cron_secret
+def cron_check_unclaimed():
+    """
+    Alert on conversations left waiting in the human queue with nobody
+    assigned. Run every few minutes.
+
+    Escalations auto-assign, so a conversation only lands here when
+    pick_next_agent() had no active agent to give it to, or someone
+    unassigned it by hand. Either way a customer is waiting and no one owns
+    it. Alerts once per waiting spell, not once per tick.
+    """
+    from app.assignment import alert_unclaimed
+
+    result = alert_unclaimed()
+    log_event("info", "cron.check_unclaimed",
+              f"Unclaimed queue check: {result['stuck']} waiting, "
+              f"{len(result['alerted'])} newly alerted",
+              payload=result)
+    return jsonify({'ok': True, **result}), 200

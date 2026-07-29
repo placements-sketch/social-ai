@@ -31,7 +31,20 @@ def log_event(level: str, source: str, message: str,
                          Used by the Dashboard activity feed to build
                          rich, natural-language descriptions.
         conversation_id: Optional FK link to a conversation.
+
+    Returns:
+        The persisted Log row, or None if persistence failed. Callers that
+        log something before the conversation exists can use this to attach
+        conversation_id afterwards — see services.process_message, where the
+        inbound event is recorded before the row is saved so a failed save
+        still leaves a trace.
     """
+    # Callers write both 'warn' and 'warning'. Normalise on the way in so the
+    # level column has one vocabulary — the Dashboard styled 'warning' and
+    # silently rendered every 'warn' row with the blue INFO treatment, so 17
+    # real warnings were dressed as information.
+    level = {'warn': 'warning', 'critical': 'error', 'fatal': 'error'}.get(level, level)
+
     log_fn = getattr(_logger, level, _logger.info)
     log_fn(f"[{source}] {message}")
 
@@ -47,6 +60,7 @@ def log_event(level: str, source: str, message: str,
         )
         db.session.add(entry)
         db.session.commit()
+        return entry
     except Exception:
         # Never let logging crash the caller
-        pass
+        return None

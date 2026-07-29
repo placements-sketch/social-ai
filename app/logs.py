@@ -261,10 +261,13 @@ ACTIVITY_SOURCES = (
     'handoff.auto_assigned',
     'assignment.assigned',
     'assignment.unassigned',
-    # Faults worth interrupting someone for
+    # Faults that happened TO A CUSTOMER. Infrastructure faults with no
+    # conversation attached (sync_jobs.failed and friends) belong in System
+    # Alerts, not here — seven stale sync failures were crowding out every
+    # customer event. Everything in this list is conversation-linked, which
+    # also means every row in the feed can be clicked through to.
     'ai.generator.failure',
     'services.pipeline_exception',
-    'sync_jobs.failed',
 )
 
 
@@ -327,4 +330,110 @@ def feed_logs():
         'logs': [r.to_dict() for r in rows],
         'page': page,
         'per_page': per_page,
+    }), 200
+
+# ─────────────────────────────────────────────
+# GET /api/alerts — what is broken right now
+# ─────────────────────────────────────────────
+# Distinct from /logs/system, which is a raw searchable log table. This is the
+# Dashboard panel: faults only, grouped, newest first.
+#
+# The panel used to call /logs/system with no level filter and show the last 3
+# rows of ANY severity, so "System Alerts" routinely displayed things like
+# "Access token obtained" and "Cache search for [...]" while 356 error rows sat
+# unseen behind them. Filtering to faults and grouping by source is the whole
+# point: 378 fault rows in this database collapse to 13 distinct problems.
+
+FAULT_LEVELS = ('error', 'warning', 'warn')   # 'warn' for rows written before normalisation
+ALERT_WINDOW_HOURS = 24 * 7
+
+
+@logs_bp.route('/alerts', methods=['GET'])
+@jwt_required()
+def alerts():
+    user, err = _require_role({'admin', 'supervisor'})
+    if err:
+        return err
+
+    from datetime import timedelta
+    from sqlalchemy import func
+    hours = request.args.get('hours', default=ALERT_WINDOW_HOURS, type=int)
+    limit = request.args.get('limit', default=6, type=int)
+    cutoff = datetime.utcnow() - timedelta(hours=max(1, hours))
+
+    out = []
+
+    # ── Conversations waiting with nobody on them ────────────────────────
+    # Sits above log faults because it's the one with a customer attached.
+    try:
+        from app.assignment import find_unclaimed
+        waiting = find_unclaimed()
+        if waiting:
+            longest = waiting[0][1]
+            out.append({
+                'kind': 'queue',
+                'severity': 'error' if longest >= 60 else 'warning',
+                'title': f"{len(waiting)} conversation{'s' if len(waiting) != 1 else ''} waiting, unassigned",
+                'detail': f"longest has waited {longest} min",
+                'count': len(waiting),
+                'last_seen': None,
+                'href': '/messages?assigned_to=unassigned',
+            })
+    except Exception as e:
+        log_event("warn", "logs.alerts_queue_failed", str(e))
+
+    # ── Faults from the log, grouped so 300 repeats are one line ─────────
+    try:
+        groups = (db.session.query(
+                      Log.source,
+                      func.count(Log.id).label('n'),
+                      func.max(Log.created_at).label('newest'),
+                      func.max(Log.level).label('level'),
+                  )
+                  .filter(Log.level.in_(FAULT_LEVELS))
+                  .filter(Log.created_at >= cutoff)
+                  .group_by(Log.source)
+                  .order_by(func.max(Log.created_at).desc())
+                  .all())
+
+        # Newest message per source, for the human-readable line.
+        newest_msg = {}
+        if groups:
+            for row in (Log.query
+                        .filter(Log.source.in_([g.source for g in groups]))
+                        .filter(Log.level.in_(FAULT_LEVELS))
+                        .filter(Log.created_at >= cutoff)
+                        .order_by(Log.created_at.desc())
+                        .all()):
+                newest_msg.setdefault(row.source, row)
+
+        for g in groups:
+            row = newest_msg.get(g.source)
+            level = 'error' if (g.level or '').lower() == 'error' else 'warning'
+            out.append({
+                'kind': 'fault',
+                'severity': level,
+                'source': g.source,
+                'title': (row.message if row else g.source)[:160],
+                'detail': None,
+                'count': int(g.n),
+                'last_seen': g.newest.isoformat() if g.newest else None,
+                'conversation_id': row.conversation_id if row else None,
+            })
+    except Exception as e:
+        log_event("warn", "logs.alerts_faults_failed", str(e))
+
+    # Errors before warnings; within a severity, most recent first, with the
+    # live queue alert (no last_seen) ahead of dated log faults. The old panel
+    # ranked on recency alone, so a fresh warning outranked an active outage.
+    # Two passes rather than one clever key — Python's sort is stable, so the
+    # second ordering wins and the first survives as the tiebreak.
+    out.sort(key=lambda a: a['last_seen'] or '', reverse=True)
+    out.sort(key=lambda a: (0 if a['severity'] == 'error' else 1,
+                            0 if a['last_seen'] is None else 1))
+
+    return jsonify({
+        'alerts': out[:limit],
+        'total': len(out),
+        'window_hours': hours,
     }), 200

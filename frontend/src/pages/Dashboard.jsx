@@ -7,12 +7,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import clsx from 'clsx'
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { getAnalyticsSummary, getSystemLogs, getMyLogs } from '../api/dashboard'
+import { getAnalyticsSummary, getAlerts, getMyLogs } from '../api/dashboard'
 import { SkeletonCard } from '../components/Skeleton'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { useTimeAgo } from '../hooks/useTimeAgo'
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 import { parseBackendTime } from '../utils/time'
+import { useAuth } from '../context/AuthContext'
 
 // Fully-rounded ("pill") bar — all four corners, unlike default bars whose
 // bottom sits flat on the axis. Radius auto-caps at half the width/height so
@@ -173,6 +174,34 @@ function ActivityItem({ item }) {
   )
 }
 
+// One row of the System Alerts panel. Shows how many times a fault has
+// recurred and when it was last seen — without those, three identical rows of
+// the same error looked like three separate problems, and a month-old failure
+// looked as urgent as one from a minute ago.
+function AlertRow({ alert }) {
+  const lastSeen = useTimeAgo(alert.last_seen)
+  const { icon: Icon, cls } = alertStyles[alert.severity] || alertStyles.info
+
+  const inner = (
+    <>
+      <Icon size={13} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="leading-snug break-words">{alert.title}</p>
+        <p className="mt-0.5 opacity-70 font-normal">
+          {alert.detail || alert.source}
+          {alert.count > 1 && <> · {alert.count}×</>}
+          {alert.last_seen && <> · {lastSeen}</>}
+        </p>
+      </div>
+    </>
+  )
+
+  const cn = clsx('flex items-start gap-2.5 p-3 rounded-lg border text-xs font-medium', cls)
+  return alert.href
+    ? <a href={alert.href} className={clsx(cn, 'hover:brightness-95 transition-all')}>{inner}</a>
+    : <div className={cn}>{inner}</div>
+}
+
 // Extracted so useCountAnimation is called once, unconditionally, at the top
 // level of a component. Calling it inside .map() + an if/else (as before)
 // breaks the Rules of Hooks — the animated value stopped re-targeting when
@@ -236,6 +265,7 @@ function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDire
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const [analyticsData, setAnalyticsData] = useState(null)
   const [systemAlerts, setSystemAlerts] = useState([])
   const [activityLogs, setActivityLogs] = useState([])
@@ -293,26 +323,33 @@ export default function Dashboard() {
     load()
   }, [period, customStart, customEnd, customReady])
 
-  // Load system alerts. /logs/system is admin-only, so supervisors and agents
-  // get a 403 — which the old catch swallowed, leaving the panel empty and
-  // therefore reading "All systems normal". That is not the same as "you
-  // aren't allowed to see this", and the difference matters when the claim is
-  // that nothing is wrong.
+  // Load system alerts. Now /api/alerts, which returns FAULTS grouped by
+  // source — the panel used to call /logs/system with no level filter and
+  // render the last 3 rows of any severity, so it showed things like "Access
+  // token obtained" while hundreds of errors sat unseen behind them.
+  //
+  // Still permission-gated (admin + supervisor). The 403 is surfaced rather
+  // than swallowed: an empty panel reading "All systems normal" is a different
+  // claim from "you aren't allowed to see this".
   useEffect(() => {
-    const load = async () => {
-      setLoadingAlerts(true)
+    let cancelled = false
+    const load = async (isFirst) => {
+      if (isFirst) setLoadingAlerts(true)
       try {
-        const data = await getSystemLogs({ per_page: 5 })
-        setSystemAlerts(data.logs || [])
-        setAlertsError(null)
+        const data = await getAlerts({ limit: 5 })
+        if (!cancelled) { setSystemAlerts(data.alerts || []); setAlertsError(null) }
       } catch (err) {
         console.error('Failed to load system alerts:', err)
-        setAlertsError(err.message || 'Could not load system alerts')
+        if (!cancelled) setAlertsError(err.message || 'Could not load system alerts')
       } finally {
-        setLoadingAlerts(false)
+        if (isFirst && !cancelled) setLoadingAlerts(false)
       }
     }
-    load()
+    load(true)
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') load(false)
+    }, ACTIVITY_POLL_MS)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Load activity feed, then keep it current. The panel has always shown a
@@ -356,14 +393,9 @@ export default function Dashboard() {
     { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: Target,        color: 'text-green-500',  bg: 'bg-green-50',  goodDirection: 'up', isPercentage: true },
   ]
 
-  // Map system logs to alert format
-  const getSystemAlerts = () => {
-    return systemAlerts.slice(0, 3).map(log => ({
-      id: log.id,
-      level: log.level || 'info',
-      message: log.message || 'System event',
-    }))
-  }
+  // /api/alerts already returns faults grouped, ranked and capped, so this is
+  // a straight pass-through — no client-side slicing to re-guess with.
+  const getSystemAlerts = () => systemAlerts
 
 // Compose a natural-language sentence from a structured log row.
   const formatActivityText = (log) => {
@@ -753,6 +785,17 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Agents' KPIs count only conversations assigned to them, while the
+          activity feed also shows the unassigned queue they can pick up. Both
+          are right — "what's mine" vs "what I can act on" — but nothing said
+          so, which made a queued escalation appear in the feed and never in
+          the Escalated count. */}
+      {user?.role === 'agent' && (
+        <p className="-mb-2 text-xs text-gray-400">
+          Figures below cover <span className="font-semibold text-gray-500">your conversations</span> only
+        </p>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {statCardsData.map((card) => (
@@ -951,21 +994,17 @@ export default function Dashboard() {
               ) : alertsError ? (
                 <div className="py-6 text-center text-xs text-gray-400">
                   {/^.*\b(403|forbidden|only admins)\b.*$/i.test(alertsError)
-                    ? 'System alerts are visible to admins only'
+                    ? 'System alerts are visible to admins and supervisors'
                     : 'Couldn’t load system alerts'}
                 </div>
               ) : systemAlertsData.length === 0 ? (
-                <div className="py-6 text-center text-xs text-gray-400">All systems normal</div>
+                <div className="py-6 text-center text-xs text-gray-400">
+                  Nothing broken in the last 7 days
+                </div>
               ) : (
-                systemAlertsData.map((alert) => {
-                  const { icon: Icon, cls } = alertStyles[alert.level] || alertStyles.info
-                  return (
-                    <div key={alert.id} className={clsx('flex items-start gap-2.5 p-3 rounded-lg border text-xs font-medium', cls)}>
-                      <Icon size={13} className="mt-0.5 shrink-0" />
-                      <p className="leading-snug break-words min-w-0 flex-1">{alert.message}</p>
-                    </div>
-                  )
-                })
+                systemAlertsData.map((alert, i) => (
+                  <AlertRow key={`${alert.kind}-${alert.source || 'queue'}-${i}`} alert={alert} />
+                ))
               )}
             </div>
           </div>

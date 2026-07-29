@@ -897,6 +897,58 @@ def summary():
         log_event("warn", "analytics.channel_performance_failed", str(e))
         channel_performance = []
 
+    # ── Human queue: how fast waiting conversations get picked up ─────────
+    # The counterweight to letting agents self-claim. Self-claim is faster
+    # than routing everything through a supervisor, but it can be cherry-
+    # picked, so measure it rather than gating it.
+    #
+    # Auto-assigned conversations are excluded from the timing: handoff.py
+    # assigns them in the same transaction as the escalation, so their
+    # time-to-claim is ~0 and would drown out the ones that actually queued.
+    # They're reported as a separate count instead.
+    try:
+        queued_since = func.coalesce(Conversation.escalated_at,
+                                     Conversation.ai_disabled_at,
+                                     Conversation.last_message_at)
+        claimed_q = _scope_filter(
+            db.session.query(
+                Conversation.assigned_by,
+                func.extract('epoch', Conversation.assigned_at - queued_since),
+            ).filter(Conversation.assigned_at >= win.start)
+             .filter(Conversation.assigned_at < win.end)
+             .filter(Conversation.assigned_to.isnot(None)),
+            Conversation, user,
+        )
+        auto_claims, self_claim_waits = 0, []
+        for assigned_by, secs in claimed_q.all():
+            if assigned_by is None:
+                auto_claims += 1
+            elif secs is not None and secs >= 0:
+                self_claim_waits.append(float(secs))
+
+        self_claim_waits.sort()
+        median_wait = (self_claim_waits[len(self_claim_waits) // 2]
+                       if self_claim_waits else None)
+
+        # Right now, not in-window: a queue you can't see is the problem.
+        from app.assignment import find_unclaimed
+        waiting = find_unclaimed(threshold_minutes=0)
+        if user.role == 'agent':
+            waiting = []          # roster management isn't an agent's view
+
+        queue = {
+            'auto_assigned':        auto_claims,
+            'self_claimed':         len(self_claim_waits),
+            'median_claim_seconds': int(median_wait) if median_wait is not None else None,
+            'slowest_claim_seconds': int(self_claim_waits[-1]) if self_claim_waits else None,
+            'unclaimed_now':        len(waiting),
+            'longest_wait_minutes': waiting[0][1] if waiting else 0,
+        }
+    except Exception as e:
+        log_event("warn", "analytics.queue_failed", str(e))
+        queue = {'auto_assigned': 0, 'self_claimed': 0, 'median_claim_seconds': None,
+                 'slowest_claim_seconds': None, 'unclaimed_now': 0, 'longest_wait_minutes': 0}
+
     # ── Top products (by ACTUAL product recommended) ──────────────────────
     # product_url carries the real handle (…/products/{handle}?utm=…), whereas
     # product_keyword is just the raw search word. Count by handle, then map to
@@ -963,6 +1015,7 @@ def summary():
         'intent_breakdown': intent_breakdown,
         'channel_split': channel_split,
         'channel_performance': channel_performance,
+        'queue': queue,
         'top_products': top_products,
         'failure_breakdown': failure_breakdown,
     }), 200

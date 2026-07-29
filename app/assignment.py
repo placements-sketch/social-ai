@@ -299,3 +299,133 @@ def unassign(conversation_id):
         current_app.logger.error(f"Error serializing conversation {conversation_id}: {e}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': f'Error serializing conversation: {str(e)}'}), 500
+
+# ─────────────────────────────────────────────
+# Unclaimed queue watchdog
+# ─────────────────────────────────────────────
+
+def queued_since(conv):
+    """
+    When this conversation started waiting for a human.
+
+    escalated_at is the precise signal, but a conversation can also reach the
+    queue by a supervisor unassigning it, which stamps neither — so fall back
+    through the next-best timestamps rather than skipping those rows.
+    """
+    return (conv.escalated_at
+            or conv.ai_disabled_at
+            or conv.last_message_at
+            or conv.created_at)
+
+
+def find_unclaimed(threshold_minutes: int | None = None):
+    """
+    Conversations sitting in the human queue with nobody on them for longer
+    than the alert threshold. Returns [(conversation, waited_minutes), ...],
+    longest wait first.
+
+    Escalations auto-assign (see pick_next_agent), and that only fails when
+    there are NO active agents at all — so anything in here means either the
+    roster is empty or someone unassigned it by hand. Both are worth saying
+    out loud rather than letting a waiting customer go quiet.
+    """
+    from app.settings import get_section
+    if threshold_minutes is None:
+        threshold_minutes = int(get_section("handoff").get("unclaimed_alert_minutes", 15))
+
+    now = datetime.utcnow()
+    cutoff = now - timedelta(minutes=threshold_minutes)
+
+    rows = (Conversation.query
+            .filter(Conversation.assigned_to.is_(None))
+            .filter(Conversation.status == 'human_override')
+            .all())
+
+    out = []
+    for conv in rows:
+        since = queued_since(conv)
+        if since is None or since > cutoff:
+            continue
+        out.append((conv, int((now - since).total_seconds() // 60)))
+    out.sort(key=lambda pair: pair[1], reverse=True)
+    return out
+
+
+def alert_unclaimed(threshold_minutes: int | None = None) -> dict:
+    """
+    Log and notify for anything stuck in the queue. Alerts ONCE per waiting
+    spell — re-alerting every cron tick would train people to ignore it — by
+    skipping conversations that already have a handoff.unclaimed log recorded
+    after they entered the queue.
+    """
+    from app.models import Log
+    from app.utils.logger import log_event
+
+    stuck = find_unclaimed(threshold_minutes)
+    alerted, skipped = [], 0
+
+    for conv, waited in stuck:
+        since = queued_since(conv)
+        already = (Log.query
+                   .filter(Log.source == 'handoff.unclaimed')
+                   .filter(Log.conversation_id == conv.id)
+                   .filter(Log.created_at >= since)
+                   .first())
+        if already:
+            skipped += 1
+            continue
+
+        handle = conv.user.external_id if conv.user else f'conversation {conv.id}'
+        log_event("error", "handoff.unclaimed",
+                  f"{handle} has waited {waited} min in the queue with no agent assigned",
+                  payload={"waited_minutes": waited, "channel": conv.channel,
+                           "handle": handle},
+                  conversation_id=conv.id)
+
+        for boss in AuthUser.query.filter(
+            AuthUser.role.in_(['admin', 'supervisor']),
+            AuthUser.status == 'active',
+        ).all():
+            create_notification(
+                user_id=boss.id,
+                type_='unclaimed',
+                title="Conversation waiting, unassigned",
+                body=f"{handle} has waited {waited} min with nobody assigned",
+                severity='warning',
+                resource_type='conversation', resource_id=conv.id,
+            )
+        alerted.append({'conversation_id': conv.id, 'waited_minutes': waited})
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log_event("error", "assignment.unclaimed_alert_fail", str(e))
+
+    return {'stuck': len(stuck), 'alerted': alerted, 'already_alerted': skipped}
+
+
+@assignment_bp.route('/conversations/unclaimed', methods=['GET'])
+@jwt_required()
+def unclaimed_queue():
+    """
+    What's waiting, and for how long. Supervisor/admin only — this is a
+    roster-management view, not an agent one.
+    """
+    user = AuthUser.query.get(current_user_id())
+    if not user or user.role not in {'admin', 'supervisor'}:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # ?threshold_minutes=0 lists the whole queue, not just the overdue part.
+    threshold = request.args.get('threshold_minutes', type=int)
+    rows = find_unclaimed(threshold)
+    return jsonify({
+        'unclaimed': [{
+            'conversation_id': conv.id,
+            'channel': conv.channel,
+            'handle': conv.user.external_id if conv.user else None,
+            'waited_minutes': waited,
+            'queued_since': queued_since(conv).isoformat() if queued_since(conv) else None,
+        } for conv, waited in rows],
+        'count': len(rows),
+    }), 200
