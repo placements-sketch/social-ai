@@ -2,12 +2,13 @@ import { useState, useEffect, useRef, useCallback, useContext } from 'react'
 import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
   RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
+  CheckCircle2, RotateCcw,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
   assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
-  fetchInstagramMedia, getAppSettings,
+  fetchInstagramMedia, getAppSettings, updateConversationStatus,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -186,6 +187,7 @@ export default function Messages() {
 
   const [replyText, setReplyText]       = useState('')
   const [sending, setSending]           = useState(false)
+  const [resolving, setResolving]       = useState(false)
   // Refs update synchronously; `sending` state doesn't close the gate fast
   // enough when two triggers land in the same tick (double Enter, or Enter
   // plus the button), which sent the same reply twice.
@@ -452,6 +454,7 @@ export default function Messages() {
   // Effective AI state for the open conversation — the global master switch
   // overrides the per-conversation flag.
   const aiActive = !!activeConv?.ai_enabled && !aiGloballyOff
+  const isResolved = activeConv?.status === 'resolved'
 
   // ── Toggle AI for the active conversation ─────────────────────────────────
   const handleToggleAI = async () => {
@@ -476,6 +479,43 @@ export default function Messages() {
       setActiveConv(c => ({ ...c, ...data.conversation }))
     } catch {
       setActiveConv(c => ({ ...c, ai_enabled: !next })) // revert
+    }
+  }
+
+  // ── Resolve / re-open the active conversation ─────────────────────────────
+  const handleToggleResolved = async () => {
+    if (!activeConv || resolving) return
+    const next = isResolved ? 'active' : 'resolved'
+
+    // Only confirm on resolve. Re-opening is harmless and instantly undoable.
+    if (next === 'resolved') {
+      const ok = await confirm({
+        title: 'Mark as resolved?',
+        message: 'This closes the conversation. It stays searchable, and you can re-open it at any time.',
+        confirmText: 'Resolve',
+        cancelText: 'Cancel',
+      })
+      if (!ok) return
+    }
+
+    const previous = activeConv.status
+    setResolving(true)
+    setActiveConv(c => ({ ...c, status: next }))                       // optimistic
+    setConversations(list => list.map(c =>
+      c.id === activeConv.id ? { ...c, status: next } : c))            // keep the list in step
+    try {
+      const data = await updateConversationStatus(activeConv.id, next)
+      const fresh = data.conversation || {}
+      setActiveConv(c => ({ ...c, ...fresh }))
+      setConversations(list => list.map(c =>
+        c.id === activeConv.id ? { ...c, ...fresh } : c))
+    } catch (err) {
+      console.error('Failed to update status:', err)
+      setActiveConv(c => ({ ...c, status: previous }))                 // revert both
+      setConversations(list => list.map(c =>
+        c.id === activeConv.id ? { ...c, status: previous } : c))
+    } finally {
+      setResolving(false)
     }
   }
 
@@ -873,6 +913,28 @@ const handleSend = async () => {
               >
                 <span className="sm:hidden">{aiActive ? '⚙️' : '⚠️'}</span>
                 <span className="hidden sm:inline">{aiActive ? 'Disable AI' : '⚠ AI Off'}</span>
+              </button>
+
+              {/* Resolve / re-open. The backend, the status field and the API
+                  client have all supported this from the start — nothing ever
+                  called it, so no conversation could reach 'resolved' and
+                  resolved_at stayed permanently null. That left every old
+                  chat looking open forever, which is what made the agent
+                  "awaiting reply" alert report waits of tens of thousands of
+                  minutes. */}
+              <button
+                onClick={handleToggleResolved}
+                disabled={resolving}
+                className={clsx(
+                  'flex items-center gap-1.5 text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed',
+                  isResolved
+                    ? 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                    : 'border-green-300 bg-green-50 text-green-700 hover:bg-green-100'
+                )}
+                title={isResolved ? 'Re-open this conversation' : 'Mark this conversation resolved'}
+              >
+                {isResolved ? <RotateCcw size={13} /> : <CheckCircle2 size={13} />}
+                <span className="hidden sm:inline">{isResolved ? 'Re-open' : 'Resolve'}</span>
               </button>
 
               {!aiActive && (
