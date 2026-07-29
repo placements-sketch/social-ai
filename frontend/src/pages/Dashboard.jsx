@@ -341,7 +341,12 @@ export default function Dashboard() {
     const load = async (isFirst) => {
       if (isFirst) setLoadingAlerts(true)
       try {
-        const data = await getAlerts({ limit: 5 })
+        // Capped at 3 — deliberately. The panel is a "what's on fire right
+        // now" glance, and its height drives the right-hand column, which in
+        // turn decides whether Live Activity beside it has dead space. Grouping
+        // means 3 rows can still represent hundreds of occurrences; the rest is
+        // on the Logs page.
+        const data = await getAlerts({ limit: 3 })
         if (!cancelled) { setSystemAlerts(data.alerts || []); setAlertsError(null) }
       } catch (err) {
         console.error('Failed to load system alerts:', err)
@@ -951,7 +956,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Activity feed */}
-        <div className="lg:col-span-2 lg:self-start card p-5 flex flex-col">
+        <div className="lg:col-span-2 card p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h2 className="text-sm font-bold text-gray-900">Live Activity</h2>
             <span className="flex items-center gap-3">
@@ -964,14 +969,12 @@ export default function Dashboard() {
               </span>
             </span>
           </div>
-          {/* Sized to its own content, capped so a long feed scrolls. Making
-              the list stretch to the neighbouring column only worked while
-              that column stayed a fixed height — the alerts panel has since
-              grown, so the dead space came straight back. A card that ends
-              where its content ends can never gap, whatever sits beside it.
-              (The `self-start` on the card is what stops the grid stretching
-              it in the first place.) */}
-          <div className="max-h-[600px] overflow-y-auto pr-2 -mr-2 custom-scrollbar">
+          {/* Fills the card, which the grid stretches to match the taller
+              right-hand column. That only stays gap-free while the right
+              column is roughly the height of this list — which is why System
+              Alerts is capped at 3 rows. If that column grows again, the dead
+              space comes back and the cap is the thing to revisit. */}
+          <div className="flex-1 min-h-0 max-h-[600px] lg:max-h-none overflow-y-auto pr-2 -mr-2 custom-scrollbar">
             <div className="space-y-3">
               {loadingActivity ? (
                 <div className="py-8 text-center text-xs text-gray-400">Loading activity…</div>
