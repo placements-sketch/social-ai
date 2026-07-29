@@ -250,6 +250,26 @@ def system_logs():
 # Sources the Live Activity feed shows. Keep this in step with the formatter
 # in frontend/src/pages/Dashboard.jsx — an entry here with no case there
 # renders as a raw internal log line, which is what this list exists to stop.
+def accessible_conversation_ids(user):
+    """
+    Conversations an agent may see: assigned to them, or sitting unassigned in
+    the human_override queue where anyone can claim them. Matches the Messages
+    access model. Shared by the activity feed and the alerts panel so the two
+    can't drift apart.
+    """
+    from sqlalchemy import or_, and_
+    from app.models import Conversation
+    return Conversation.query.with_entities(Conversation.id).filter(
+        or_(
+            Conversation.assigned_to == user.id,
+            and_(
+                Conversation.assigned_to.is_(None),
+                Conversation.status == 'human_override',
+            ),
+        )
+    )
+
+
 ACTIVITY_SOURCES = (
     # A customer said something, or we answered (or didn't)
     'services.inbound',
@@ -310,18 +330,7 @@ def feed_logs():
     # the Messages access model. Conversation-less system/sync events are
     # hidden from agents. Admins/supervisors see everything.
     if user.role == 'agent':
-        from sqlalchemy import or_, and_
-        from app.models import Conversation
-        accessible = Conversation.query.with_entities(Conversation.id).filter(
-            or_(
-                Conversation.assigned_to == user.id,
-                and_(
-                    Conversation.assigned_to.is_(None),
-                    Conversation.status == 'human_override',
-                ),
-            )
-        )
-        query = query.filter(Log.conversation_id.in_(accessible))
+        query = query.filter(Log.conversation_id.in_(accessible_conversation_ids(user)))
 
     rows = (query.order_by(Log.created_at.desc())
                  .limit(per_page).offset((page - 1) * per_page).all())
@@ -348,10 +357,24 @@ FAULT_LEVELS = ('error', 'warning', 'warn')   # 'warn' for rows written before n
 ALERT_WINDOW_HOURS = 24 * 7
 
 
+# Fallback only — the live value is handoff.agent_waiting_minutes in settings,
+# editable on the Settings page. An agent's conversation counts as neglected
+# once the customer's last message has gone this long without a human reply.
+AGENT_WAITING_MINUTES = 10
+
+
 @logs_bp.route('/alerts', methods=['GET'])
 @jwt_required()
 def alerts():
-    user, err = _require_role({'admin', 'supervisor'})
+    """
+    What needs attention, scoped to who's asking.
+
+    Every role gets a panel — this used to be admin-only, so agents saw a
+    permanently forbidden box taking up prime dashboard space. An agent can
+    self-claim from the queue and owns their own conversations, so there is
+    plenty they can act on; it's system-level faults that aren't theirs.
+    """
+    user, err = _require_user()
     if err:
         return err
 
@@ -360,11 +383,53 @@ def alerts():
     hours = request.args.get('hours', default=ALERT_WINDOW_HOURS, type=int)
     limit = request.args.get('limit', default=6, type=int)
     cutoff = datetime.utcnow() - timedelta(hours=max(1, hours))
+    is_agent = user.role == 'agent'
 
     out = []
 
+    # ── Your conversations, waiting on a human reply ─────────────────────
+    # Top of an agent's list: it's their own work, and the customer is waiting.
+    if is_agent:
+        try:
+            from app.models import Conversation, Message
+            from app.settings import get_section
+            wait_mins = int(get_section("handoff").get(
+                "agent_waiting_minutes", AGENT_WAITING_MINUTES))
+            waiting_cutoff = datetime.utcnow() - timedelta(minutes=wait_mins)
+            mine = (Conversation.query
+                    .filter(Conversation.assigned_to == user.id)
+                    .filter(Conversation.status != 'resolved')
+                    .filter(Conversation.last_message_at < waiting_cutoff)
+                    .order_by(Conversation.last_message_at.asc())
+                    .limit(50).all())
+            stale = []
+            for conv in mine:
+                last = (Message.query
+                        .filter(Message.conversation_id == conv.id)
+                        .order_by(Message.created_at.desc())
+                        .first())
+                # Newest message being inbound means the ball is in our court.
+                if last is not None and last.direction == 'inbound':
+                    stale.append(conv)
+            if stale:
+                oldest = stale[0]
+                mins = int((datetime.utcnow() - oldest.last_message_at).total_seconds() // 60)
+                out.append({
+                    'kind': 'awaiting_reply',
+                    'severity': 'error' if mins >= 60 else 'warning',
+                    'title': f"{len(stale)} conversation{'s' if len(stale) != 1 else ''} awaiting your reply",
+                    'detail': f"longest waiting {mins} min",
+                    'count': len(stale),
+                    'last_seen': None,
+                    'href': '/messages?assigned_to=me',
+                })
+        except Exception as e:
+            log_event("warn", "logs.alerts_awaiting_failed", str(e))
+
     # ── Conversations waiting with nobody on them ────────────────────────
     # Sits above log faults because it's the one with a customer attached.
+    # Shown to agents too — they can self-claim, so it's arguably more
+    # actionable for them than for a supervisor.
     try:
         from app.assignment import find_unclaimed
         waiting = find_unclaimed()
@@ -373,7 +438,8 @@ def alerts():
             out.append({
                 'kind': 'queue',
                 'severity': 'error' if longest >= 60 else 'warning',
-                'title': f"{len(waiting)} conversation{'s' if len(waiting) != 1 else ''} waiting, unassigned",
+                'title': (f"{len(waiting)} conversation{'s' if len(waiting) != 1 else ''} "
+                          + ("waiting to be picked up" if is_agent else "waiting, unassigned")),
                 'detail': f"longest has waited {longest} min",
                 'count': len(waiting),
                 'last_seen': None,
@@ -383,15 +449,24 @@ def alerts():
         log_event("warn", "logs.alerts_queue_failed", str(e))
 
     # ── Faults from the log, grouped so 300 repeats are one line ─────────
+    # Agents get only faults attached to a conversation they can access — a
+    # failed Shopify sync isn't theirs to fix, but the AI failing to answer
+    # their customer certainly is.
     try:
-        groups = (db.session.query(
-                      Log.source,
-                      func.count(Log.id).label('n'),
-                      func.max(Log.created_at).label('newest'),
-                      func.max(Log.level).label('level'),
-                  )
-                  .filter(Log.level.in_(FAULT_LEVELS))
-                  .filter(Log.created_at >= cutoff)
+        def _fault_scope(q):
+            if is_agent:
+                return q.filter(Log.conversation_id.in_(accessible_conversation_ids(user)))
+            return q
+
+        groups = (_fault_scope(
+                      db.session.query(
+                          Log.source,
+                          func.count(Log.id).label('n'),
+                          func.max(Log.created_at).label('newest'),
+                          func.max(Log.level).label('level'),
+                      )
+                      .filter(Log.level.in_(FAULT_LEVELS))
+                      .filter(Log.created_at >= cutoff))
                   .group_by(Log.source)
                   .order_by(func.max(Log.created_at).desc())
                   .all())
@@ -399,10 +474,11 @@ def alerts():
         # Newest message per source, for the human-readable line.
         newest_msg = {}
         if groups:
-            for row in (Log.query
-                        .filter(Log.source.in_([g.source for g in groups]))
-                        .filter(Log.level.in_(FAULT_LEVELS))
-                        .filter(Log.created_at >= cutoff)
+            for row in (_fault_scope(
+                            Log.query
+                            .filter(Log.source.in_([g.source for g in groups]))
+                            .filter(Log.level.in_(FAULT_LEVELS))
+                            .filter(Log.created_at >= cutoff))
                         .order_by(Log.created_at.desc())
                         .all()):
                 newest_msg.setdefault(row.source, row)

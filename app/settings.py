@@ -24,6 +24,9 @@ DEFAULTS = {
         # reaching this threshold means auto-assignment couldn't place it (no
         # active agents) or someone deliberately unassigned it.
         "unclaimed_alert_minutes": int(os.getenv("UNCLAIMED_ALERT_MINUTES", "15")),
+        # How long a customer may wait on an agent who already owns the
+        # conversation before it shows in that agent's "Needs Attention" panel.
+        "agent_waiting_minutes": int(os.getenv("AGENT_WAITING_MINUTES", "10")),
         "bridging_reply": (
             "Thanks for reaching out — I'm connecting you with a member of our team "
             "who'll get back to you shortly. We appreciate your patience."

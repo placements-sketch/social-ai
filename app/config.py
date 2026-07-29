@@ -26,6 +26,24 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///dev.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    # Connection pooling. Supabase sits behind PgBouncer, which drops idle
+    # connections without telling the client — so a pooled connection sitting
+    # between webhooks is often already dead by the time we use it, surfacing
+    # as the handler failure seen in production:
+    #   psycopg2.OperationalError: connection to server at
+    #   "aws-1-us-west-2.pooler.supabase.com" ... port 5432 failed
+    # pool_pre_ping issues a cheap check before handing a connection out and
+    # transparently reconnects when it's stale; pool_recycle retires
+    # connections before the pooler's own idle timeout can. Without both, the
+    # first query after a quiet spell fails.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "280")),   # under PgBouncer's 300s
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+    }
+
     # JWT Configuration
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jwt-secret-key-change-in-production")
     JWT_ACCESS_TOKEN_EXPIRES = 86400  # 24 hours in seconds

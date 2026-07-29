@@ -65,10 +65,15 @@ const CustomTooltip = ({ active, payload }) => {
   return null
 }
 
+// The -100 border shades are deliberate: index.css softens border-red-100 /
+// -amber-100 / -green-100 for dark mode but has no override for the -200
+// shades, so those rendered as a bright light line against a dark card and
+// read as a heavy 2px rule. The backgrounds already carry the severity, so
+// the border only needs to define the edge.
 const alertStyles = {
-  error:   { icon: AlertCircle,   cls: 'border-red-200 bg-red-50 text-red-600'       },
-  warning: { icon: AlertTriangle, cls: 'border-amber-200 bg-amber-50 text-amber-600' },
-  info:    { icon: Info,          cls: 'border-blue-200 bg-blue-50 text-blue-600'    },
+  error:   { icon: AlertCircle,   cls: 'border-red-100 bg-red-50 text-red-600'       },
+  warning: { icon: AlertTriangle, cls: 'border-amber-100 bg-amber-50 text-amber-600' },
+  info:    { icon: Info,          cls: 'border-blue-100 bg-blue-50 text-blue-600'    },
 }
 
 // Mirrors NO_REPLY_LABELS in app/services.py — keep the two in sync.
@@ -946,7 +951,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Activity feed */}
-        <div className="lg:col-span-2 card p-5 flex flex-col">
+        <div className="lg:col-span-2 lg:self-start card p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h2 className="text-sm font-bold text-gray-900">Live Activity</h2>
             <span className="flex items-center gap-3">
@@ -959,12 +964,14 @@ export default function Dashboard() {
               </span>
             </span>
           </div>
-          {/* The card is a grid item, so it stretches to the height of the
-              taller right-hand column. A fixed 600px scroller left dead space
-              below it on tall/fullscreen windows — flex-1 makes the list fill
-              the card instead. min-h-0 lets it shrink; the cap only applies
-              on small screens, where the card sizes to its own content. */}
-          <div className="flex-1 min-h-0 max-h-[600px] lg:max-h-none overflow-y-auto pr-2 -mr-2 custom-scrollbar">
+          {/* Sized to its own content, capped so a long feed scrolls. Making
+              the list stretch to the neighbouring column only worked while
+              that column stayed a fixed height — the alerts panel has since
+              grown, so the dead space came straight back. A card that ends
+              where its content ends can never gap, whatever sits beside it.
+              (The `self-start` on the card is what stops the grid stretching
+              it in the first place.) */}
+          <div className="max-h-[600px] overflow-y-auto pr-2 -mr-2 custom-scrollbar">
             <div className="space-y-3">
               {loadingActivity ? (
                 <div className="py-8 text-center text-xs text-gray-400">Loading activity…</div>
@@ -983,7 +990,12 @@ export default function Dashboard() {
         <div className="space-y-4">
           <div className="card p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-gray-900">System Alerts</h2>
+              {/* An agent's alerts are their own queue and conversations, not
+                  infrastructure — calling that "System Alerts" would be a
+                  promise the panel doesn't keep for them. */}
+              <h2 className="text-sm font-bold text-gray-900">
+                {user?.role === 'agent' ? 'Needs Attention' : 'System Alerts'}
+              </h2>
               <a href="/logs" className="text-xs text-brand-600 hover:text-brand-700 font-semibold transition-colors">
                 View All →
               </a>
@@ -999,7 +1011,9 @@ export default function Dashboard() {
                 </div>
               ) : systemAlertsData.length === 0 ? (
                 <div className="py-6 text-center text-xs text-gray-400">
-                  Nothing broken in the last 7 days
+                  {user?.role === 'agent'
+                    ? 'Nothing needs your attention'
+                    : 'Nothing broken in the last 7 days'}
                 </div>
               ) : (
                 systemAlertsData.map((alert, i) => (

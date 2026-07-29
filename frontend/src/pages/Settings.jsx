@@ -337,6 +337,8 @@ function HandoffPanel({ settings, setSettings }) {
   const [maxLoad, setMaxLoad] = useState(h.max_agent_load ?? 10)
   const [presence, setPresence] = useState(h.presence_window_seconds ?? 300)
   const [bridging, setBridging] = useState(h.bridging_reply ?? '')
+  const [unclaimedMins, setUnclaimedMins] = useState(h.unclaimed_alert_minutes ?? 15)
+  const [agentWaitMins, setAgentWaitMins] = useState(h.agent_waiting_minutes ?? 10)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
 
@@ -349,13 +351,20 @@ function HandoffPanel({ settings, setSettings }) {
     const pw = parseInt(presence, 10)
     if (!Number.isFinite(ml) || ml < 1 || ml > 100) return setMsg({ type: 'error', text: 'Max load must be between 1 and 100.' })
     if (!Number.isFinite(pw) || pw < 30 || pw > 3600) return setMsg({ type: 'error', text: 'Presence window must be 30–3600 seconds.' })
+    const um = parseInt(unclaimedMins, 10)
+    const aw = parseInt(agentWaitMins, 10)
+    if (!Number.isFinite(um) || um < 1 || um > 1440) return setMsg({ type: 'error', text: 'Unclaimed alert must be 1–1440 minutes.' })
+    if (!Number.isFinite(aw) || aw < 1 || aw > 1440) return setMsg({ type: 'error', text: 'Agent wait flag must be 1–1440 minutes.' })
     if (!bridging.trim()) return setMsg({ type: 'error', text: 'The handoff message cannot be empty.' })
 
     setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/settings`, {
         method: 'PATCH', headers: authHeaders(),
-        body: JSON.stringify({ handoff: { max_agent_load: ml, presence_window_seconds: pw, bridging_reply: bridging.trim() } }),
+        body: JSON.stringify({ handoff: {
+          max_agent_load: ml, presence_window_seconds: pw, bridging_reply: bridging.trim(),
+          unclaimed_alert_minutes: um, agent_waiting_minutes: aw,
+        } }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to save')
@@ -397,6 +406,22 @@ function HandoffPanel({ settings, setSettings }) {
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">seconds</span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1.5">How recently an agent must've been active to count as present. 300 = 5 min.</p>
+        </div>
+        <div>
+          <label className={labelCls}>Alert when unclaimed for</label>
+          <div className="relative">
+            <input className={`${inputCls} pr-16`} type="number" min="1" max="1440" value={unclaimedMins} onChange={e => setUnclaimedMins(e.target.value)} />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">minutes</span>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">A conversation waiting this long with nobody assigned alerts supervisors.</p>
+        </div>
+        <div>
+          <label className={labelCls}>Flag agent's chat after</label>
+          <div className="relative">
+            <input className={`${inputCls} pr-16`} type="number" min="1" max="1440" value={agentWaitMins} onChange={e => setAgentWaitMins(e.target.value)} />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">minutes</span>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">A customer waiting this long on an agent who owns the chat shows in that agent's Needs Attention panel.</p>
         </div>
       </div>
 
