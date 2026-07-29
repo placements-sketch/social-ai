@@ -89,6 +89,10 @@ const NO_REPLY_LABELS = {
 // How often Live Activity refetches. Short enough to deserve the "Live"
 // badge, long enough not to hammer the API from an idle dashboard.
 const ACTIVITY_POLL_MS = 20000
+// Rows rendered in the feed. ~20 fills the card on a tall screen so no dead
+// space shows, without becoming a wall to scroll through; the rest is a click
+// away on the Logs page.
+const ACTIVITY_FEED_LIMIT = 20
 
 const CHANNEL_META = {
   instagram: { name: 'Instagram', color: '#ec4899', icon: Instagram },
@@ -477,10 +481,12 @@ export default function Dashboard() {
   }
 
   const getActivityFeed = () => {
-    // Render everything fetched. It used to slice to 12 of the 50 requested,
-    // which both wasted the request and left the card short of content once
-    // the scroll area was allowed to grow to the card's full height.
-    return activityLogs.map(log => {
+    // Sized to fill a tall card without turning into an endless scroll. It was
+    // 12 of 50 fetched — too few to fill the card once the scroll area could
+    // grow, and 38 rows wasted. Rendering all 50 then overshot the other way.
+    // ACTIVITY_FEED_LIMIT is the middle: a glance at what's happening, with
+    // "View All" for the rest.
+    return activityLogs.slice(0, ACTIVITY_FEED_LIMIT).map(log => {
       // Prefer payload.channel (now richly populated); fall back to source-based guess.
       const src = (log.source || '').toLowerCase()
       let iconChannel = 'system'
@@ -903,9 +909,14 @@ export default function Dashboard() {
         <div className="lg:col-span-2 card p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h2 className="text-sm font-bold text-gray-900">Live Activity</h2>
-            <span className="flex items-center gap-1.5 text-xs text-green-600 font-semibold">
+            <span className="flex items-center gap-3">
+              <a href="/logs" className="text-xs text-brand-600 hover:text-brand-700 font-semibold transition-colors">
+                View All →
+              </a>
+              <span className="flex items-center gap-1.5 text-xs text-green-600 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
               Live
+              </span>
             </span>
           </div>
           {/* The card is a grid item, so it stretches to the height of the
