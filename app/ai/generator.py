@@ -839,6 +839,10 @@ Customer's detected intents: {intents_str}
 
     except Exception as e:
         reason, detail = _classify_failure(e)
+        # conversation_id matters: without it a failure can't be tied to the
+        # customer it happened to, so it couldn't be counted against the
+        # success rate and agents never saw failures on their own chats.
+        # The caller already puts it in context_data for UTM building.
         log_event("error", "ai.generator.failure",
                   f"Claude reply failed ({reason}) — fell back to mock reply",
                   payload={
@@ -847,7 +851,8 @@ Customer's detected intents: {intents_str}
                       "error_type": type(e).__name__,
                       "channel": channel,
                       "intents": intents,
-                  })
+                  },
+                  conversation_id=(context_data or {}).get('_utm_conversation_id'))
         return {
             'reply':          _mock_reply(intents, context_data),
             'tokens_used':    0,

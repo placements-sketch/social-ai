@@ -271,7 +271,27 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
         return _process_message(message, user_id, channel, external_id, media_id, image_urls)
     except Exception as e:
         import traceback
+        # Resolve the conversation here rather than threading an id out of the
+        # inner function. (user_id, channel) already identifies it — the same
+        # lookup _save_message does — so a failure can be attributed to the
+        # customer it happened to, which is what lets it count against the
+        # success rate. Best-effort: a brand-new customer whose very first save
+        # failed genuinely has no conversation yet, and NULL is the honest
+        # answer there.
+        conv_id = None
+        try:
+            from app.models import Conversation, User
+            customer = User.query.filter_by(external_id=user_id, channel=channel).first()
+            if customer is not None:
+                conv = (Conversation.query
+                        .filter_by(user_id=customer.id, channel=channel)
+                        .order_by(Conversation.id.desc()).first())
+                conv_id = conv.id if conv else None
+        except Exception:
+            pass
+
         _record_no_reply(NO_REPLY_EXCEPTION, channel, user_id,
+                         conversation_id=conv_id,
                          detail=f"{type(e).__name__}: {e}")
         log_event("error", "services.pipeline_exception",
                   f"Unhandled error processing [{channel}] message from {user_id}: {e}",

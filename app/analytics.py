@@ -20,7 +20,7 @@ from collections import namedtuple
 from datetime import datetime, time as dtime, timedelta, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
-from sqlalchemy import func, case
+from sqlalchemy import func, case, text
 
 from app import db
 from app.models import AuthUser, Conversation, Log, Message
@@ -482,13 +482,40 @@ def summary():
             # Punted: handed off to a human. handoff_reason is only ever set by
             # the escalation path — a plain manual takeover leaves it NULL —
             # so this is the AI's own decision to stop, not an agent's.
-            punted_ids = set(
-                cid for (cid,) in db.session.query(Conversation.id)
-                    .filter(Conversation.id.in_(handled_conv_ids))
-                    .filter(Conversation.handoff_reason.isnot(None))
-                    .all()
+            # Uses the SAME event-based definition as the Escalated KPI —
+            # `esc_from_logs | esc_from_col` above — narrowed to the handled
+            # set. Reading Conversation.handoff_reason instead meant reading
+            # current STATE: an agent re-enabling the AI clears that flag, so a
+            # conversation that punted three times in the window stopped
+            # counting as a punt. That made the card contradict itself, showing
+            # "Escalated 8" beside a success rate that only excluded 7.
+            punted_ids = (esc_from_logs | esc_from_col) & set(handled_conv_ids)
+            # FAILED: the AI was on duty and something broke. Three ways:
+            #   - the generator threw and fell back to a canned mock reply
+            #   - the pipeline raised and nothing was sent
+            #   - a reply was written but never reached the platform
+            # All three leave the customer without a real answer, so none can
+            # count as a success. This was the missing half of the rule the
+            # rate is built on — "failed to respond OR punted" — punts were
+            # excluded from the numerator but failures sailed through, so a
+            # conversation where Claude errored still scored as a win if the
+            # customer happened to send a second message.
+            failed_ids = set(
+                cid for (cid,) in db.session.query(Log.conversation_id)
+                    .filter(Log.conversation_id.in_(handled_conv_ids))
+                    .filter(Log.created_at >= start_dt)
+                    .filter(Log.created_at < end_dt)
+                    .filter(db.or_(
+                        Log.source == 'ai.generator.failure',
+                        db.and_(
+                            Log.source == 'services.no_reply_sent',
+                            text("logs.payload ->> 'reason' IN "
+                                 "('dispatch_failed', 'pipeline_exception')"),
+                        ),
+                    ))
+                    .distinct().all()
             )
-            engaged_total = len((multiturn_ids | ordered_ids) - punted_ids)
+            engaged_total = len((multiturn_ids | ordered_ids) - punted_ids - failed_ids)
 
         success_rate = (engaged_total / handled_total) if handled_total else 0.0
 
@@ -596,7 +623,6 @@ def summary():
     # Groups ai.generator.failure logs in the window by their structured
     # `reason`. Wrapped so a query issue can't 500 the dashboard.
     try:
-        from sqlalchemy import text
         reason_expr = text("payload ->> 'reason'")
         # Scoped, like the failed_responses COUNT it breaks down. Without this
         # an agent saw their own failure count beside a company-wide list of
@@ -836,8 +862,7 @@ def summary():
         # Log.payload is declared as generic JSON but is jsonb in Postgres, so
         # `->>` via text() is the accessor that works — same approach as the
         # failure_breakdown query below.
-        from sqlalchemy import text as _sql_text
-        reason_col = _sql_text("logs.payload ->> 'reason'")
+        reason_col = text("logs.payload ->> 'reason'")
         no_reply_reasons = {}
         for ch, cid, reason in _scope_filter(
             db.session.query(conv_fam.label('channel'), Conversation.id, reason_col)
