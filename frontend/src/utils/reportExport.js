@@ -10,6 +10,35 @@ const num = (v) => (v ?? 0).toLocaleString()
 const ms  = (v) => (v == null ? '—' : v < 1000 ? `${v}ms` : `${(v / 1000).toFixed(1)}s`)
 const clean = (s) => String(s || '').replace(/_/g, ' ')
 
+// Parsed at local noon so a plain YYYY-MM-DD can't be dragged into the
+// previous day by the viewer's UTC offset.
+const asDate = (iso) => {
+  const [y, m, d] = String(iso).split('-').map(Number)
+  return new Date(y, m - 1, d, 12)
+}
+
+/**
+ * The period line for the report header.
+ *
+ * Prefers the exact window the API resolved (window_start/window_end) over the
+ * UI's friendly label, and shows both. "This month" is meaningless in a file
+ * opened six months later, and a Dashboard label like "1 Jun – 18 Jun" carries
+ * no year. Falls back to the label alone if the response predates those fields.
+ */
+function periodLine(data, meta) {
+  const s = data?.window_start
+  const e = data?.window_end
+  if (!s || !e) return meta.periodLabel || 'Selected range'
+  const opts = { day: 'numeric', month: 'short', year: 'numeric' }
+  const range = s === e
+    ? asDate(s).toLocaleDateString('en-US', opts)
+    : `${asDate(s).toLocaleDateString('en-US', opts)} – ${asDate(e).toLocaleDateString('en-US', opts)}`
+  // Don't repeat yourself when the label is already just the dates.
+  return meta.periodLabel && meta.periodLabel !== range
+    ? `${meta.periodLabel} (${range})`
+    : range
+}
+
 // Pull every section out of the loaded analytics data into table-ready rows.
 function buildSections(data) {
   const kpis = data?.kpis || {}
@@ -92,7 +121,7 @@ export function exportAnalyticsCSV(data, meta) {
   const out = []
 
   out.push(line('Shop Zetu — Social AI Assistant — Analytics Report'))
-  out.push(line('Period', meta.periodLabel))
+  out.push(line('Period', periodLine(data, meta)))
   out.push(line('Generated', meta.generatedAt))
   out.push('')
 
@@ -130,7 +159,7 @@ export async function exportAnalyticsPDF(data, meta) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(12); doc.setTextColor(...BRAND)
   doc.text('Social AI Assistant — Analytics Report', mx, 68)
   doc.setFontSize(9); doc.setTextColor(...MUTE)
-  doc.text(`Period: ${meta.periodLabel}    ·    Generated: ${meta.generatedAt}`, mx, 84)
+  doc.text(`Period: ${periodLine(data, meta)}    ·    Generated: ${meta.generatedAt}`, mx, 84)
   doc.setDrawColor(...BRAND); doc.setLineWidth(1.5); doc.line(mx, 92, pageW - mx, 92)
 
   let y = 112

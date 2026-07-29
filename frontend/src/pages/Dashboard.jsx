@@ -437,10 +437,20 @@ export default function Dashboard() {
         ? 'the day before'
         : `the previous ${analyticsData?.window_days || ''} days`.replace('  ', ' '))
 
+  // Slug comes from the window the API actually resolved, not from what's
+  // typed in the pickers — mid-edit those disagree, and the filename must
+  // describe the data inside the file.
   const exportMeta = () => ({
-    periodLabel,
+    // A custom range's label IS its dates, and the exporter prints those
+    // exactly (with the year) anyway — passing it too gives "Jun 10 (Jun 10,
+    // 2026)". Named periods still get their friendly prefix.
+    periodLabel: period === 'custom' ? '' : periodLabel,
     generatedAt: new Date().toLocaleString(),
-    periodSlug: period === 'custom' && customReady ? `${customStart}_${customEnd}` : period,
+    periodSlug: period === 'custom'
+      ? (analyticsData?.window_start && analyticsData?.window_end
+          ? `${analyticsData.window_start}_${analyticsData.window_end}`
+          : 'custom')
+      : period,
     dateSlug: new Date().toISOString().split('T')[0],
   })
   const exportToCSV = () => exportAnalyticsCSV(analyticsData || {}, exportMeta())
@@ -509,7 +519,14 @@ export default function Dashboard() {
 
           {/* Export dropdown */}
           <div className="relative">
-            <button onClick={() => setExportOpen(o => !o)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
+            {/* Disabled until a window has actually loaded — exporting mid-fetch
+                would write out the previous period's numbers under this one's
+                heading. */}
+            <button
+              onClick={() => setExportOpen(o => !o)}
+              disabled={loadingAnalytics || !analyticsData}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-black"
+            >
               <Download size={14} />
               <span>Export</span>
             </button>
