@@ -578,10 +578,16 @@ def summary():
     try:
         from sqlalchemy import text
         reason_expr = text("payload ->> 'reason'")
-        rows = (db.session.query(reason_expr, func.count(Log.id))
-                .filter(Log.source == 'ai.generator.failure')
-                .filter(Log.created_at >= cutoff)
-                .filter(Log.created_at < win.end)
+        # Scoped, like the failed_responses COUNT it breaks down. Without this
+        # an agent saw their own failure count beside a company-wide list of
+        # reasons, so the parts didn't add up to the whole.
+        rows = (_scope_filter(
+                    db.session.query(reason_expr, func.count(Log.id))
+                      .filter(Log.source == 'ai.generator.failure')
+                      .filter(Log.created_at >= cutoff)
+                      .filter(Log.created_at < win.end),
+                    Log, user,
+                )
                 .group_by(reason_expr)
                 .all())
         failure_breakdown = [
@@ -591,16 +597,6 @@ def summary():
     except Exception as e:
         log_event("warn", "analytics.failure_breakdown_failed", str(e))
         failure_breakdown = []
-        
-    except Exception as e:
-        log_event("warn", "analytics.conversion_failed", str(e))
-        conversion = {
-            'recommended_conversations': 0,
-            'converted_conversations':   0,
-            'conversion_rate':           0.0,
-            'attributed_orders':         0,
-            'attributed_revenue':        0.0,
-        }
 
     # Keep these in scope for the chart/intent/etc. blocks below
     inbound_total = current['inbound_total']

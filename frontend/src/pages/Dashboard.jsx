@@ -86,6 +86,10 @@ const NO_REPLY_LABELS = {
   no_reason_recorded:          'No reason recorded',
 }
 
+// How often Live Activity refetches. Short enough to deserve the "Live"
+// badge, long enough not to hammer the API from an idle dashboard.
+const ACTIVITY_POLL_MS = 20000
+
 const CHANNEL_META = {
   instagram: { name: 'Instagram', color: '#ec4899', icon: Instagram },
   whatsapp:  { name: 'WhatsApp',  color: '#22c55e', icon: Smartphone },
@@ -127,16 +131,40 @@ const channelIcon = (ch) => {
 // Separate component for activity item to use the useTimeAgo hook
 function ActivityItem({ item }) {
   const timeAgoStr = useTimeAgo(item.created_at)
-  
-  return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
-      <div className="mt-0.5 shrink-0 w-5 h-5 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
-        {channelIcon(item.channel)}
+  const isFault = item.level === 'error' || item.level === 'critical'
+
+  const body = (
+    <>
+      <div className={clsx(
+        'mt-0.5 shrink-0 w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0',
+        isFault ? 'bg-red-50' : 'bg-gray-50'
+      )}>
+        {isFault ? <AlertCircle size={13} className="text-red-500" /> : channelIcon(item.channel)}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-800 leading-relaxed break-words">{item.text}</p>
+        <p className={clsx('text-sm leading-relaxed break-words',
+                           isFault ? 'text-red-700 font-medium' : 'text-gray-800')}>
+          {item.text}
+        </p>
       </div>
       <span className="text-xs text-gray-400 shrink-0 font-medium whitespace-nowrap ml-2">{timeAgoStr}</span>
+    </>
+  )
+
+  // Events tied to a conversation open it; system-level ones stay inert.
+  if (item.conversation_id) {
+    return (
+      <a
+        href={`/messages?conversation=${item.conversation_id}`}
+        className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0 -mx-2 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+      >
+        {body}
+      </a>
+    )
+  }
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
+      {body}
     </div>
   )
 }
@@ -219,6 +247,7 @@ export default function Dashboard() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [rangeError, setRangeError] = useState(null)
+  const [alertsError, setAlertsError] = useState(null)
 
   // These are CALENDAR periods resolved server-side in the business timezone —
   // today starts at local midnight, week at the start of the week, month on
@@ -260,15 +289,21 @@ export default function Dashboard() {
     load()
   }, [period, customStart, customEnd, customReady])
 
-  // Load system alerts
+  // Load system alerts. /logs/system is admin-only, so supervisors and agents
+  // get a 403 — which the old catch swallowed, leaving the panel empty and
+  // therefore reading "All systems normal". That is not the same as "you
+  // aren't allowed to see this", and the difference matters when the claim is
+  // that nothing is wrong.
   useEffect(() => {
     const load = async () => {
       setLoadingAlerts(true)
       try {
         const data = await getSystemLogs({ per_page: 5 })
         setSystemAlerts(data.logs || [])
+        setAlertsError(null)
       } catch (err) {
         console.error('Failed to load system alerts:', err)
+        setAlertsError(err.message || 'Could not load system alerts')
       } finally {
         setLoadingAlerts(false)
       }
@@ -276,20 +311,28 @@ export default function Dashboard() {
     load()
   }, [])
 
-  // Load activity feed
+  // Load activity feed, then keep it current. The panel has always shown a
+  // pulsing "Live" badge but only ever fetched once on mount, so it was a
+  // static snapshot that quietly went stale the longer the tab stayed open.
   useEffect(() => {
-    const load = async () => {
-      setLoadingActivity(true)
+    let cancelled = false
+    const load = async (isFirst) => {
+      if (isFirst) setLoadingActivity(true)
       try {
         const data = await getMyLogs({ per_page: 50 })
-        setActivityLogs(data.logs || [])
+        if (!cancelled) setActivityLogs(data.logs || [])
       } catch (err) {
         console.error('Failed to load activity logs:', err)
       } finally {
-        setLoadingActivity(false)
+        if (isFirst && !cancelled) setLoadingActivity(false)
       }
     }
-    load()
+    load(true)
+    const id = setInterval(() => {
+      // Don't poll into a hidden tab — it just burns requests.
+      if (document.visibilityState === 'visible') load(false)
+    }, ACTIVITY_POLL_MS)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
 // Stat card definitions — same for empty + populated; the render block
@@ -358,9 +401,25 @@ export default function Dashboard() {
       return `Template reply sent to ${userRef} on ${chanName}`
     }
 
-    // ── AI suppressed
+    // ── AI suppressed (legacy source, kept so old rows still read properly)
     if (src === 'services.ai_suppressed') {
       return `AI gated off for ${userRef} on ${chanName}`
+    }
+
+    // ── No reply went out, and why. Replaces services.ai_suppressed.
+    if (src === 'services.no_reply_sent') {
+      const why = NO_REPLY_LABELS[p.reason] || p.reason || 'unknown reason'
+      return `No AI reply to ${userRef} on ${chanName} — ${why.toLowerCase()}`
+    }
+
+    // ── Pipeline blew up
+    if (src === 'services.pipeline_exception') {
+      return `Pipeline error on ${chanName} for ${userRef} — message saved, needs a manual reply`
+    }
+
+    // ── Sync failure
+    if (src === 'sync_jobs.failed') {
+      return `Sync failed: ${p.kind || 'job'}${p.error ? ` — ${String(p.error).slice(0, 60)}` : ''}`
     }
 
     // ── Shopify product lookup
@@ -384,7 +443,9 @@ export default function Dashboard() {
     if (src === 'handoff.triggered') {
       return `Conversation handed off to human — ${p.reason || 'rule'}${p.detail ? `: "${p.detail}"` : ''}`
     }
-    if (src === 'handoff.auto_assign') {
+    // The emitted source is 'handoff.auto_assigned' (app/handoff.py); this
+    // case previously matched 'handoff.auto_assign' and so never fired.
+    if (src === 'handoff.auto_assigned' || src === 'handoff.auto_assign') {
       return `Auto-assigned to ${p.agent_name || p.agent_email}${p.reason ? ` (${p.reason})` : ''}`
     }
 
@@ -416,7 +477,10 @@ export default function Dashboard() {
   }
 
   const getActivityFeed = () => {
-    return activityLogs.slice(0, 12).map(log => {
+    // Render everything fetched. It used to slice to 12 of the 50 requested,
+    // which both wasted the request and left the card short of content once
+    // the scroll area was allowed to grow to the card's full height.
+    return activityLogs.map(log => {
       // Prefer payload.channel (now richly populated); fall back to source-based guess.
       const src = (log.source || '').toLowerCase()
       let iconChannel = 'system'
@@ -431,6 +495,10 @@ export default function Dashboard() {
         text: formatActivityText(log),
         channel: iconChannel,
         created_at: log.created_at,
+        // Carried so a feed line can be opened, not just read. A fault you
+        // can't navigate to is a notification, not a tool.
+        conversation_id: log.conversation_id,
+        level: log.level,
       }
     })
   }
@@ -872,6 +940,12 @@ export default function Dashboard() {
             <div className="space-y-2.5">
               {loadingAlerts ? (
                 <div className="py-6 text-center text-xs text-gray-400">Loading…</div>
+              ) : alertsError ? (
+                <div className="py-6 text-center text-xs text-gray-400">
+                  {/^.*\b(403|forbidden|only admins)\b.*$/i.test(alertsError)
+                    ? 'System alerts are visible to admins only'
+                    : 'Couldn’t load system alerts'}
+                </div>
               ) : systemAlertsData.length === 0 ? (
                 <div className="py-6 text-center text-xs text-gray-400">All systems normal</div>
               ) : (

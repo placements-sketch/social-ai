@@ -247,6 +247,27 @@ def system_logs():
     }), 200
 
 
+# Sources the Live Activity feed shows. Keep this in step with the formatter
+# in frontend/src/pages/Dashboard.jsx — an entry here with no case there
+# renders as a raw internal log line, which is what this list exists to stop.
+ACTIVITY_SOURCES = (
+    # A customer said something, or we answered (or didn't)
+    'services.inbound',
+    'services.ai_reply',
+    'services.template_reply',
+    'services.no_reply_sent',
+    # Handed to a person
+    'handoff.triggered',
+    'handoff.auto_assigned',
+    'assignment.assigned',
+    'assignment.unassigned',
+    # Faults worth interrupting someone for
+    'ai.generator.failure',
+    'services.pipeline_exception',
+    'sync_jobs.failed',
+)
+
+
 # ─────────────────────────────────────────────
 # GET /api/logs/feed  — Dashboard live activity feed
 # Returns pipeline events from the `logs` table (not audit_logs).
@@ -264,11 +285,21 @@ def feed_logs():
 
     page, per_page = _paginate_params()
     exclude_pollers = request.args.get('exclude_pollers', '').lower() in ('1', 'true', 'yes')
+    # ?raw=true opts out of the allowlist, for debugging.
+    raw = request.args.get('raw', '').lower() in ('1', 'true', 'yes')
 
     query = Log.query
 
-    # Exclude poller cycles if requested (they're noise in the live feed)
-    if exclude_pollers:
+    if not raw:
+        # ALLOWLIST, not a poller blocklist. Excluding '%_poller%' still left
+        # the feed 84% internal engineering chatter for an admin — classifier
+        # traces, analytics warnings, cache lookups — none of which anyone can
+        # act on, and most of which rendered as raw log text because the
+        # formatter had no case for them. This is the set of events that
+        # describe something happening to a CUSTOMER, plus the faults worth
+        # interrupting someone for.
+        query = query.filter(Log.source.in_(ACTIVITY_SOURCES))
+    elif exclude_pollers:
         query = query.filter(~Log.source.ilike('%_poller%'))
 
     # Role-scoped visibility. Agents only see activity for conversations
