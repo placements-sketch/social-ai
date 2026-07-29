@@ -7,14 +7,16 @@ Endpoints (JWT-protected, /api prefix):
   GET /api/analytics/agents     per-agent breakdown (supervisor + admin only)
 
 Shared query params:
-  ?days=N           time window (default 7, max 365)
+  ?period=today|week|month   calendar period in the business timezone
+  ?days=N                    rolling N-day window (default 7, max 365)
 
 Role-aware scoping (summary endpoint):
   - admin, supervisor : data for all conversations company-wide
   - agent             : data scoped to conversations assigned to them
 """
 
-from datetime import datetime, timedelta
+from collections import namedtuple
+from datetime import datetime, time as dtime, timedelta, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from sqlalchemy import func, case
@@ -42,15 +44,115 @@ def _require_user():
     return user, None
 
 
-def _window():
-    """Resolve (days, cutoff_datetime) from ?days=N (default 7, capped at MAX_DAYS)."""
+CALENDAR_PERIODS = ('today', 'week', 'month')
+
+# All fields are naive UTC, matching how every timestamp in the DB is written
+# (datetime.utcnow()). `dates` is the list of LOCAL calendar dates the window
+# covers, oldest first — the chart buckets against these.
+_Window = namedtuple(
+    '_Window',
+    'days start end prev_start prev_end dates utc_offset period',
+)
+
+
+def _local_midnight(d, tz):
+    """Naive-UTC instant of local midnight on date `d`."""
+    return datetime.combine(d, dtime.min, tzinfo=tz) \
+                   .astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _resolve_window():
+    """
+    Resolve the reporting window. Two modes:
+
+      ?period=today|week|month
+          CALENDAR periods in the business timezone — today runs from local
+          midnight, week from the configured start-of-week, month from the
+          1st. The previous window is the matching prior calendar period
+          (yesterday / last week / last month), so "vs yesterday" compares
+          two whole days rather than two overlapping 24h slices.
+
+      ?days=N
+          Rolling N×24h back from now, and a previous window of the same
+          length immediately before it. This is the original behaviour, kept
+          for the Analytics page whose labels ("7 days", "90 days") mean
+          exactly that.
+
+    The timezone matters: timestamps are stored as naive UTC, so a UTC-based
+    "today" would start at 3am in Nairobi and bucket the whole evening into
+    the following day.
+    """
+    from app.settings import business_timezone, week_starts_on_sunday
+
+    tz = business_timezone()
+    now_local = datetime.now(tz)
+    today_local = now_local.date()
+    end = datetime.utcnow()
+
+    period = (request.args.get('period') or '').strip().lower()
+    if period in CALENDAR_PERIODS:
+        if period == 'today':
+            start_date = today_local
+            prev_start_date, prev_end_date = start_date - timedelta(days=1), start_date
+        elif period == 'week':
+            # weekday(): Mon=0 … Sun=6. For a Sunday start, Sunday must map to 0.
+            offset = (now_local.weekday() + 1) % 7 if week_starts_on_sunday() \
+                     else now_local.weekday()
+            start_date = today_local - timedelta(days=offset)
+            prev_start_date, prev_end_date = start_date - timedelta(days=7), start_date
+        else:  # month
+            start_date = today_local.replace(day=1)
+            # Last day of the previous month, walked back to its 1st.
+            prev_end_date = start_date
+            prev_start_date = (start_date - timedelta(days=1)).replace(day=1)
+
+        start = _local_midnight(start_date, tz)
+        days = (today_local - start_date).days + 1   # calendar days so far
+        return _Window(
+            days=days,
+            start=start,
+            end=end,
+            prev_start=_local_midnight(prev_start_date, tz),
+            prev_end=_local_midnight(prev_end_date, tz),
+            dates=[start_date + timedelta(days=i) for i in range(days)],
+            utc_offset=now_local.utcoffset() or timedelta(0),
+            period=period,
+        )
+
     days = request.args.get('days', default=DEFAULT_DAYS, type=int) or DEFAULT_DAYS
     if days < 1:
         days = DEFAULT_DAYS
     if days > MAX_DAYS:
         days = MAX_DAYS
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    return days, cutoff
+    start = end - timedelta(days=days)
+    return _Window(
+        days=days,
+        start=start,
+        end=end,
+        prev_start=start - timedelta(days=days),
+        prev_end=start,
+        dates=[today_local - timedelta(days=i) for i in range(days - 1, -1, -1)],
+        utc_offset=now_local.utcoffset() or timedelta(0),
+        period=None,
+    )
+
+
+def _local_date(col, win):
+    """
+    SQL expression for a UTC timestamp column's LOCAL calendar date.
+
+    Shifts by the window's UTC offset rather than using a DB-specific
+    AT TIME ZONE, so the chart's day boundaries line up with the KPI window's.
+    Exact for fixed-offset zones like Africa/Nairobi; in a DST zone the part
+    of the window on the other side of a transition is off by an hour.
+    """
+    return func.date(col + win.utc_offset)
+
+
+def _window():
+    """Back-compat shim: (days, cutoff) for endpoints that only need the start."""
+    win = _resolve_window()
+    return win.days, win.start
 
 
 def _scope_filter(query, model, user):
@@ -96,11 +198,13 @@ def summary():
     if err:
         return err
 
-    days, cutoff = _window()
+    win = _resolve_window()
+    days, cutoff = win.days, win.start
 
-    # ── KPIs: current window + previous window (same size) ───────────────
-    # The frontend picks "today", "week", or "month" via ?days=1, 7, or 30.
-    # We return both current and previous so the cards can show change.
+    # ── KPIs: current window + previous window ───────────────────────────
+    # The Dashboard picks "today", "week" or "month" via ?period=; the
+    # Analytics page picks a rolling span via ?days=N. Either way we return
+    # both current and previous so the cards can show change.
 
     def _kpis_for_window(start_dt, end_dt):
         """Compute all KPIs for a single time window [start_dt, end_dt)."""
@@ -278,14 +382,8 @@ def summary():
             'conversations_total': total_convs,
         }
 
-    now = datetime.utcnow()
-    current_start = cutoff
-    current_end   = now
-    previous_start = cutoff - timedelta(days=days)
-    previous_end   = cutoff
-
-    current  = _kpis_for_window(current_start, current_end)
-    previous = _kpis_for_window(previous_start, previous_end)
+    current  = _kpis_for_window(win.start, win.end)
+    previous = _kpis_for_window(win.prev_start, win.prev_end)
 
     # Flat kpis dict for backward compatibility with the Analytics page.
     # Adds a `previous` nested object that the Dashboard uses for change arrows.
@@ -309,7 +407,7 @@ def summary():
             cid for (cid,) in db.session.query(Message.conversation_id)
               .filter(Message.utm_token.isnot(None))
               .filter(Message.created_at >= cutoff)
-              .filter(Message.created_at < now)
+              .filter(Message.created_at < win.end)
               .distinct().all()
             if cid is not None
         )
@@ -357,7 +455,7 @@ def summary():
         rows = (db.session.query(reason_expr, func.count(Log.id))
                 .filter(Log.source == 'ai.generator.failure')
                 .filter(Log.created_at >= cutoff)
-                .filter(Log.created_at < now)
+                .filter(Log.created_at < win.end)
                 .group_by(reason_expr)
                 .all())
         failure_breakdown = [
@@ -384,15 +482,19 @@ def summary():
 
     # ── Weekly chart data ─────────────────────────────────────────────────
     # One row per day in the window with both totals and per-channel inbound
-    # counts (used for the multi-line graph on the Dashboard).
+    # counts (used for the multi-line graph on the Dashboard). Days are LOCAL
+    # calendar days, so the bars line up with the KPI window above them —
+    # bucketing on raw UTC put the last three hours of each Nairobi evening
+    # into the next day's bar.
+    local_day = _local_date(Message.created_at, win)
     weekly_q = _scope_filter(
         db.session.query(
-            func.date(Message.created_at).label('day'),
+            local_day.label('day'),
             func.count(case((Message.direction == 'inbound', 1))).label('inbound'),
             func.count(case((db.and_(Message.direction == 'outbound',
                                      Message.sender == 'ai'), 1))).label('ai_replied'),
         ).filter(Message.created_at >= cutoff)
-         .group_by(func.date(Message.created_at)),
+         .group_by(local_day),
         Message, user,
     )
     weekly_rows = {row.day: (row.inbound, row.ai_replied) for row in weekly_q.all()}
@@ -409,7 +511,7 @@ def summary():
     )
     per_channel_q = _scope_filter(
         db.session.query(
-            func.date(Message.created_at).label('day'),
+            local_day.label('day'),
             channel_group.label('channel'),
             func.count(case((Message.direction == 'inbound', 1))).label('inbound'),
             func.count(case((db.and_(Message.direction == 'outbound',
@@ -417,7 +519,7 @@ def summary():
             func.count(case((db.and_(Message.direction == 'outbound',
                                      Message.sender == 'human'), 1))).label('human_replied'),
         ).filter(Message.created_at >= cutoff)
-         .group_by(func.date(Message.created_at), channel_group),
+         .group_by(local_day, channel_group),
         Message, user,
     )
     per_channel = {}
@@ -428,10 +530,10 @@ def summary():
             'human_replied': int(row.human_replied),
         }
 
-    # Fill missing days with zeros so the chart always has N points.
+    # Fill missing days with zeros so the chart always has one point per day
+    # the window covers (win.dates, oldest first, in local time).
     weekly = []
-    for i in range(days - 1, -1, -1):
-        d = (datetime.utcnow() - timedelta(days=i)).date()
+    for d in win.dates:
         inb, ai_r = weekly_rows.get(d, (0, 0))
         day_channels = per_channel.get(d, {})
 
@@ -556,6 +658,13 @@ def summary():
 
     return jsonify({
         'window_days': days,
+        # Echo the resolved window so the UI can label it truthfully instead of
+        # assuming what "this month" covers. Local dates; period is null in
+        # rolling ?days=N mode.
+        'period': win.period,
+        'window_start': win.dates[0].isoformat() if win.dates else None,
+        'window_end': win.dates[-1].isoformat() if win.dates else None,
+        'previous_start': (win.prev_start + win.utc_offset).date().isoformat(),
         'scope': 'agent' if user.role == 'agent' else 'company',
         'kpis': kpis,
         'conversion': conversion,

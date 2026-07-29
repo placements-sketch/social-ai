@@ -156,7 +156,10 @@ export default function Dashboard() {
 
   const [period, setPeriod] = useState('month')  // 'today' | 'week' | 'month'
 
-  const PERIOD_DAYS = { today: 1, week: 7, month: 30 }
+  // These are CALENDAR periods resolved server-side in the business timezone —
+  // today starts at local midnight, week at the start of the week, month on
+  // the 1st. They used to be rolling 1/7/30-day windows, so "This month" on
+  // the 3rd mostly showed last month.
   const PERIOD_LABELS = { today: 'Today', week: 'This week', month: 'This month' }
   const PREVIOUS_LABELS = { today: 'yesterday', week: 'last week', month: 'last month' }
 
@@ -165,7 +168,7 @@ export default function Dashboard() {
     const load = async () => {
       setLoadingAnalytics(true)
       try {
-        const data = await getAnalyticsSummary({ days: PERIOD_DAYS[period] })
+        const data = await getAnalyticsSummary({ period })
         setAnalyticsData(data)
       } catch (err) {
         console.error('Failed to load analytics:', err)
@@ -705,7 +708,7 @@ export default function Dashboard() {
                     <div className="flex items-end justify-between mb-2">
                       <div>
                         <p className="text-3xl font-bold text-green-600 leading-none">{successRate.toFixed(1)}%</p>
-                        <p className="text-xs text-gray-500 mt-1.5 font-medium">Engagement rate</p>
+                        <p className="text-xs text-gray-500 mt-1.5 font-medium">Success rate</p>
                       </div>
                       <p className="text-[11px] text-gray-400 text-right leading-snug">
                         {engaged} of {handled}<br/>convos AI was on for

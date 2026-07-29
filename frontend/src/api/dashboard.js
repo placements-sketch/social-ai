@@ -34,15 +34,21 @@ async function handle(fetchPromise) {
 
 /**
  * Get analytics summary (KPIs, weekly chart, intent breakdown, channel split, top products)
- * @returns {Promise<{window_days, scope, kpis, weekly, intent_breakdown, channel_split, top_products}>}
+ * @returns {Promise<{window_days, period, window_start, window_end, scope, kpis, weekly, intent_breakdown, channel_split, top_products}>}
  */
 
 /**
- * Get analytics summary.
- * @param {number} days  time window in days (1 = today, 7 = week, 30 = month)
+ * Get analytics summary. Pass EITHER:
+ *   period — 'today' | 'week' | 'month', a calendar period in the business
+ *            timezone (today = since local midnight, week = since the start of
+ *            the week, month = since the 1st). Compared against the matching
+ *            prior calendar period.
+ *   days   — a rolling N×24h window ending now, compared against the N days
+ *            before it.
+ * @param {{period?: string, days?: number}} opts
  */
-export function getAnalyticsSummary({ days = 7 } = {}) {
-  const params = new URLSearchParams({ days })
+export function getAnalyticsSummary({ period, days = 7 } = {}) {
+  const params = new URLSearchParams(period ? { period } : { days })
   return handle(
     fetch(`${API_BASE}/analytics/summary?${params}`, {
       method: 'GET',

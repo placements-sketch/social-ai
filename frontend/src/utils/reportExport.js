@@ -28,7 +28,7 @@ function buildSections(data) {
         ['Inbound', num(kpis.inbound_total)],
         ['AI replies', num(kpis.ai_replies_total)],
         ['Human replies', num(kpis.human_replies_total)],
-        ['AI engagement rate', pct(kpis.ai_success_rate)],
+        ['AI success rate', pct(kpis.ai_success_rate)],
         ['Avg response time', ms(kpis.avg_response_time_ms)],
         ['Human overrides', num(kpis.human_override_total)],
         ['Escalated', num(kpis.escalated_total)],

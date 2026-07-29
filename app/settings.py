@@ -30,6 +30,13 @@ DEFAULTS = {
         "phone": "",
         "whatsapp": "",
         "email": "",
+        # IANA zone the business operates in. Analytics windows ("today",
+        # "this week", "this month") are calendar periods in THIS zone —
+        # timestamps are stored as naive UTC, so without it "today" would
+        # start at 3am local.
+        "timezone": os.getenv("BUSINESS_TIMEZONE", "Africa/Nairobi"),
+        # 'monday' (ISO) or 'sunday' — where "this week" starts.
+        "week_starts_on": os.getenv("WEEK_STARTS_ON", "monday"),
     },
     "delivery": {
         "zones": [],
@@ -82,6 +89,32 @@ def get_section(name: str) -> dict:
 def _require_admin():
     user = AuthUser.query.get(current_user_id())
     return user if (user and user.role == 'admin') else None
+
+
+def business_timezone():
+    """
+    The org's IANA timezone as a tzinfo. Falls back to Africa/Nairobi if the
+    setting is missing or names a zone this host's tz database doesn't know,
+    so a bad value degrades to the old behaviour instead of 500-ing analytics.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    name = "Africa/Nairobi"
+    try:
+        name = (get_section("business").get("timezone") or "").strip() or name
+    except Exception:
+        pass
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, KeyError):
+        return ZoneInfo("Africa/Nairobi")
+
+
+def week_starts_on_sunday() -> bool:
+    """True if 'this week' should run Sunday–Saturday rather than Monday–Sunday."""
+    try:
+        return (get_section("business").get("week_starts_on") or "").strip().lower() == "sunday"
+    except Exception:
+        return False
 
 def format_delivery_for_prompt() -> str:
     """Delivery zones + notes for the AI system prompt. Empty if unconfigured."""
@@ -161,6 +194,45 @@ def read_settings():
     return jsonify({'settings': get_settings()}), 200
 
 
+@settings_bp.route('/settings/timezones', methods=['GET'])
+@jwt_required()
+def list_timezones():
+    """Every IANA zone this host knows, for the Business info picker."""
+    if not _require_admin():
+        return jsonify({'error': 'Only admins can view settings'}), 403
+    from zoneinfo import available_timezones
+    return jsonify({'timezones': sorted(available_timezones())}), 200
+
+
+def _validate_patch(patch: dict):
+    """
+    Reject values that would silently misbehave. business_timezone() falls
+    back to Nairobi on an unknown zone, which is right at read time but wrong
+    at write time — an admin who fat-fingers a zone should be told, not left
+    wondering why the Dashboard's "Today" never moved.
+    Returns an error string, or None if the patch is fine.
+    """
+    biz = patch.get('business')
+    if not isinstance(biz, dict):
+        return None
+
+    if 'timezone' in biz:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        name = (biz.get('timezone') or '').strip()
+        if not name:
+            return 'Timezone is required.'
+        try:
+            ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError, KeyError):
+            return f'Unknown timezone "{name}". Use an IANA name such as Africa/Nairobi.'
+
+    if 'week_starts_on' in biz:
+        if (biz.get('week_starts_on') or '').strip().lower() not in ('monday', 'sunday'):
+            return 'Week starts on must be either "monday" or "sunday".'
+
+    return None
+
+
 @settings_bp.route('/settings', methods=['PATCH'])
 @jwt_required()
 def update_settings():
@@ -169,6 +241,9 @@ def update_settings():
     patch = request.get_json(silent=True) or {}
     if not isinstance(patch, dict):
         return jsonify({'error': 'Invalid payload'}), 400
+    err = _validate_patch(patch)
+    if err:
+        return jsonify({'error': err}), 400
     row = _row()
     row.data = _merge(row.data or {}, patch)
     row.updated_at = datetime.utcnow()

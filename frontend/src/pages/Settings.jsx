@@ -423,8 +423,23 @@ function BusinessPanel({ settings, setSettings }) {
   const [phone, setPhone] = useState(b.phone ?? '')
   const [whatsapp, setWhatsapp] = useState(b.whatsapp ?? '')
   const [email, setEmail] = useState(b.email ?? '')
+  const [timezone, setTimezone] = useState(b.timezone ?? 'Africa/Nairobi')
+  const [weekStart, setWeekStart] = useState(b.week_starts_on ?? 'monday')
+  const [zones, setZones] = useState([])
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
+
+  // What the admin's own browser thinks it is — offered as a shortcut, never
+  // applied automatically: the reporting zone is the business's, not the
+  // viewer's, and someone travelling shouldn't silently reshape the Dashboard.
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  useEffect(() => {
+    fetch(`${API_BASE}/settings/timezones`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setZones(d?.timezones || []))
+      .catch(() => {})   // datalist is a convenience; typing still works without it
+  }, [])
 
   const labelCls = 'block text-xs font-semibold text-gray-700 mb-1.5'
   const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
@@ -432,6 +447,7 @@ function BusinessPanel({ settings, setSettings }) {
   const save = async () => {
     setMsg(null)
     if (!storeName.trim()) return setMsg({ type: 'error', text: 'Store name is required.' })
+    if (!timezone.trim()) return setMsg({ type: 'error', text: 'Timezone is required.' })
     setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/settings`, {
@@ -439,6 +455,7 @@ function BusinessPanel({ settings, setSettings }) {
         body: JSON.stringify({ business: {
           store_name: storeName.trim(), hours: hours.trim(),
           phone: phone.trim(), whatsapp: whatsapp.trim(), email: email.trim(),
+          timezone: timezone.trim(), week_starts_on: weekStart,
         } }),
       })
       const d = await res.json()
@@ -473,6 +490,51 @@ function BusinessPanel({ settings, setSettings }) {
           <div className="sm:col-span-2">
             <label className={labelCls}>Contact email</label>
             <input className={inputCls} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="hello@shopzetu.com" />
+          </div>
+        </div>
+
+        {/* Reporting period — drives the Dashboard's calendar windows */}
+        <div className="pt-5 border-t border-gray-100 mb-5">
+          <p className="text-xs font-bold text-gray-900 mb-1">Reporting</p>
+          <p className="text-xs text-gray-500 mb-4">
+            Analytics are stored in UTC and shown in this timezone. It decides when
+            “Today”, “This week” and “This month” on the Dashboard begin — set it wrong
+            and a day’s figures land in the neighbouring day.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Timezone</label>
+              <input
+                className={inputCls}
+                list="tz-list"
+                value={timezone}
+                onChange={e => setTimezone(e.target.value)}
+                placeholder="Africa/Nairobi"
+                spellCheck={false}
+              />
+              <datalist id="tz-list">
+                {zones.map(z => <option key={z} value={z} />)}
+              </datalist>
+              {browserTz && browserTz !== timezone && (
+                <button
+                  type="button"
+                  onClick={() => setTimezone(browserTz)}
+                  className="mt-1.5 text-[11px] text-brand-600 hover:text-brand-700 font-medium transition-colors"
+                >
+                  Use this device’s timezone ({browserTz})
+                </button>
+              )}
+            </div>
+            <div>
+              <label className={labelCls}>Week starts on</label>
+              <select className={inputCls} value={weekStart} onChange={e => setWeekStart(e.target.value)}>
+                <option value="monday">Monday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+              <p className="mt-1.5 text-[11px] text-gray-400">
+                Where the Dashboard’s “This week” window begins.
+              </p>
+            </div>
           </div>
         </div>
         <div className="flex items-center justify-end gap-3">
