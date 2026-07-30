@@ -25,6 +25,7 @@ from app.utils.intent import detect_intents, intents_to_label
 from app.utils.logger import log_event
 from app.handoff import check_handoff
 
+import os
 import re
 
 # Sentinel returned when the AI is gated off — useful for tests and
@@ -47,6 +48,7 @@ NO_REPLY_NOT_A_QUESTION        = "not_a_question"
 NO_REPLY_SUPERSEDED            = "superseded_by_newer_message"
 NO_REPLY_DISPATCH_FAILED       = "dispatch_failed"
 NO_REPLY_EXCEPTION             = "pipeline_exception"
+NO_REPLY_OWN_ACCOUNT           = "authored_by_us"
 
 # Reasons that mean the system worked as designed. Everything else is a fault
 # worth surfacing, and is logged at 'error' so it reaches the alerts feed.
@@ -57,6 +59,7 @@ NO_REPLY_BY_DESIGN = {
     NO_REPLY_CONVERSATION_AI_OFF,
     NO_REPLY_NOT_A_QUESTION,
     NO_REPLY_SUPERSEDED,
+    NO_REPLY_OWN_ACCOUNT,
 }
 
 # Human-readable, for the Dashboard. Keep in sync with the constants above.
@@ -70,6 +73,7 @@ NO_REPLY_LABELS = {
     NO_REPLY_SUPERSEDED:          "Answered as part of a later message",
     NO_REPLY_DISPATCH_FAILED:     "Send to platform failed",
     NO_REPLY_EXCEPTION:           "Pipeline error",
+    NO_REPLY_OWN_ACCOUNT:         "We wrote it ourselves",
 }
 
 
@@ -252,6 +256,79 @@ def _burst_already_answered(inbound_record):
         log_event("warn", "services._burst_already_answered", str(e))
         return False
 
+def _our_account_identifiers() -> tuple[set[str], set[str]]:
+    """
+    Every id and handle that means "this is us", not a customer.
+
+    Two sources, deliberately. OAuth connections are authoritative — they are
+    the accounts Meta actually delivers webhooks for, and they stay correct
+    when somebody reconnects a different page. The environment variables are
+    kept as a fallback for deployments that predate the OAuth flow, and because
+    a missing MetaConnection row must not silently disable the guard.
+    """
+    ids: set[str] = set()
+    handles: set[str] = set()
+
+    try:
+        from app.models import MetaConnection
+        for conn in MetaConnection.query.filter_by(is_active=True).all():
+            for value in (conn.ig_business_account_id, conn.page_id):
+                if value:
+                    ids.add(str(value).strip())
+            if conn.ig_username:
+                handles.add(conn.ig_username.strip().lower().lstrip('@'))
+            if conn.page_name:
+                handles.add(conn.page_name.strip().lower().lstrip('@'))
+    except Exception as e:
+        # Never let a lookup failure open the gate.
+        log_event("warn", "services.own_account_lookup_failed", str(e))
+
+    for var in ("IG_BUSINESS_ACCOUNT_ID", "FB_PAGE_ID", "TIKTOK_ACCOUNT_ID",
+                "IG_USERNAME", "BUSINESS_HANDLE"):
+        value = os.getenv(var)
+        if not value:
+            continue
+        value = value.strip()
+        if var in ("IG_USERNAME", "BUSINESS_HANDLE"):
+            handles.add(value.lower().lstrip('@'))
+        else:
+            ids.add(value)
+
+    return ids, handles
+
+
+def _authored_by_us(user_id: str, channel: str) -> bool:
+    """
+    True when an inbound event was written by our own account.
+
+    Agents answer comments straight from the Instagram app. Those replies come
+    back down the webhook in exactly the same shape as a customer's comment —
+    same fields, our account as the sender — so without this check they are
+    ingested as inbound customer messages. That is how the inbox came to hold a
+    conversation whose "customer" is our own handle.
+
+    The danger is not the clutter. It is that the AI treats them as questions to
+    answer. An agent's reply ending in a question mark ("...want me to check
+    your size?") would have been answered by the AI, publicly, under our own
+    post. Worse, the AI's own comment replies arrive back through this same
+    webhook: without a guard the AI can answer itself, and each answer produces
+    another event to answer. That is a loop with our brand name on it.
+
+    Guarded once here rather than at each webhook, because there are several
+    entry points — /webhook/instagram, /webhook/instagram/comments,
+    /webhook/facebook/comments, the TikTok routes — and only some of them
+    carried the check. A guard that has to be remembered at N call sites is a
+    guard that will be missing at one of them.
+    """
+    if not user_id:
+        return False
+    ids, handles = _our_account_identifiers()
+    candidate = str(user_id).strip()
+    if candidate in ids:
+        return True
+    return candidate.lower().lstrip('@') in handles
+
+
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None,
                     media_id: str | None = None, image_urls: list | None = None) -> str:
     """
@@ -267,6 +344,17 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     retry storm on a message we cannot process helps nobody. The inbound row is
     already saved, so an agent can still answer by hand.
     """
+    # Never react to our own writing. Checked before _process_message so that
+    # nothing is persisted either — an agent replying from the Instagram app
+    # must not create a conversation in which we are the customer.
+    if _authored_by_us(user_id, channel):
+        log_event("info", "services.no_reply_sent",
+                  f"Ignored an event authored by our own account on {channel}",
+                  payload={"reason": NO_REPLY_OWN_ACCOUNT,
+                           "channel": channel,
+                           "sender": str(user_id)[:64]})
+        return AI_SUPPRESSED
+
     try:
         return _process_message(message, user_id, channel, external_id, media_id, image_urls)
     except Exception as e:

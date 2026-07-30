@@ -584,3 +584,96 @@ SELECT 1 FROM messages WHERE content ILIKE '%refund%';
 
 On a small table Postgres may still prefer a sequential scan — that is correct
 behaviour, not a failure. The index earns its keep as the table grows.
+
+---
+
+### Step 14 — Remove conversations we accidentally had with ourselves
+
+**Why.** Agents reply to Instagram comments straight from the Instagram app.
+Those replies come back down our webhook in exactly the same shape as a
+customer's comment — same fields, our own account as the sender — so they were
+ingested as inbound customer messages. The inbox ended up holding a
+conversation whose "customer" is our own handle.
+
+The clutter is the small part. The AI treats those messages as questions to
+answer, so an agent's reply ending in a question mark ("...want me to check
+your size?") would have been answered by the AI, publicly, under our own post.
+And because the AI's own comment replies arrive back through the same webhook,
+each answer produces another event to answer — a loop, in public, under our
+brand.
+
+The code fix ships with the deploy: `_authored_by_us()` in `app/services.py`
+now drops these before anything is saved, checked once at the pipeline entry
+rather than at each of the four webhook routes. This step only cleans up the
+rows already created.
+
+**First, look at what you have.** Do not skip this — it tells you whether the
+env vars on Render even match the account you are connected to.
+
+```sql
+-- What does the system think "we" are?
+SELECT page_id, ig_business_account_id, ig_username, page_name, is_active
+FROM meta_connections;
+
+-- Conversations whose "customer" is actually us.
+SELECT c.id, c.channel, u.name, u.external_id, c.last_message_at,
+       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS msgs
+FROM conversations c
+JOIN users u ON u.id = c.user_id
+WHERE u.external_id IN (
+        SELECT ig_business_account_id FROM meta_connections WHERE ig_business_account_id IS NOT NULL
+        UNION SELECT page_id FROM meta_connections
+      )
+   OR lower(u.name) IN (
+        SELECT lower(ig_username) FROM meta_connections WHERE ig_username IS NOT NULL
+      )
+ORDER BY c.last_message_at DESC;
+```
+
+If that returns nothing but you can see the problem in the inbox, the account
+id in `meta_connections` does not match the account actually posting — check
+the `IG_BUSINESS_ACCOUNT_ID` environment variable on Render against the
+`ig_business_account_id` column above. Add the offending handle by name to the
+`lower(u.name) IN (...)` list below rather than guessing.
+
+**Then delete.** Messages first — `messages.conversation_id` is NOT NULL, so
+deleting the conversation first fails on the foreign key.
+
+```sql
+BEGIN;
+
+CREATE TEMP TABLE self_convs AS
+SELECT c.id
+FROM conversations c
+JOIN users u ON u.id = c.user_id
+WHERE u.external_id IN (
+        SELECT ig_business_account_id FROM meta_connections WHERE ig_business_account_id IS NOT NULL
+        UNION SELECT page_id FROM meta_connections
+      )
+   OR lower(u.name) IN (
+        SELECT lower(ig_username) FROM meta_connections WHERE ig_username IS NOT NULL
+      );
+
+-- Check this number before committing.
+SELECT count(*) AS conversations_to_delete FROM self_convs;
+
+DELETE FROM conversation_reads WHERE conversation_id IN (SELECT id FROM self_convs);
+DELETE FROM messages          WHERE conversation_id IN (SELECT id FROM self_convs);
+DELETE FROM conversations     WHERE id IN (SELECT id FROM self_convs);
+
+-- Inspect the count above. COMMIT if it looks right, ROLLBACK if it does not.
+COMMIT;
+```
+
+**Verify.** Re-run the second query from the "look first" block — it should
+return no rows. And after the deploy, these should start appearing whenever an
+agent replies from the Instagram app:
+
+```sql
+SELECT created_at, message, payload
+FROM logs
+WHERE source = 'services.no_reply_sent'
+  AND payload->>'reason' = 'authored_by_us'
+ORDER BY created_at DESC
+LIMIT 20;
+```
