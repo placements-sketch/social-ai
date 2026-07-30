@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useContext, Fragment } from '
 import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
   RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
-  CheckCircle2, RotateCcw,
+  CheckCircle2, RotateCcw, ExternalLink, MessageSquare, Zap, Clock, Search,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -182,7 +182,7 @@ function CommentPostPreview({ mediaId }) {
 const URL_SPLIT_RE = /(https?:\/\/[^\s<>()"']+)/g
 const IS_URL_RE = /^https?:\/\//
 
-function Linkified({ text, dark }) {
+function Linkified({ text, on = 'light' }) {
   return (
     <>
       {String(text).split(URL_SPLIT_RE).map((part, i) =>
@@ -194,8 +194,10 @@ function Linkified({ text, dark }) {
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
             className={clsx(
-              'underline underline-offset-2 break-all',
-              dark ? 'text-white/90 hover:text-white' : 'text-brand-600 hover:text-brand-700'
+              'underline underline-offset-2 break-all font-medium',
+              on === 'ai'    && 'link-on-ai',
+              on === 'agent' && 'link-on-agent',
+              on === 'light' && 'text-brand-600 hover:text-brand-700'
             )}
           >
             {part}
@@ -1052,42 +1054,69 @@ const handleSend = async () => {
       {selected && !loadingConv && activeConv && (
         <>
         
-          {/* IG Post context banner — only for comment conversations */}
+          {/* The post this comment thread hangs off.
+              The old version was a purple-to-pink pastel gradient with
+              text-purple-700 on top. Those utilities have no dark-mode mapping
+              (index.css remaps bg-white/bg-gray-* and text-gray-*, nothing
+              else), so in dark mode it painted dark text on a dark surface and
+              the caption was unreadable. Rebuilt out of dark-aware utilities
+              only, and reshaped: the caption is the point — an agent reads it
+              to understand what the customer is replying TO — so it gets room
+              to breathe instead of being squeezed onto one truncated line
+              between a label and a link. */}
           {activeConv.platform?.includes('comment') && (loadingPost || postContext) && (
-            <div className="flex items-center gap-3 px-3 md:px-4 py-2.5 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50">
+            <div className="px-3 md:px-4 py-2.5 border-b border-gray-100 bg-gray-50">
               {loadingPost ? (
                 <div className="flex items-center gap-2 text-xs text-gray-500">
                   <Loader2 size={12} className="animate-spin" />
-                  Loading post context…
+                  Loading the post this comment is on…
                 </div>
               ) : postContext && (
-                <>
-                  {(postContext.thumbnail_url || postContext.media_url) && (
-                    <img
-                      src={postContext.thumbnail_url || postContext.media_url}
-                      alt="Post"
-                      className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0 cursor-pointer"
+                <div className="flex items-start gap-3">
+                  {(postContext.thumbnail_url || postContext.media_url) ? (
+                    <button
                       onClick={() => postContext.permalink && window.open(postContext.permalink, '_blank')}
-                      onError={(e) => { e.currentTarget.style.display = 'none' }}
-                    />
+                      className="shrink-0 relative group rounded-lg overflow-hidden border border-gray-200"
+                      title="Open this post on Instagram"
+                    >
+                      <img
+                        src={postContext.thumbnail_url || postContext.media_url}
+                        alt="Post"
+                        className="w-11 h-11 object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none' }}
+                      />
+                      <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                        <ExternalLink size={13} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="w-11 h-11 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+                      <Instagram size={15} className="text-gray-400" />
+                    </div>
                   )}
+
                   <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wide mb-0.5">
-                      Commenting on
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <MessageSquare size={11} className="text-gray-400 shrink-0" />
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                        Replying to a comment on
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-700 leading-relaxed line-clamp-2">
+                      {postContext.caption || <span className="italic text-gray-400">This post has no caption</span>}
                     </p>
-                    <p className="text-xs text-gray-800 truncate">
-                      {postContext.caption || 'Untitled post'}
-                    </p>
-                    {postContext.permalink && (
-                      <button
-                        onClick={() => window.open(postContext.permalink, '_blank')}
-                        className="text-[10px] text-purple-600 hover:text-purple-800 font-semibold"
-                      >
-                        View on Instagram →
-                      </button>
-                    )}
                   </div>
-                </>
+
+                  {postContext.permalink && (
+                    <button
+                      onClick={() => window.open(postContext.permalink, '_blank')}
+                      className="shrink-0 self-center flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg px-2 py-1.5 transition-colors"
+                    >
+                      <span className="hidden sm:inline">Open post</span>
+                      <ExternalLink size={11} />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -1151,15 +1180,16 @@ const handleSend = async () => {
                 onClick={handleToggleResolved}
                 disabled={resolving}
                 className={clsx(
-                  'flex items-center gap-1.5 text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed',
+                  'flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed',
                   isResolved
-                    ? 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
-                    : 'border-green-300 bg-green-50 text-green-700 hover:bg-green-100'
+                    ? 'border border-gray-200 text-gray-500 hover:text-gray-900 hover:border-gray-300'
+                    : 'bg-gray-900 text-white hover:bg-black border border-transparent'
                 )}
                 title={isResolved ? 'Re-open this conversation' : 'Mark this conversation resolved'}
               >
-                {isResolved ? <RotateCcw size={13} /> : <CheckCircle2 size={13} />}
+                {isResolved && <RotateCcw size={13} />}
                 <span className="hidden sm:inline">{isResolved ? 'Re-open' : 'Resolve'}</span>
+                <span className="sm:hidden">{isResolved ? 'Re-open' : 'Done'}</span>
               </button>
 
               {/* Assignment button — supervisor/admin only */}
@@ -1353,7 +1383,10 @@ const handleSend = async () => {
                       )}
                       {msg.text && msg.text !== '[Sent a photo]' && (
                         <div className="whitespace-pre-wrap break-words">
-                          <Linkified text={msg.text} dark={msg.from !== 'user'} />
+                          <Linkified
+                            text={msg.text}
+                            on={msg.from === 'user' ? 'light' : msg.from === 'ai' ? 'ai' : 'agent'}
+                          />
                         </div>
                       )}
                       </div>
@@ -1617,12 +1650,15 @@ const handleSend = async () => {
 
 // Extracted so it can be used in both desktop panel and mobile drawer
 //
-// What this panel is FOR: an agent has just opened a conversation and is about
-// to type a reply. The panel answers "what do I need to know that isn't already
-// on my screen?" — so it deliberately does NOT repeat the handle, the channel,
-// the handler badge, or the last message. Those are all in the header or in the
-// thread two inches to the left. It previously showed all four, plus three rows
-// that were em-dashes most of the time, which is why it read as filler.
+// Three cards, each answering one question an agent has before they type:
+//   1. What did the AI make of this?    (intent, search keywords, reply speed)
+//   2. What shape is this conversation? (age, volume, channel, last inbound)
+//   3. Who is on it?                    (handler, assignee, escalation)
+//
+// Everything is derived from conv.messages, so it re-computes on every poll —
+// a new message lands, the panel updates. Nothing renders a bare em-dash: a
+// field with no value says why it has none, because a column of dashes makes a
+// working panel look broken.
 function ContextContent({ conv }) {
   const messages = conv.messages || []
   const lastInbound = [...messages].reverse().find(m => m.from === 'user')
@@ -1631,16 +1667,15 @@ function ContextContent({ conv }) {
   // Intent is stored pipe-joined ("greeting|order_status|complaint")
   const intents = (lastInbound?.intent || '')
     .split('|')
-    .map(s => s.trim())
+    .map(t => t.trim())
     .filter(Boolean)
 
   // product_keyword is the search term the AI derived from the customer — from
-  // their words, from a forwarded post's caption, or from reading a photo they
-  // sent. It is NOT what the AI recommended (product_url holds that, and it
-  // isn't serialised to the frontend). Showing it is worth a lot precisely
-  // because it exposes the mis-read case: when a customer sends a screenshot
-  // and gets the wrong dress back, this is the line that tells you why.
-  // 'Unknown' is what vision writes when it can't tell — that's noise, not data.
+  // their words, a forwarded post's caption, or vision reading a photo. It is
+  // NOT what the AI recommended (that is product_url, which to_dict does not
+  // serialise). It earns its place by exposing the mis-read: when someone sends
+  // a screenshot and gets the wrong dress back, this is the line that says why.
+  // 'Unknown' is what vision writes when it cannot tell — noise, not data.
   const searchedFor = []
   for (let i = messages.length - 1; i >= 0; i--) {
     const kw = (messages[i].product_keyword || '').trim()
@@ -1651,41 +1686,47 @@ function ContextContent({ conv }) {
 
   const inboundCount = messages.filter(m => m.from === 'user').length
   const replyCount = messages.filter(m => m.from !== 'user').length
+  const firstMessageAt = messages[0]?.created_at
 
   // Use the generator's own measured time. Deriving it from created_at was
   // wrong: the outbound row is created BEFORE the AI runs, so the gap was
-  // really the debounce window, not the response time.
-  let responseTime = null
+  // really the debounce window, not the response time — which is why this read
+  // ~8s while the dashboard average read ~2s.
   const ms = lastAiReply?.ai_response_time_ms
-  if (ms != null) {
-    responseTime = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
-  }
+  const responseTime = ms == null ? null : (ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's')
+  const speedTone = ms == null ? 'text-gray-400'
+    : ms < 3000 ? 'text-green-600'
+    : ms < 10000 ? 'text-amber-600'
+    : 'text-red-500'
 
-  const firstMessageAt = messages[0]?.created_at
-  const prettyIntent = (s) => s.replace(/_/g, ' ')
+  const prettyIntent = (t) => t.replace(/_/g, ' ')
 
-  // A block only renders when it has something to say. An empty panel says so
-  // in one honest sentence instead of stacking six dividers around em-dashes.
-  const hasAnything = intents.length || searchedFor.length ||
-    messages.length || conv.assignee || conv.handoff_reason
+  const Card = ({ title, icon, children }) => (
+    <section className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <header className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-gray-50">
+        {icon}
+        <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{title}</h3>
+      </header>
+      <div className="px-3 py-2.5 space-y-3">{children}</div>
+    </section>
+  )
 
-  if (!hasAnything) {
-    return (
-      <p className="text-xs text-gray-400 leading-relaxed">
-        Nothing to summarise yet — this conversation has no messages.
-      </p>
-    )
-  }
+  const Row = ({ label, children }) => (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-xs text-gray-500 shrink-0">{label}</span>
+      <span className="text-xs text-gray-800 font-medium text-right min-w-0 truncate">{children}</span>
+    </div>
+  )
 
   return (
-    <div className="space-y-5">
-      {/* ── Needs a human, and why ──────────────────────────────────────── */}
+    <div className="space-y-3">
+      {/* Escalation sits above everything: it changes what you do next. */}
       {conv.handoff_reason && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5">
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
           <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">
             Handed to a human
           </p>
-          <p className="text-xs text-amber-800 capitalize">
+          <p className="text-xs text-amber-800">
             {conv.handoff_reason === 'keyword'
               ? 'The customer used a word we always escalate on'
               : conv.handoff_reason === 'intent'
@@ -1697,94 +1738,107 @@ function ContextContent({ conv }) {
         </div>
       )}
 
-      {/* ── What they want ──────────────────────────────────────────────── */}
-      {intents.length > 0 && (
+      {/* 1 — What the AI made of it */}
+      <Card title="What the AI made of this" icon={<Bot size={11} className="text-gray-400" />}>
         <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
-            What they&apos;re asking about
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {intents.map(i => (
-              <span
-                key={i}
-                className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100 capitalize"
-              >
-                {prettyIntent(i)}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── What the AI went looking for ────────────────────────────────── */}
-      {searchedFor.length > 0 && (
-        <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
-            AI searched the catalogue for
-          </p>
-          <ul className="space-y-1">
-            {searchedFor.slice(0, 5).map(kw => (
-              <li key={kw} className="text-xs text-gray-700 flex items-start gap-1.5">
-                <span className="text-gray-300 mt-0.5 shrink-0">•</span>
-                <span className="truncate" title={kw}>{kw}</span>
-              </li>
-            ))}
-          </ul>
-          {searchedFor.length > 5 && (
-            <p className="text-[10px] text-gray-400 mt-1">
-              +{searchedFor.length - 5} more earlier in the thread
+          <p className="text-[10px] text-gray-400 font-semibold mb-1.5">Detected intent</p>
+          {intents.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {intents.map(i => (
+                <span
+                  key={i}
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100 capitalize"
+                >
+                  {prettyIntent(i)}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-400 italic">
+              Nothing classified on the last customer message
             </p>
           )}
-          <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
-            If this doesn&apos;t match what they asked for, that&apos;s why the
-            recommendation was off.
-          </p>
         </div>
-      )}
 
-      {/* ── The shape of the conversation ───────────────────────────────── */}
-      {messages.length > 0 && (
-        <div className="pt-4 border-t border-gray-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">
-            This conversation
+        <div>
+          <p className="text-[10px] text-gray-400 font-semibold mb-1.5 flex items-center gap-1">
+            <Search size={9} /> Searched the catalogue for
           </p>
-          <dl className="space-y-1.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <dt className="text-xs text-gray-500">Messages</dt>
-              <dd className="text-xs text-gray-800 font-medium">
-                {inboundCount} in · {replyCount} out
-              </dd>
-            </div>
-            {firstMessageAt && (
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-xs text-gray-500">Started</dt>
-                <dd className="text-xs text-gray-800 font-medium">
-                  {formatDayLabel(firstMessageAt)}
-                </dd>
-              </div>
-            )}
-            {responseTime && (
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-xs text-gray-500">Last AI reply took</dt>
-                <dd className="text-xs text-gray-800 font-medium">{responseTime}</dd>
-              </div>
-            )}
-          </dl>
+          {searchedFor.length > 0 ? (
+            <>
+              <ul className="space-y-1">
+                {searchedFor.slice(0, 4).map(kw => (
+                  <li key={kw} className="text-xs text-gray-700 flex items-start gap-1.5">
+                    <span className="text-gray-300 mt-0.5 shrink-0">&bull;</span>
+                    <span className="truncate" title={kw}>{kw}</span>
+                  </li>
+                ))}
+              </ul>
+              {searchedFor.length > 4 && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  +{searchedFor.length - 4} more earlier in the thread
+                </p>
+              )}
+              <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                If this does not match what they asked for, that is why the
+                recommendation was off.
+              </p>
+            </>
+          ) : (
+            <p className="text-[11px] text-gray-400 italic">
+              No product search ran on this conversation
+            </p>
+          )}
         </div>
-      )}
 
-      {/* ── Who owns it ─────────────────────────────────────────────────── */}
-      {conv.assignee && (
-        <div className="pt-4 border-t border-gray-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
-            Assigned to
-          </p>
-          <p className="text-xs text-gray-800 font-medium truncate">
-            {conv.assignee.full_name}
-          </p>
-          <p className="text-[10px] text-gray-400 truncate">{conv.assignee.email}</p>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-[10px] text-gray-400 font-semibold flex items-center gap-1">
+            <Zap size={9} /> Last AI reply took
+          </span>
+          <span className={clsx('text-xs font-bold', speedTone)}>
+            {responseTime || 'No AI reply yet'}
+          </span>
         </div>
-      )}
+      </Card>
+
+      {/* 2 — Shape of the conversation */}
+      <Card title="This conversation" icon={<Clock size={11} className="text-gray-400" />}>
+        <Row label="Messages">{inboundCount} in &middot; {replyCount} out</Row>
+        {firstMessageAt && <Row label="Started">{formatDayLabel(firstMessageAt)}</Row>}
+        <Row label="Channel">
+          <span className="capitalize">{(conv.platform || 'unknown').replace(/_/g, ' ')}</span>
+        </Row>
+        {lastInbound?.text && (
+          <div className="pt-1">
+            <p className="text-[10px] text-gray-400 font-semibold mb-1">Last thing they said</p>
+            <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">
+              {lastInbound.text}
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* 3 — Ownership */}
+      <Card title="Who is handling it" icon={<UserCheck size={11} className="text-gray-400" />}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-gray-500">Right now</span>
+          {handlerBadge(conv)}
+        </div>
+        <Row label="Customer">{conv.handle || 'Unknown handle'}</Row>
+        {conv.assignee ? (
+          <div className="pt-1 border-t border-gray-100">
+            <p className="text-[10px] text-gray-400 font-semibold mb-1">Assigned to</p>
+            <p className="text-xs text-gray-800 font-medium truncate">
+              {conv.assignee.full_name}
+            </p>
+            <p className="text-[10px] text-gray-400 truncate">{conv.assignee.email}</p>
+          </div>
+        ) : (
+          <p className="text-[11px] text-gray-400 italic pt-1 border-t border-gray-100">
+            Not assigned to anyone yet
+          </p>
+        )}
+      </Card>
     </div>
   )
 }

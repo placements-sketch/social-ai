@@ -525,13 +525,45 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
         keyword_source = "post_caption"
 
     if product_keyword is None:
+        from_text = None
         if product_intents.intersection(intents):
-            product_keyword = _extract_product_keyword(message)
-            keyword_source = "current_message"
-        elif inbound_record is not None and set(intents) <= ambient_intents:
-            product_keyword = _find_recent_product_keyword(inbound_record.conversation_id)
-            if product_keyword:
-                keyword_source = "history"
+            from_text = _extract_product_keyword(message)
+
+        # "Is this still available?" / "Can I get this?" carry a product intent
+        # but name no product — they point at the photo sent a message earlier.
+        #
+        # This used to be an elif on ambient intents only, so a referential
+        # stock question took the branch above and kept whatever the extractor
+        # returned. That extractor has no failure mode: it strips stopwords and
+        # hands back the remainder, or the raw message if nothing remains. So
+        # "is this still available?" searched the catalogue for "still" and
+        # "can I get this?" searched for the whole sentence — both matching an
+        # arbitrary product, which the customer then got quoted. The vision
+        # result from their photo was one row back in history the entire time.
+        referential = _is_referential(message, from_text)
+
+        if (referential or set(intents) <= ambient_intents) and inbound_record is not None:
+            remembered = _find_recent_product_keyword(inbound_record.conversation_id)
+            if remembered:
+                # Keep any colour/size they just added: a photo followed by
+                # "do you have this in red?" should search the remembered
+                # garment IN RED, not every red item we stock.
+                extra = [q for q in _qualifiers_in(message)
+                         if q not in remembered.lower()]
+                product_keyword = " ".join([remembered] + extra) if extra else remembered
+                keyword_source = "history+qualifier" if extra else "history"
+
+        # Nothing remembered — fall back to the text, but only if it is worth
+        # searching for. A weak keyword returns arbitrary products, which is
+        # worse than returning none and letting the AI ask what they mean.
+        if product_keyword is None and from_text is not None:
+            if not _message_names_a_product(message):
+                log_event("info", "services.keyword_unresolved",
+                          f"referential message with no usable keyword: {message[:80]!r}",
+                          conversation_id=getattr(inbound_record, "conversation_id", None))
+            else:
+                product_keyword = from_text
+                keyword_source = "current_message"
 
     if product_keyword:
         # Multi-term search: extract additional terms from the current message
@@ -1434,6 +1466,102 @@ def _patch_inbound_product_keyword(inbound_record, product_keyword: str):
         db.session.commit()
     except Exception as e:
         log_event("error", "services._patch_inbound_product_keyword", str(e))
+
+
+# Words that point at something without naming it. A message built only out of
+# these is REFERENTIAL: it refers to something already on screen — nearly always
+# the photo the customer sent a moment earlier, or the product we just quoted.
+_REFERENTIAL_RE = re.compile(
+    r"\b(this|that|these|those|it|them|same|above|pic|picture|photo|image|one)\b",
+    re.I,
+)
+
+# Colours and sizes qualify a product but cannot BE one. "red" alone matches
+# every red item in the catalogue; paired with a remembered keyword it narrows.
+_QUALIFIER_WORDS = {
+    "black", "white", "red", "blue", "navy", "green", "pink", "purple", "yellow",
+    "orange", "brown", "beige", "cream", "grey", "gray", "gold", "silver",
+    "maroon", "teal", "lilac", "nude", "khaki",
+    "small", "medium", "large", "xl", "xxl", "xs", "petite", "plus",
+}
+
+# Residue the keyword extractor hands back when the message names no product:
+# it strips stopwords and returns whatever survives, so "is this still
+# available?" yields "still".
+_WEAK_KEYWORDS = {
+    "still", "available", "availability", "much", "cost", "price", "get", "have",
+    "want", "need", "buy", "order", "send", "one", "some", "any", "please",
+    "stock", "left", "size", "sizes", "colour", "color", "colours", "colors",
+}
+
+
+def _keyword_is_weak(kw: str | None) -> bool:
+    """
+    True when a keyword cannot identify a product on its own.
+
+    _extract_product_keyword never fails loudly — when it finds nothing it
+    returns message[:30], i.e. the raw question. Searching the catalogue for
+    "Can I get this?" or "still" returns arbitrary matches, which is how a
+    customer asking about a photo ended up being quoted an unrelated garment.
+    """
+    if not kw:
+        return True
+    t = kw.strip().lower().strip("?.!,")
+    if not t:
+        return True
+    if "?" in kw:                      # extractor echoed the whole question back
+        return True
+    words = t.split()
+    if len(words) == 1:
+        return t in _WEAK_KEYWORDS or t in _QUALIFIER_WORDS
+    # Multi-word but every word is filler/qualifier — still not a product.
+    return all(w in _WEAK_KEYWORDS or w in _QUALIFIER_WORDS for w in words)
+
+
+def _message_names_a_product(text: str | None) -> bool:
+    """
+    True when the message contains at least one word that could BE a product.
+
+    Judged on the full extracted term list, not just the top-ranked term.
+    _extract_product_keyword ranks by catalogue rarity, so "do you have the
+    navy wide leg trousers?" hands back "navy" — a colour. Judging weakness on
+    that single word would throw away a message that plainly names trousers.
+    The full list ('navy', 'wide', 'leg', 'trousers') settles it, and it
+    separates cleanly from the referential cases, which yield nothing but
+    filler: 'is this still available?' -> ['still'], 'can I get this?' -> [].
+    """
+    if not text or not text.strip():
+        return False
+    for term in _extract_product_keywords(text):
+        t = term.strip().lower()
+        if t and t not in _QUALIFIER_WORDS and t not in _WEAK_KEYWORDS:
+            return True
+    return False
+
+
+def _is_referential(text: str | None, extracted: str | None = None) -> bool:
+    """
+    True when the customer is pointing at something they haven't named.
+
+    Covers the common two-message pattern: a bare photo, then "is this still
+    available?" — the second message carries the intent but none of the subject.
+    """
+    if not text or not text.strip():
+        return True                     # image-only message names nothing
+    if not _REFERENTIAL_RE.search(text):
+        return False
+    return not _message_names_a_product(text)
+
+
+def _qualifiers_in(text: str | None) -> list[str]:
+    """Colour/size words in the message, to narrow a remembered keyword."""
+    if not text:
+        return []
+    seen = []
+    for w in re.findall(r"[a-z]+", text.lower()):
+        if w in _QUALIFIER_WORDS and w not in seen:
+            seen.append(w)
+    return seen
 
 
 def _find_recent_product_keyword(conversation_id: int, max_lookback: int = 5) -> str | None:

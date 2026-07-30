@@ -170,7 +170,7 @@ def customer_query():
                         "content": json.dumps(result, default=str),
                     })
                 messages.append({"role": "user", "content": tool_results})
-                continue  # loop back so Claude can read results and answer
+                continue # Loop so that Claude can respond
 
             # Final text answer.
             answer = "".join(b.text for b in resp.content if b.type == 'text').strip()
