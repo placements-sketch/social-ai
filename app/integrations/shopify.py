@@ -221,6 +221,44 @@ def iter_all_customer_ids():
 # Real Shopify implementation (LIVE)
 # ─────────────────────────────────────────────
 
+#: Colourways of one garment to allow in a result set before moving on to a
+#: different product. Two keeps a shade option available without letting one
+#: family crowd out every other candidate.
+MAX_PER_FAMILY = 2
+
+
+def _product_family(name: str) -> str:
+    """
+    The garment behind a variant title. Shopify names these
+    "Base Name - Colour / Print", so everything before the first ' - ' is the
+    product and the rest is the colourway.
+    """
+    return (name or '').split(' - ', 1)[0].strip().lower()
+
+
+def _diversify_by_family(rows, limit: int):
+    """
+    Trim to `limit`, allowing at most MAX_PER_FAMILY colourways of the same
+    garment. Ordering is preserved, so the best-scoring member of each family
+    is the one kept. Falls back to filling from the leftovers if diversifying
+    leaves the list short.
+    """
+    picked, spill, seen = [], [], {}
+    for row in rows:
+        product = row[0]
+        fam = _product_family(product.name)
+        if seen.get(fam, 0) < MAX_PER_FAMILY:
+            seen[fam] = seen.get(fam, 0) + 1
+            picked.append(row)
+            if len(picked) >= limit:
+                return picked
+        else:
+            spill.append(row)
+    # Not enough distinct families to fill the quota — top up in score order
+    # rather than returning fewer results than asked for.
+    return (picked + spill)[:limit]
+
+
 def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
     """
     Multi-term ProductCache search. Each term contributes to the score based on
@@ -274,6 +312,18 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
         # ranks within the same coverage tier.
         score = (coverage * 100 + field_score).label('score')
 
+        # Over-fetch, then thin out colourways. Shopify names variants
+        # "Base Name - Colour / Print", and this catalogue runs to 21 colourways
+        # of a single garment — so a plain top-N filled with one product family.
+        # A real search for "black satin dress" returned 11 shades of the same
+        # Vivo satin line, which is fatal for the vision re-ranker: it can only
+        # choose from what it's shown, so it confidently picked the nearest
+        # member of the wrong family. Diversifying gives it genuinely different
+        # garments to compare against.
+        #
+        # The alphabetical final tie-break made it worse — within one score
+        # tier it systematically favours whatever sorts first, so the same
+        # brand won every time.
         rows = (
             db.session.query(ProductCache, score)
             .filter(or_(*like_clauses))
@@ -281,11 +331,16 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
                 # In-stock products first. NULL stock = unknown, treat as available.
                 (func.coalesce(ProductCache.stock_quantity, 1) == 0).asc(),
                 score.desc(),
+                # Stock level, not name — a well-stocked item is the more
+                # useful representative of its family than an alphabetical one.
+                func.coalesce(ProductCache.stock_quantity, 1).desc(),
                 ProductCache.name.asc(),
             )
-            .limit(limit)
+            .limit(max(limit * 6, limit))
             .all()
         )
+
+        rows = _diversify_by_family(rows, limit)
 
         result = []
         for product, _score in rows:
