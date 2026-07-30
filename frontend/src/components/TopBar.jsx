@@ -155,6 +155,13 @@ function NotificationItem({ notif, Icon, color, bg, onClickNotif }) {
   )
 }
 
+// Bell poll interval. Real push (SSE/WebSocket) is deliberately NOT used: the
+// app runs gunicorn sync workers (2 x 4 threads = 8 concurrent slots), and an
+// SSE stream holds a thread for its whole lifetime — 8 open tabs would leave
+// zero capacity for webhooks or page loads. Combined with fetch-on-focus
+// below, 20s polling gives near-instant perceived latency at no risk.
+const NOTIFICATION_POLL_MS = 20000
+
 // Which urgent notifications have already been announced as a toast.
 // Kept in localStorage because the refs below reset on every page load —
 // without this the catch-up toast re-fires on every refresh.
@@ -316,14 +323,25 @@ export default function TopBar({ onMenuClick }) {
     load()
     // Was every 5 SECONDS. Between this, the conversation poll below, the
     // sidebar badge and the Dashboard's own timers, a single open tab was
-    // making ~29 requests a minute — which is a real contributor to running
-    // the database connection pool dry. A notification bell does not need
-    // five-second latency; 30s is the usual standard. Hidden tabs poll not
-    // at all.
+    // making ~29 requests a minute — a real contributor to running the
+    // database connection pool dry. 20s is the standard for a bell.
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') load()
-    }, 30000)
-    return () => { clearInterval(timer) }
+    }, NOTIFICATION_POLL_MS)
+
+    // Fetch the moment the tab is looked at again. This is what makes coming
+    // back from lunch feel instant: the interval alone would leave you staring
+    // at stale counts for up to 20s at exactly the moment you're most likely
+    // to have missed something. Cheap, because it only fires on a real
+    // focus/visibility change, not on a timer.
+    const onWake = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+    }
   }, [showToast])
 
   // Poll the conversations list every 10s and pop a toast for new inbound DMs.

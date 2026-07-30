@@ -1138,26 +1138,43 @@ export default function Dashboard() {
                           )}
                         </p>
                       </div>
-                      <p className="text-[11px] text-gray-400 text-right leading-snug">
-                        {engaged} of {handled}<br/>convos AI was on for
-                      </p>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${Math.min(successRate, 100)}%` }} />
                     </div>
-                    {/* Promoted out of grey footnote territory when it's most of
-                        the window. 3 of 4 customers getting nothing matters more
-                        than the success rate above it. */}
-                    {neverAnswered > 0 && (
-                      <p className={clsx(
-                        'text-[11px] mt-2',
-                        handled > 0 && neverAnswered / handled >= 0.25
-                          ? 'font-semibold text-red-600'
-                          : 'text-gray-500'
-                      )}>
-                        <span className="font-bold tabular-nums">{neverAnswered}</span>
-                        {handled > 0 && ` of ${handled}`} never answered — nobody replied at all
-                      </p>
+
+                    {/* "3 of 5" and "1 of 5" sat in opposite corners with
+                        nothing saying they described the SAME 5, so they read
+                        as two unrelated facts. One stem, both facts hanging
+                        off it, so the relationship is impossible to misread. */}
+                    {handled > 0 && (
+                      <div className="mt-3 text-[11px]">
+                        <p className="text-gray-500">
+                          Of the <span className="font-bold text-gray-900 tabular-nums">{handled}</span>
+                          {' '}conversation{handled === 1 ? '' : 's'} the AI was on duty for:
+                        </p>
+                        <div className="mt-1.5 space-y-1">
+                          <p className="flex items-center gap-2 text-gray-600">
+                            <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+                            <span><span className="font-bold text-gray-900 tabular-nums">{engaged}</span> handled successfully</span>
+                          </p>
+                          {neverAnswered > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowChannelModal(true)}
+                              className="flex items-center gap-2 text-left w-full hover:underline"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                              <span className={clsx(
+                                neverAnswered / handled >= 0.25 ? 'font-semibold text-red-600' : 'text-gray-600'
+                              )}>
+                                <span className="font-bold tabular-nums">{neverAnswered}</span> never answered — nobody replied at all
+                                <span className="text-gray-400 font-normal"> · see which →</span>
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -1389,26 +1406,62 @@ export default function Dashboard() {
                               )}
                             </div>
 
-                            {/* Why. Sourced from services.no_reply_sent, so the
-                                system explains its own silence instead of
-                                someone having to read the database. */}
+                            {/* Why, then WHICH. Reasons come from
+                                services.no_reply_sent so the system explains
+                                its own silence; the list underneath names the
+                                actual conversations, because a count of
+                                dropped customers you can't open is a
+                                statistic rather than a worklist. */}
                             {c.no_reply_convos > 0 && (
-                              <ul className="mt-2 pt-2 border-t border-gray-200/70 space-y-0.5">
-                                {Object.entries(c.no_reply_reasons || {})
-                                  .sort((a, b) => b[1] - a[1])
-                                  .map(([reason, n]) => (
-                                    <li key={reason} className="text-[11px] text-gray-500 flex items-start gap-1.5">
-                                      <span className="text-gray-300">↳</span>
-                                      <span>
-                                        <span className="font-bold text-gray-900 tabular-nums">{n}</span>
-                                        {' '}
-                                        <span className={reason === 'no_reason_recorded' ? 'text-red-600 font-medium' : ''}>
-                                          {NO_REPLY_LABELS[reason] || reason}
+                              <div className="mt-2 pt-2 border-t border-gray-200/70">
+                                <ul className="space-y-0.5">
+                                  {Object.entries(c.no_reply_reasons || {})
+                                    .sort((a, b) => b[1] - a[1])
+                                    .map(([reason, n]) => (
+                                      <li key={reason} className="text-[11px] text-gray-500 flex items-start gap-1.5">
+                                        <span className="text-gray-300">↳</span>
+                                        <span>
+                                          <span className="font-bold text-gray-900 tabular-nums">{n}</span>
+                                          {' '}
+                                          <span className={reason === 'no_reason_recorded' ? 'text-red-600 font-medium' : ''}>
+                                            {NO_REPLY_LABELS[reason] || reason}
+                                          </span>
                                         </span>
-                                      </span>
-                                    </li>
-                                  ))}
-                              </ul>
+                                      </li>
+                                    ))}
+                                </ul>
+
+                                {(c.no_reply_sample || []).length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-gray-200/70 space-y-1">
+                                    {c.no_reply_sample.map(r => (
+                                      <a
+                                        key={r.conversation_id}
+                                        href={`/messages?conversation=${r.conversation_id}`}
+                                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 -mx-1 hover:bg-white transition-colors group"
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                                        <span className="text-[11px] font-semibold text-gray-900 truncate">
+                                          @{r.handle || `conversation ${r.conversation_id}`}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 shrink-0 ml-auto">
+                                          {r.last_message_at
+                                            ? new Date(r.last_message_at + 'Z').toLocaleDateString('en-KE',
+                                                { day: 'numeric', month: 'short' })
+                                            : ''}
+                                        </span>
+                                        <span className="text-[10px] text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                          open →
+                                        </span>
+                                      </a>
+                                    ))}
+                                    {c.no_reply_convos > c.no_reply_sample.length && (
+                                      <p className="text-[10px] text-gray-400 px-2 pt-0.5">
+                                        + {c.no_reply_convos - c.no_reply_sample.length} more
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}

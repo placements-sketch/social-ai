@@ -37,6 +37,11 @@ DEFAULT_DAYS = 7
 # etc; everything reports at the platform level.
 CHANNEL_FAMILIES = ('instagram', 'whatsapp', 'facebook', 'tiktok')
 
+# How many never-answered conversations to list per channel. Enough to act on,
+# bounded so a bad day can't push thousands of rows into the payload — the
+# count beside the list stays exact either way.
+NO_REPLY_SAMPLE = 10
+
 
 def _channel_family(col):
     """SQL expression folding a channel column into its platform family."""
@@ -536,7 +541,17 @@ def summary():
                     ))
                     .distinct().all()
             )
-            engaged_total = len((multiturn_ids | ordered_ids) - punted_ids - failed_ids)
+            # A success REQUIRES the AI to have actually replied. Without this,
+            # "engaged" only meant the customer sent two messages — so someone
+            # who wrote twice and was ignored scored as a win, because being
+            # ignored and repeating yourself looks identical to a multi-turn
+            # conversation if you only count inbound. The same guard stops an
+            # order the AI played no part in being credited to it.
+            engaged_total = len(
+                (multiturn_ids | ordered_ids)
+                & answered_conv_ids
+                - punted_ids - failed_ids
+            )
 
         success_rate = (engaged_total / handled_total) if handled_total else 0.0
 
@@ -988,6 +1003,38 @@ def summary():
                 # No log covers these. Naming the gap is the point — silence
                 # here is what sent us digging through the database by hand.
                 reasons['no_reason_recorded'] = len(silent) - explained
+
+            # WHICH conversations, not just how many. A count of dropped
+            # customers you can't open is a statistic; the list is a worklist.
+            # Capped, with the total alongside, so a bad day can't return
+            # thousands of rows into a dashboard payload.
+            silent_rows = []
+            if silent:
+                from app.models import User as CustomerUser
+                for conv, handle in (
+                    db.session.query(Conversation, CustomerUser.external_id)
+                      .outerjoin(CustomerUser, CustomerUser.id == Conversation.user_id)
+                      .filter(Conversation.id.in_(list(silent)))
+                      .order_by(Conversation.last_message_at.desc().nullslast())
+                      .limit(NO_REPLY_SAMPLE)
+                      .all()
+                ):
+                    # Per-conversation reason where one was logged, so each row
+                    # explains itself rather than sharing the channel's tally.
+                    row_reason = next(
+                        (r for r, cids in cur_reasons.get(ch, {}).items()
+                         if conv.id in cids),
+                        'no_reason_recorded',
+                    )
+                    silent_rows.append({
+                        'conversation_id': conv.id,
+                        'handle': handle,
+                        'channel': conv.channel,
+                        'status': conv.status,
+                        'last_message_at': (conv.last_message_at.isoformat()
+                                            if conv.last_message_at else None),
+                        'reason': row_reason,
+                    })
             channel_performance.append({
                 'channel':        ch,
                 'inbound':        inbound,
@@ -1001,6 +1048,7 @@ def summary():
                 'human_convos':     len(picked_up),
                 'no_reply_convos':  len(silent),
                 'no_reply_reasons': reasons,
+                'no_reply_sample':  silent_rows,   # capped at NO_REPLY_SAMPLE
                 'escalated':      len(cur_esc.get(ch, set())),
                 'avg_response_time_ms': (
                     int(row.avg_ms) if (row and row.avg_ms is not None) else None
