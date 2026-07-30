@@ -1111,8 +1111,15 @@ export default function Dashboard() {
                     <div className="flex items-end justify-between mb-2">
                       <div>
                         <div className="flex items-baseline gap-2">
+                          {/* The percentage is the metric — it stays the
+                              headline at every sample size. A thin sample
+                              suppresses the TREND (see showTrend), because a
+                              comparison is what small numbers can't support;
+                              the rate itself is still the thing you came to
+                              read. Demoting it to "3/7" buried the number the
+                              card exists to show. */}
                           <p className="text-3xl font-bold text-brand-500 leading-none">
-                            {thinSample ? `${engaged}/${handled}` : `${successRate.toFixed(1)}%`}
+                            {successRate.toFixed(1)}%
                           </p>
                           {showTrend && (
                             <span className={clsx(
@@ -1132,7 +1139,7 @@ export default function Dashboard() {
                         </p>
                       </div>
                       <p className="text-[11px] text-gray-400 text-right leading-snug">
-                        {thinSample ? `${successRate.toFixed(0)}% of` : `${engaged} of`} {thinSample ? '' : handled}<br/>convos AI was on for
+                        {engaged} of {handled}<br/>convos AI was on for
                       </p>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
