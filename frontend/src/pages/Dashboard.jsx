@@ -1222,13 +1222,23 @@ export default function Dashboard() {
                   </div>
                   <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
                     <span className="text-xs font-medium text-gray-600">Revenue driven</span>
+                    {/* Currency comes from the data, not a hardcoded "KES" —
+                        totals used to be summed across currencies and labelled
+                        KES regardless. Net of tax, using Shopify's own
+                        total_tax per order. */}
                     <span className="text-sm font-bold text-gray-900">
-                      KES {Math.round(revenue).toLocaleString()}
+                      {conv.revenue_currency || 'KES'} {Math.round(revenue).toLocaleString()}
                     </span>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1">
-                    {orders} attributed order{orders === 1 ? '' : 's'}
+                    {orders} attributed order{orders === 1 ? '' : 's'} · excl. tax
                   </p>
+                  {conv.revenue_excluded_orders > 0 && (
+                    <p className="text-[10px] text-amber-600 font-medium mt-1">
+                      {conv.revenue_excluded_orders} order{conv.revenue_excluded_orders === 1 ? '' : 's'} in
+                      another currency not included
+                    </p>
+                  )}
                 </>
               )
             })()}

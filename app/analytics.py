@@ -604,15 +604,19 @@ def summary():
         # answers like "what are your hours?" as product recommendations. That
         # inflated the denominator with conversations where nothing was ever
         # recommended, making the conversion rate structurally too low.
-        recommended_rows = (
+        # Scoped like every other figure on the Dashboard. It used to be
+        # global "since it's a business KPI", which meant an agent saw
+        # company-wide revenue sitting beside their own personal counts —
+        # the one number on their screen that wasn't theirs.
+        recommended_rows = _scope_filter(
             db.session.query(Message.id, Message.conversation_id)
               .filter(Message.direction == 'outbound')
               .filter(Message.sender == 'ai')
               .filter(Message.product_url.isnot(None))
               .filter(Message.created_at >= cutoff)
-              .filter(Message.created_at < win.end)
-              .all()
-        )
+              .filter(Message.created_at < win.end),
+            Message, user,
+        ).all()
         recommended_msg_ids = {mid for mid, _ in recommended_rows}
         recommended_conv_ids = {cid for _, cid in recommended_rows if cid is not None}
         recommended_convos = len(recommended_conv_ids)
@@ -634,16 +638,43 @@ def summary():
             converted_convos = len({r.conversation_id for r in conv_rows
                                     if r.conversation_id is not None})
             attributed_orders = len(conv_rows)
-            attributed_revenue_raw = sum(float(r.order_total or 0) for r in conv_rows)
 
+        # ── Revenue, net of tax, in ONE currency ─────────────────────────
+        # Two problems this replaces:
+        #   1. Every total was divided by a flat 1.16 VAT divisor whether or
+        #      not tax was charged. Shopify reports total_tax per order, so
+        #      net = total - tax exactly. Rows predating order_tax keep the old
+        #      divisor rather than silently changing what historical figures
+        #      mean.
+        #   2. Totals were summed across currencies and labelled KES, so one
+        #      USD order would quietly corrupt the number. There is no FX rate
+        #      available here and inventing one would be worse than declining,
+        #      so we report the majority currency and say how much was left out.
         from app.customers import ex_vat
-        attributed_revenue = ex_vat(attributed_revenue_raw)
+        by_currency = {}
+        for r in conv_rows if recommended_msg_ids else []:
+            gross = float(r.order_total or 0)
+            net = (gross - float(r.order_tax)) if r.order_tax is not None else ex_vat(gross)
+            cur = (r.order_currency or 'KES').upper()
+            slot = by_currency.setdefault(cur, {'net': 0.0, 'orders': 0})
+            slot['net'] += net
+            slot['orders'] += 1
+
+        main_currency, main = ('KES', {'net': 0.0, 'orders': 0})
+        if by_currency:
+            main_currency, main = max(by_currency.items(), key=lambda kv: kv[1]['orders'])
+        excluded_orders = sum(v['orders'] for k, v in by_currency.items() if k != main_currency)
+
         conversion = {
             'recommended_conversations': recommended_convos,
             'converted_conversations':   converted_convos,
             'conversion_rate':           round((converted_convos / recommended_convos) if recommended_convos else 0.0, 4),
             'attributed_orders':         attributed_orders,
-            'attributed_revenue':        attributed_revenue,
+            'attributed_revenue':        round(main['net'], 2),
+            'revenue_currency':          main_currency,
+            # >0 means orders in other currencies exist and are NOT in the
+            # figure above. Silently dropping them is the thing to avoid.
+            'revenue_excluded_orders':   excluded_orders,
         }
     except Exception as e:
         log_event("warn", "analytics.conversion_failed", str(e))
@@ -653,6 +684,8 @@ def summary():
             'conversion_rate':           0.0,
             'attributed_orders':         0,
             'attributed_revenue':        0.0,
+            'revenue_currency':          'KES',
+            'revenue_excluded_orders':   0,
         }
 
     # ── AI failure breakdown (why replies failed) ────────────────────────

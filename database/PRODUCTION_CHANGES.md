@@ -8,27 +8,88 @@ after every commit.
 There is no `migrations/` directory in this project, so schema changes ship as
 SQL here.
 
-## If you already ran part of this
+## Rules for this file
 
-**Just run the whole page's steps again, in order.** Every block is
-idempotent — `IF NOT EXISTS` on the DDL, and `WHERE ... IS NULL` /
-`IS DISTINCT FROM` guards on the backfills — so anything already applied
-matches zero rows the second time and nothing is double-counted.
+1. **Step numbers are permanent.** Once a step has a number it keeps it
+   forever, even if it's later found to be wrong or gets superseded.
+2. **New work is APPENDED at the bottom** with the next unused number. This
+   file is never reordered or renumbered — you may be part-way through it, and
+   moving the goalposts destroys the only thing a checklist is for.
+3. **Everything is safe to re-run.** `IF NOT EXISTS` on the DDL, and
+   `WHERE ... IS NULL` / `IS DISTINCT FROM` guards on the backfills, so
+   anything already applied matches zero rows the second time.
 
-**Order matters within a page.** Later steps read columns that earlier steps
-create and fill, so run them top to bottom. Step 1 of each page tells you what
-state production is actually in, so you never have to remember what you ran.
-
-**Paste into the Supabase SQL editor.** Deploy the code first; every change is
+Paste into the Supabase SQL editor. Deploy the code first; every change is
 additive, so the running code keeps working against the new columns.
+
+---
+
+## "Which steps have I already run?"
+
+**Don't rely on memory — ask the database.** These two queries report the state
+of every SQL step in this file. Run A first; run B only if A returns all 1s.
+
+```sql
+-- A. Do the columns exist? (safe to run at any time)
+SELECT
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_name='conversations' AND column_name='escalated_at')            AS step2_escalated_at,
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_name='conversations' AND column_name='ai_disabled_at')          AS step2_ai_disabled_at,
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_name='messages'      AND column_name='ai_eligible')             AS pre_existing_ai_eligible,
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_name='conversion_attributions' AND column_name='order_tax')     AS step5_order_tax;
+```
+
+```sql
+-- B. Has the backfill work been done? (only valid once A returns all 1s)
+SELECT
+  (SELECT count(*) FROM conversations WHERE escalated_at IS NOT NULL)           AS step3_rows_filled,
+  (SELECT count(*) FROM messages m WHERE m.direction='inbound'
+     AND m.ai_eligible IS DISTINCT FROM true
+     AND EXISTS (SELECT 1 FROM messages r WHERE r.conversation_id=m.conversation_id
+                 AND r.direction='outbound' AND r.sender='ai'
+                 AND r.created_at >= m.created_at))                             AS step4_still_todo,
+  (SELECT count(*) FROM messages
+    WHERE direction='inbound' AND ai_eligible IS NULL)                          AS step4_nulls_left,
+  (SELECT count(*) FROM logs
+    WHERE source='services.inbound' AND conversation_id IS NULL)                AS step6_still_todo,
+  (SELECT count(*) FROM conversion_attributions)                                AS step10_rows;
+```
+
+How to read B:
+
+| Column | Meaning |
+| --- | --- |
+| `step3_rows_filled` | 0 with escalations present → step 3 hasn't run |
+| `step4_still_todo` | **must be 0.** Anything above 0 → step 4 hasn't run (or didn't finish) |
+| `step4_nulls_left` | **must be 0** after step 4 |
+| `step6_still_todo` | 0 → step 6 done. Non-zero is harmless, just unclickable feed rows |
+| `step10_rows` | 0 → the attribution job still isn't scheduled (step 10) |
+
+Local dev returns `A = (1,1,1,1)` and `B = (7, 0, 0, 0, 0)` — everything
+applied except step 10, which is a scheduling task rather than SQL.
+
+If you're unsure where you left off: run A, then B, then just re-run every SQL
+step from the top. Re-running is a no-op.
 
 ---
 
 ## Dashboard page
 
-Run steps 1 → 7 in order. Steps 5–7 are queries and deploy notes, not changes.
+Steps 1–11. These numbers are now fixed and will not change; anything found
+later gets appended below as step 12 onward.
+
+- **SQL to run:** 2, 3, 4, 5, 6
+- **Read-only checks:** 1, 7, 8
+- **Not SQL** (scheduling / deploy): 9, 10, 11
+
+Run the SQL steps in numeric order — later ones read columns earlier ones
+create.
 
 ### Step 1 — Where is production right now?
+
 
 Safe to run at any time. Tells you which of the steps below have already been
 applied, so you can skip or repeat with confidence.
@@ -52,6 +113,7 @@ How to read it:
 | `has_ai_eligible` = 0 | **Stop.** That column predates this work and needs separate handling — tell me |
 
 ### Step 2 — Add the escalation timestamp columns
+
 
 ```sql
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS escalated_at   TIMESTAMP;
@@ -79,6 +141,7 @@ when an agent switches the AI back on, so re-enabling a conversation erased
 its escalation entirely.
 
 ### Step 3 — Fill in the escalation timestamps
+
 
 **Escalated reads these, so it shows 0 for all history until this runs.**
 
@@ -116,6 +179,7 @@ legacy escalations fell back, so their dates may be off by a day or two.
 Escalations recorded from here on are exact.
 
 ### Step 4 — Repair `messages.ai_eligible`
+
 
 **Must run after step 3** — the second statement reads `ai_disabled_at`.
 
@@ -201,32 +265,24 @@ global AI master switch, so messages with no AI reply and no recorded disable
 keep whatever they had — genuinely ambiguous. Locally that is 17 rows.
 Snapshots taken from the deploy onwards are captured live and are exact.
 
-### Step 5 — Verify
+### Step 5 — Add `order_tax` to attributions
+
+
+Attributed revenue used to be reported by dividing every order total by a flat
+1.16 VAT divisor — a guess that assumed every order was taxed at the Kenyan
+rate. Shopify reports `total_tax` per order, so we now store it and compute
+net revenue exactly. Rows written before this column keep the old divisor, so
+historical figures don't silently change meaning.
 
 ```sql
-SELECT
-  (SELECT count(*) FROM conversations WHERE escalated_at   IS NOT NULL) AS escalated_filled,
-  (SELECT count(*) FROM conversations WHERE ai_disabled_at IS NOT NULL) AS ai_off_filled,
-  (SELECT count(*) FROM messages WHERE direction = 'inbound'
-      AND ai_eligible = true)                                           AS eligible_true,
-  (SELECT count(*) FROM messages WHERE direction = 'inbound'
-      AND ai_eligible = false)                                          AS eligible_false,
-  (SELECT count(*) FROM messages WHERE direction = 'inbound'
-      AND ai_eligible IS NULL)                                          AS eligible_null,
-  -- Should be 0 once step 4 has run. Anything above 0 means step 4 did not
-  -- complete — messages the AI answered are still marked ineligible.
-  (SELECT count(*) FROM messages m WHERE m.direction = 'inbound'
-      AND m.ai_eligible IS DISTINCT FROM true
-      AND EXISTS (SELECT 1 FROM messages r
-                   WHERE r.conversation_id = m.conversation_id
-                     AND r.direction = 'outbound' AND r.sender = 'ai'
-                     AND r.created_at >= m.created_at))                 AS still_to_fix;
+ALTER TABLE conversion_attributions
+  ADD COLUMN IF NOT EXISTS order_tax NUMERIC(12,2);
 ```
 
-Local dev after all steps: `7, 11, 108, 19, 0, 0`. **`still_to_fix` and
-`eligible_null` must both be 0.**
+Nothing to backfill — the table is empty (see 6c).
 
-### Step 5b — Link historical inbound logs to their conversations
+### Step 6 — Link historical inbound logs to their conversations
+
 
 `services.inbound` was logged before the conversation row existed, so the most
 important line in Live Activity — *"a customer sent a message"* — was the one
@@ -257,7 +313,34 @@ conversation on the same channel, so matching on user + channel alone picks an
 arbitrary one. `DISTINCT ON` plus the timestamp ordering pins each log to the
 message it was actually about. Local dev: 74 rows linked, 0 left unlinked.
 
-### Step 6 — Optional: see why anything went unanswered
+### Step 7 — Verify
+
+
+```sql
+SELECT
+  (SELECT count(*) FROM conversations WHERE escalated_at   IS NOT NULL) AS escalated_filled,
+  (SELECT count(*) FROM conversations WHERE ai_disabled_at IS NOT NULL) AS ai_off_filled,
+  (SELECT count(*) FROM messages WHERE direction = 'inbound'
+      AND ai_eligible = true)                                           AS eligible_true,
+  (SELECT count(*) FROM messages WHERE direction = 'inbound'
+      AND ai_eligible = false)                                          AS eligible_false,
+  (SELECT count(*) FROM messages WHERE direction = 'inbound'
+      AND ai_eligible IS NULL)                                          AS eligible_null,
+  -- Should be 0 once step 4 has run. Anything above 0 means step 4 did not
+  -- complete — messages the AI answered are still marked ineligible.
+  (SELECT count(*) FROM messages m WHERE m.direction = 'inbound'
+      AND m.ai_eligible IS DISTINCT FROM true
+      AND EXISTS (SELECT 1 FROM messages r
+                   WHERE r.conversation_id = m.conversation_id
+                     AND r.direction = 'outbound' AND r.sender = 'ai'
+                     AND r.created_at >= m.created_at))                 AS still_to_fix;
+```
+
+Local dev after all steps: `7, 11, 108, 19, 0, 0`. **`still_to_fix` and
+`eligible_null` must both be 0.**
+
+### Step 8 — Optional: see why anything went unanswered
+
 
 No changes to run — this is the query behind the sheet's new "why" lines, for
 when you want the detail per conversation.
@@ -281,7 +364,8 @@ Conversations with no row at all show as **No reason recorded** in the sheet —
 that means the message predates this logging, so expect all historical seed
 data to look that way.
 
-### Step 6b — Schedule the unclaimed-queue check
+### Step 9 — Schedule the unclaimed-queue check
+
 
 No database change. A new cron endpoint alerts when a conversation sits in the
 human queue with nobody assigned. Point your scheduler at it every ~5 minutes,
@@ -301,29 +385,40 @@ To see the queue without waiting for an alert (supervisor/admin only):
 GET /api/conversations/unclaimed?threshold_minutes=0
 ```
 
-### Step 6c — Schedule the conversion attribution job
+### Step 10 — Schedule the conversion attribution job
 
-**No database change, but Conversion Rate stays permanently 0 without it.**
 
-`POST /api/cron/attribute` scans recent Shopify orders, reads our UTM token
+**This is not SQL. It is a scheduled HTTP call you need to set up once,
+wherever you already schedule the product/order/customer syncs.**
+
+Those three already run — `sync_jobs` has rows for them and the logs show
+`cron.products_sync.started` and friends. The attribution job is the same kind
+of thing, just never wired up:
+
+| What | Value |
+| --- | --- |
+| Method | `POST` |
+| URL | `https://<your-app-domain>/api/cron/attribute` |
+| Header | `X-Cron-Secret: <the CRON_SECRET env var>` |
+| Frequency | once a day is enough; hourly is fine |
+
+Add it next to your existing sync schedules (Railway cron, cron-job.org,
+GitHub Actions — whatever triggers the others today). Nothing else needs to
+change.
+
+**Why it matters.** The job scans recent Shopify orders, reads our UTM token
 out of each order's `landing_site`, and writes the `conversion_attributions`
-row that links the order back to the message that earned it. Nothing else
-writes that table.
+row linking that order back to the message that earned it. **Nothing else
+writes that table**, so with the job unscheduled the Conversion card can only
+ever show zero — however many customers actually bought.
 
-It has **never run** — `sync_jobs` has rows for `products_apply`,
-`orders_apply` and `customers_apply`, but none for `attribute`, and there are
-no `cron.attribute.*` log entries at all. So every conversion figure on the
-Dashboard has been structurally zero since launch, regardless of how many
-customers actually bought.
+It has never run: `sync_jobs` has rows for `products_apply`, `orders_apply`
+and `customers_apply` but none for `attribute`, and there are no
+`cron.attribute.*` log entries at all.
 
-```
-POST /api/cron/attribute      header: X-Cron-Secret: <CRON_SECRET>
-```
-
-Schedule it **at least daily**. It looks back only `window_days = 7`
-(`app/cron_routes.py`), so an order that isn't picked up within a week of its
-last update is never attributed — the data is lost, not delayed. If the job is
-paused for longer than that, widen the window before re-enabling.
+**Don't leave it paused for more than a week.** It only looks back
+`window_days = 7` (`app/cron_routes.py`), so an order not picked up within a
+week of its last update is never attributed — that data is lost, not delayed.
 
 Verify after the first run:
 
@@ -334,7 +429,8 @@ SELECT count(*) AS rows,
 FROM conversion_attributions;
 ```
 
-### Step 7 — Not database changes
+### Step 11 — Not database changes
+
 
 **`tzdata` dependency.** The deploy crashes without it — analytics resolves
 calendar windows in the business timezone, and `zoneinfo` has no tz database

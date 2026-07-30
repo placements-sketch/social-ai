@@ -786,6 +786,11 @@ class ConversionAttribution(db.Model):
     shopify_order_id   = db.Column(db.String(64), unique=True, nullable=False)
     order_number       = db.Column(db.String(128), nullable=True)
     order_total        = db.Column(db.Numeric(12, 2), default=0, nullable=False)
+    # Shopify's own total_tax for the order. NULL means we never captured it
+    # (rows written before this column existed) — those fall back to the flat
+    # VAT divisor, which is the old guess, so old data doesn't silently change
+    # meaning. total_price includes tax, so net revenue = order_total - order_tax.
+    order_tax          = db.Column(db.Numeric(12, 2), nullable=True)
     order_currency     = db.Column(db.String(8), nullable=True)
     order_date         = db.Column(db.DateTime, nullable=False)
 
@@ -807,6 +812,7 @@ class ConversionAttribution(db.Model):
             'shopify_order_id': self.shopify_order_id,
             'order_number': self.order_number,
             'order_total': float(self.order_total or 0),
+            'order_tax': float(self.order_tax) if self.order_tax is not None else None,
             'order_currency': self.order_currency,
             'order_date': self.order_date.isoformat() if self.order_date else None,
             'conversation_id': self.conversation_id,

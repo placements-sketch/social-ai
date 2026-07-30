@@ -1220,7 +1220,14 @@ def iter_orders_for_attribution(updated_at_min=None):
     Yield lightweight order dicts for conversion attribution — crucially
     includes `landing_site`, the URL that carries our UTM token (the main
     orders sync doesn't store it). Field-limited to keep payloads small.
-    Yields {id, order_number, total, currency, order_date, landing_site}.
+    Yields {id, order_number, total, tax, currency, order_date, landing_site}.
+
+    `tax` is Shopify's own total_tax for the order. We record it so attributed
+    revenue can be reported net of tax EXACTLY, per order, instead of dividing
+    every total by a flat 1.16 and hoping every order was taxed at the Kenyan
+    rate. total_price already includes tax, so net = total - tax regardless of
+    how line prices are quoted.
+
     Raises on any page error (caller should treat a failed run as incomplete).
     """
     if USE_MOCK:
@@ -1231,7 +1238,7 @@ def iter_orders_for_attribution(updated_at_min=None):
         'X-Shopify-Access-Token': _get_shopify_access_token(),
         'Content-Type': 'application/json',
     }
-    fields = "id,name,total_price,currency,created_at,landing_site"
+    fields = "id,name,total_price,total_tax,currency,created_at,landing_site"
     url = f"{store_url}/admin/api/2024-01/orders.json?status=any&fields={fields}&limit=250"
     if updated_at_min:
         url += f"&updated_at_min={quote(updated_at_min)}"
@@ -1243,6 +1250,7 @@ def iter_orders_for_attribution(updated_at_min=None):
                 "id": str(o.get('id')),
                 "order_number": o.get('name'),
                 "total": o.get('total_price'),
+                "tax": o.get('total_tax'),
                 "currency": o.get('currency'),
                 "order_date": o.get('created_at'),
                 "landing_site": o.get('landing_site'),

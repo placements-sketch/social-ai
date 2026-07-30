@@ -897,9 +897,20 @@ def cron_attribute():
                 continue
 
             # Only set FKs if the message still exists (avoid dangling refs).
+            # The conversation comes from the MESSAGE ROW, not from the token:
+            # the token travels through a customer-visible URL, so treating its
+            # conversation_id as authoritative would let a hand-edited link
+            # credit an order to any conversation. The message id is still
+            # taken from the token, but it has to resolve to a real row, and
+            # whatever that row says is the truth.
             msg = Message.query.get(parsed['message_id'])
-            conv_id = parsed['conversation_id'] if msg else None
-            msg_id  = parsed['message_id'] if msg else None
+            if msg is None:
+                log_event("warn", "cron.attribute.orphan_token",
+                          f"Order {o['id']} carries a token for message "
+                          f"{parsed['message_id']}, which no longer exists",
+                          payload={"order_id": o['id'], "token": token})
+            conv_id = msg.conversation_id if msg else None
+            msg_id  = msg.id if msg else None
 
             order_dt = _parse_dt(o.get('order_date'))
             minutes = None
@@ -910,6 +921,7 @@ def cron_attribute():
                 shopify_order_id=o['id'],
                 order_number=o.get('order_number'),
                 order_total=Decimal(str(o.get('total') or 0)),
+                order_tax=(Decimal(str(o['tax'])) if o.get('tax') is not None else None),
                 order_currency=o.get('currency'),
                 order_date=order_dt or datetime.utcnow(),
                 conversation_id=conv_id,
