@@ -124,8 +124,16 @@ Each channel gets:
 
 The **"never answered"** number is the one to watch. Those are customers where
 the AI was supposed to reply, didn't, and no human stepped in either. Dropped
-customers. Underneath it says *why*, in plain English — "channel disabled",
-"comment wasn't a question", "send to platform failed", and so on.
+customers.
+
+Underneath it says *why*, in plain English — "channel disabled", "comment
+wasn't a question", "send to platform failed", and so on — and then **lists
+the actual conversations**, each one clicking straight through to that chat in
+the Inbox. So it's a worklist, not just a statistic. The list caps at 10 per
+channel with "+ N more"; the count above it stays exact.
+
+The same number appears on the AI Performance card with a "see which →" link
+that opens this panel.
 
 ---
 
@@ -166,9 +174,14 @@ simply weren't allowed to see it.
 
 *Of the conversations the AI was on duty for, how many actually worked?*
 
-**It counts as a win when the customer stayed** — they sent a second message,
-or they bought something. One message with a reply proves nothing; they might
-have left annoyed.
+**It counts as a win when the AI replied AND the customer stayed** — they sent
+a second message, or they bought something. One message with a reply proves
+nothing; they might have left annoyed.
+
+Both halves matter. Counting only "the customer sent two messages" would score
+someone who was *ignored and repeated themselves* as a success — because from
+the inbound side alone, "engaged in conversation" and "asked twice because
+nobody answered" look identical.
 
 **Two things cancel a win:**
 

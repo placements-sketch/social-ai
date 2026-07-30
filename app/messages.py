@@ -596,6 +596,14 @@ def delete_message(message_id):
 
     conv = Conversation.query.get(msg.conversation_id)
 
+    # AUTHORISATION. This endpoint takes a message id, not a conversation id,
+    # so it skipped the conversation-level check every other route in this file
+    # performs — an agent could delete ANY outbound message in the system,
+    # including in another agent's conversations, and it unsends from the
+    # customer's Instagram on the way. Verified exploitable before this guard.
+    if conv and not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
+
     # Try to unsend/delete from IG first if it's an IG message with an external_id
     ig_unsent = False
     if msg.external_id:
@@ -662,6 +670,14 @@ def edit_message(message_id):
         return jsonify({'error': 'Can only edit outbound messages'}), 403
 
     conv = Conversation.query.get(original.conversation_id)
+
+    # Same missing authorisation as DELETE above, and worse: this one deletes
+    # the original, then SENDS new content to the customer. An agent could put
+    # words in another agent's conversation. Verified exploitable — it returned
+    # 200 on a conversation the agent had no access to.
+    if conv and not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
+
     customer = conv.user if conv else None
 
     # Step 1: Unsend the original from IG
