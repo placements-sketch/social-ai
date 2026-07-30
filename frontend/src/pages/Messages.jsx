@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useContext } from 'react'
+import { useState, useEffect, useRef, useCallback, useContext, Fragment } from 'react'
 import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
   RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
@@ -45,6 +45,27 @@ const platformLabel = (p) => {
   if (p === 'tiktok_dm')         return 'TikTok DM'
   if (p === 'tiktok_comment')    return 'TikTok Comment'
   return p
+}
+
+// Day bucketing for the chat thread. Local dates, so "Today" means the
+// reader's today rather than UTC's.
+const dayKey = (iso) => {
+  const d = iso ? parseBackendTime(iso) : null
+  return d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : null
+}
+
+const formatDayLabel = (iso) => {
+  const d = iso ? parseBackendTime(iso) : null
+  if (!d) return ''
+  const today = new Date()
+  const yest = new Date(today); yest.setDate(yest.getDate() - 1)
+  if (dayKey(iso) === `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`) return 'Today'
+  if (dayKey(iso) === `${yest.getFullYear()}-${yest.getMonth()}-${yest.getDate()}`) return 'Yesterday'
+  const sameYear = d.getFullYear() === today.getFullYear()
+  return d.toLocaleDateString('en-KE', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
 }
 
 const statusBadge = (s) => {
@@ -1087,22 +1108,36 @@ const handleSend = async () => {
               </span>
             </div>
 
-            {/* Center/Left: AI toggle + Assign button + AI status indicator */}
+            {/* Right: three controls, one per question an agent actually has —
+                is the AI answering this? is it finished? who owns it? */}
             <div className="flex items-center gap-1.5 flex-wrap">
-              {/* AI Toggle button */}
+              {/* ONE control for the AI, showing state and toggling it.
+                  There used to be a button reading "⚠ AI Off" AND a separate
+                  chip reading "AI Disabled" right beside it — the same fact
+                  twice, in two different wordings, competing with Resolve and
+                  Assign for the same strip of space. The dot carries the
+                  state; the label says what clicking does. */}
               <button
                 onClick={handleToggleAI}
                 disabled={aiGloballyOff}
-                title={aiGloballyOff ? 'AI is switched off globally in Settings' : undefined}
+                title={aiGloballyOff
+                  ? 'AI is switched off globally in Settings — this chat can only be answered by hand'
+                  : (aiActive ? 'Stop the AI replying in this conversation'
+                              : 'Let the AI reply in this conversation again')}
                 className={clsx(
-                  'text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed',
-                  aiActive
-                    ? 'border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300'
-                    : 'border-amber-300 bg-amber-50 text-amber-600'
+                  'flex items-center gap-2 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap disabled:cursor-not-allowed',
+                  aiGloballyOff
+                    ? 'border-gray-200 bg-gray-50 text-gray-400'
+                    : aiActive
+                      ? 'border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                      : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
                 )}
               >
-                <span className="sm:hidden">{aiActive ? '⚙️' : '⚠️'}</span>
-                <span className="hidden sm:inline">{aiActive ? 'Disable AI' : '⚠ AI Off'}</span>
+                <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0',
+                  aiGloballyOff ? 'bg-gray-300' : aiActive ? 'bg-brand-500' : 'bg-amber-500')} />
+                <span className="hidden sm:inline">
+                  {aiGloballyOff ? 'AI off · global' : aiActive ? 'AI replying' : 'AI paused'}
+                </span>
               </button>
 
               {/* Resolve / re-open. The backend, the status field and the API
@@ -1127,15 +1162,6 @@ const handleSend = async () => {
                 <span className="hidden sm:inline">{isResolved ? 'Re-open' : 'Resolve'}</span>
               </button>
 
-              {!aiActive && (
-                <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 shrink-0">
-                  <span className="text-amber-600 text-xs font-semibold">
-                    {aiGloballyOff ? 'AI Off (global)' : 'AI Disabled'}
-                  </span>
-                </div>
-              )}
-
-              
               {/* Assignment button — supervisor/admin only */}
               {(user?.role === 'supervisor' || user?.role === 'admin') && (
                 <div className="relative">
@@ -1224,8 +1250,22 @@ const handleSend = async () => {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-2 sm:p-3 md:p-4 space-y-3 sm:space-y-4">
-            {(activeConv.messages || []).map((msg) => (
-              <div key={msg.id} className={clsx('flex group', msg.from === 'user' ? 'justify-start' : 'justify-end')}>
+            {(activeConv.messages || []).map((msg, i, arr) => (
+              <Fragment key={msg.id}>
+              {/* Day separator. The thread only ever showed a time of day, so a
+                  reply sent three weeks after the question looked like it came
+                  straight after it — and conversations now span weeks, since a
+                  returning customer joins their open thread. */}
+              {dayKey(msg.created_at) !== dayKey(arr[i - 1]?.created_at) && (
+                <div className="flex items-center gap-3 pt-2 pb-1 first:pt-0">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">
+                    {formatDayLabel(msg.created_at)}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              <div className={clsx('flex group', msg.from === 'user' ? 'justify-start' : 'justify-end')}>
                 <div className={clsx(
                   'max-w-[90%] sm:max-w-[75%] md:max-w-[70%] flex flex-col gap-1',
                   msg.from === 'user' ? 'items-start' : 'items-end'
@@ -1399,6 +1439,7 @@ const handleSend = async () => {
                   </div>
                 </div>
               </div>
+              </Fragment>
             ))}
             {(activeConv.messages || []).length === 0 && (
               <p className="text-center text-xs text-gray-400 py-8">No messages in this conversation.</p>
@@ -1575,107 +1616,173 @@ const handleSend = async () => {
 }
 
 // Extracted so it can be used in both desktop panel and mobile drawer
+//
+// What this panel is FOR: an agent has just opened a conversation and is about
+// to type a reply. The panel answers "what do I need to know that isn't already
+// on my screen?" — so it deliberately does NOT repeat the handle, the channel,
+// the handler badge, or the last message. Those are all in the header or in the
+// thread two inches to the left. It previously showed all four, plus three rows
+// that were em-dashes most of the time, which is why it read as filler.
 function ContextContent({ conv }) {
-  // Pull the most recent INBOUND message — that's where the intent lives.
   const messages = conv.messages || []
   const lastInbound = [...messages].reverse().find(m => m.from === 'user')
   const lastAiReply = [...messages].reverse().find(m => m.from === 'ai')
 
   // Intent is stored pipe-joined ("greeting|order_status|complaint")
-  // Split, prettify, show as multiple badges.
   const intents = (lastInbound?.intent || '')
     .split('|')
     .map(s => s.trim())
     .filter(Boolean)
 
+  // product_keyword is the search term the AI derived from the customer — from
+  // their words, from a forwarded post's caption, or from reading a photo they
+  // sent. It is NOT what the AI recommended (product_url holds that, and it
+  // isn't serialised to the frontend). Showing it is worth a lot precisely
+  // because it exposes the mis-read case: when a customer sends a screenshot
+  // and gets the wrong dress back, this is the line that tells you why.
+  // 'Unknown' is what vision writes when it can't tell — that's noise, not data.
+  const searchedFor = []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const kw = (messages[i].product_keyword || '').trim()
+    if (kw && kw.toLowerCase() !== 'unknown' && !searchedFor.includes(kw)) {
+      searchedFor.push(kw)
+    }
+  }
+
+  const inboundCount = messages.filter(m => m.from === 'user').length
+  const replyCount = messages.filter(m => m.from !== 'user').length
+
   // Use the generator's own measured time. Deriving it from created_at was
   // wrong: the outbound row is created BEFORE the AI runs, so the gap was
-  // really the debounce window, not the response time — which is why this
-  // read ~8s while the dashboard average read ~2s.
+  // really the debounce window, not the response time.
   let responseTime = null
   const ms = lastAiReply?.ai_response_time_ms
   if (ms != null) {
     responseTime = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
   }
 
+  const firstMessageAt = messages[0]?.created_at
   const prettyIntent = (s) => s.replace(/_/g, ' ')
 
+  // A block only renders when it has something to say. An empty panel says so
+  // in one honest sentence instead of stacking six dividers around em-dashes.
+  const hasAnything = intents.length || searchedFor.length ||
+    messages.length || conv.assignee || conv.handoff_reason
+
+  if (!hasAnything) {
+    return (
+      <p className="text-xs text-gray-400 leading-relaxed">
+        Nothing to summarise yet — this conversation has no messages.
+      </p>
+    )
+  }
+
   return (
-    <div className="space-y-4">
-      {/* Intents */}
-      <div>
-        <p className="text-xs text-gray-400 font-medium mb-1.5">Detected Intent</p>
-        {intents.length > 0 ? (
+    <div className="space-y-5">
+      {/* ── Needs a human, and why ──────────────────────────────────────── */}
+      {conv.handoff_reason && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5">
+          <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">
+            Handed to a human
+          </p>
+          <p className="text-xs text-amber-800 capitalize">
+            {conv.handoff_reason === 'keyword'
+              ? 'The customer used a word we always escalate on'
+              : conv.handoff_reason === 'intent'
+                ? 'The AI judged this needed a person'
+                : conv.handoff_reason === 'rule'
+                  ? 'An escalation rule matched'
+                  : conv.handoff_reason}
+          </p>
+        </div>
+      )}
+
+      {/* ── What they want ──────────────────────────────────────────────── */}
+      {intents.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
+            What they&apos;re asking about
+          </p>
           <div className="flex flex-wrap gap-1">
             {intents.map(i => (
               <span
                 key={i}
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100"
+                className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100 capitalize"
               >
                 {prettyIntent(i)}
               </span>
             ))}
           </div>
-        ) : (
-          <p className="text-xs text-gray-400">—</p>
-        )}
-      </div>
-
-      {/* Last message preview */}
-      <div>
-        <p className="text-xs text-gray-400 font-medium mb-1">Last Message</p>
-        <p className="text-xs text-gray-800 leading-relaxed line-clamp-3">
-          {lastInbound?.text || '—'}
-        </p>
-      </div>
-
-      {/* Response time */}
-      <div>
-        <p className="text-xs text-gray-400 font-medium mb-1">AI Response Time</p>
-        <p className={clsx(
-          'text-xs font-bold',
-          responseTime ? 'text-green-600' : 'text-gray-400'
-        )}>
-          {responseTime || '—'}
-        </p>
-      </div>
-
-      {/* Customer */}
-      <div className="pt-3 border-t border-gray-100">
-        <p className="section-title mb-2">Customer</p>
-        <p className="text-xs text-gray-700 font-medium truncate">{conv.handle || '—'}</p>
-      </div>
-
-      {/* Channel */}
-      <div className="pt-3 border-t border-gray-100">
-        <p className="section-title mb-2">Channel</p>
-        <p className="text-xs text-gray-700 font-medium capitalize">
-          {(conv.platform || '').replace(/_/g, ' ')}
-        </p>
-      </div>
-
-      {/* Handler */}
-      <div className="pt-3 border-t border-gray-100">
-        <p className="section-title mb-2">Handler</p>
-        {handlerBadge(conv)}
-      </div>
-
-      {/* Assigned agent (if any) */}
-      {conv.assignee && (
-        <div className="pt-3 border-t border-gray-100">
-          <p className="section-title mb-2">Assigned To</p>
-          <p className="text-xs text-gray-700 font-medium">{conv.assignee.full_name}</p>
-          <p className="text-[10px] text-gray-400">{conv.assignee.email}</p>
         </div>
       )}
 
-      {/* Handoff reason if escalated */}
-      {conv.handoff_reason && (
-        <div className="pt-3 border-t border-gray-100">
-          <p className="section-title mb-2">Escalation Reason</p>
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-100 capitalize">
-            {conv.handoff_reason}
-          </span>
+      {/* ── What the AI went looking for ────────────────────────────────── */}
+      {searchedFor.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
+            AI searched the catalogue for
+          </p>
+          <ul className="space-y-1">
+            {searchedFor.slice(0, 5).map(kw => (
+              <li key={kw} className="text-xs text-gray-700 flex items-start gap-1.5">
+                <span className="text-gray-300 mt-0.5 shrink-0">•</span>
+                <span className="truncate" title={kw}>{kw}</span>
+              </li>
+            ))}
+          </ul>
+          {searchedFor.length > 5 && (
+            <p className="text-[10px] text-gray-400 mt-1">
+              +{searchedFor.length - 5} more earlier in the thread
+            </p>
+          )}
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+            If this doesn&apos;t match what they asked for, that&apos;s why the
+            recommendation was off.
+          </p>
+        </div>
+      )}
+
+      {/* ── The shape of the conversation ───────────────────────────────── */}
+      {messages.length > 0 && (
+        <div className="pt-4 border-t border-gray-100">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">
+            This conversation
+          </p>
+          <dl className="space-y-1.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-xs text-gray-500">Messages</dt>
+              <dd className="text-xs text-gray-800 font-medium">
+                {inboundCount} in · {replyCount} out
+              </dd>
+            </div>
+            {firstMessageAt && (
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-xs text-gray-500">Started</dt>
+                <dd className="text-xs text-gray-800 font-medium">
+                  {formatDayLabel(firstMessageAt)}
+                </dd>
+              </div>
+            )}
+            {responseTime && (
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-xs text-gray-500">Last AI reply took</dt>
+                <dd className="text-xs text-gray-800 font-medium">{responseTime}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
+
+      {/* ── Who owns it ─────────────────────────────────────────────────── */}
+      {conv.assignee && (
+        <div className="pt-4 border-t border-gray-100">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
+            Assigned to
+          </p>
+          <p className="text-xs text-gray-800 font-medium truncate">
+            {conv.assignee.full_name}
+          </p>
+          <p className="text-[10px] text-gray-400 truncate">{conv.assignee.email}</p>
         </div>
       )}
     </div>

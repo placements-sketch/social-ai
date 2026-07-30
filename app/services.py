@@ -488,27 +488,41 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     product_keyword = None
     keyword_source = None
 
-    # For IG comments, the customer is referring to the POST's image, not an
-    # attachment. Fetch the post image + caption so the AI can see what
-    # "how much is this?" points to. Rides the same image_urls vision path.
+    # The customer is pointing at one of OUR posts — either commenting on it,
+    # or forwarding it into a DM. Either way, fetch the post so the AI can see
+    # what "how much is this?" refers to.
+    #
+    # This used to run for comments only, so a forwarded post in a DM arrived
+    # as a bare picture with its caption thrown away.
     post_caption = None
-    if channel == "instagram_comment" and media_id and not image_urls:
+    if media_id:
         from app.integrations.meta import fetch_instagram_media
         media = fetch_instagram_media(media_id)
         if media:
-            if media.get("image_url"):
+            if media.get("image_url") and not image_urls:
                 image_urls = [media["image_url"]]
             post_caption = media.get("caption")
 
     # Stage 2 vision: when the customer sends a photo, identify the product in
     # it and use that as the search phrase. Strongest signal — it handles
     # "is this available?" + a photo, where the text names no product.
+    vision_desc = None   # referenced later even when no photo was sent
     if image_urls:
         from app.ai.generator import describe_product_in_image
         vision_desc = describe_product_in_image(image_urls)
         if vision_desc:
             product_keyword = vision_desc
             keyword_source = "image"
+
+    # OUR OWN CAPTION beats guessing from a photo. When the customer references
+    # a post we wrote, the caption usually names the garment outright ("Vivo
+    # Lani Maxi Dress in Satin — restocked"), whereas vision can only describe
+    # what it sees and hope the wording matches a product title. The caption was
+    # being passed to the model as background but never used to SEARCH, which
+    # is where it actually decides which product gets quoted.
+    if post_caption and post_caption.strip():
+        product_keyword = post_caption.strip()
+        keyword_source = "post_caption"
 
     if product_keyword is None:
         if product_intents.intersection(intents):
@@ -535,6 +549,19 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                 search_terms = search_terms + [
                     t for t in _extract_product_keywords(caption) if t not in search_terms
                 ]
+        elif keyword_source == "post_caption":
+            # Our own caption, plus anything the customer typed alongside it
+            # ("do you have this in blue?"). Vision terms come last as backup —
+            # if the caption is decorative rather than descriptive, the photo
+            # still gets a say.
+            search_terms = _extract_product_keywords(product_keyword)
+            said = (message or "").strip()
+            if said and said != "[Sent a photo]":
+                search_terms += [t for t in _extract_product_keywords(said)
+                                 if t not in search_terms]
+            if vision_desc:
+                search_terms += [t for t in _extract_product_keywords(vision_desc)
+                                 if t not in search_terms]
         else:
             search_terms = [product_keyword]
 
@@ -544,8 +571,9 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
 
         # For image matches, pull a WIDER shortlist and let vision pick the real
         # one. Keyword search can't tell a wrap-front palazzo from a plain
-        # wide-leg; side-by-side photos can.
-        _img_verify = (keyword_source == "image" and bool(image_urls))
+        # wide-leg; side-by-side photos can. A caption-sourced search gets the
+        # same treatment when we have a picture to compare against.
+        _img_verify = (keyword_source in ("image", "post_caption") and bool(image_urls))
         matches = search_products(search_terms, limit=(12 if _img_verify else 3))
 
         if _img_verify and matches:
@@ -959,17 +987,48 @@ def _extract_product_keywords(message: str, max_terms: int = 4) -> list[str]:
         "and", "or", "if", "for", "to", "of", "with", "hi", "hello", "hey",
         "any", "show", "me", "got", "we", "us", "some", "more", "please",
         "can", "could", "would", "will", "want", "need", "looking", "find",
+        # Marketing filler, mostly from our own post captions. "restocked"
+        # scored above the garment's actual name under length-ordering.
+        "new", "sale", "shop", "now", "out", "link", "bio", "order", "get",
+        "just", "back", "only", "left", "swipe", "tap", "click", "here",
+        "dm", "price", "ksh", "kes", "off", "today", "limited",
     }
-    words = [w.strip("?.,!") for w in message.lower().split()]
+    words = [w.strip("?.,!\"'()[]—–-") for w in message.lower().split()]
     candidates = [w for w in words if w and w not in stopwords and len(w) >= 3]
-    # Dedupe while preserving order, then sort by length desc
+    # Dedupe while preserving order
     seen = set()
     unique = []
     for w in candidates:
         if w not in seen:
             seen.add(w)
             unique.append(w)
-    unique.sort(key=len, reverse=True)
+
+    if len(unique) <= max_terms:
+        return unique
+
+    # More candidates than slots, so the choice matters. Rank by how RARE each
+    # word is among product names rather than by length: length is a terrible
+    # proxy for distinctiveness — in "Vivo Lani Maxi Dress In Satin, restocked"
+    # it picked "restocked" (9 chars, matches 0 products) over "lani" (4 chars,
+    # matches 33). Rarity puts the words that actually identify a garment first.
+    # One query for all terms; only runs when we have to discard something.
+    try:
+        from app import db          # not imported at module level in this file
+        from app.models import ProductCache
+        from sqlalchemy import func, case
+        cols = [func.count(case((ProductCache.name.ilike(f"%{w}%"), 1))) for w in unique]
+        counts = list(db.session.query(*cols).one())
+        scored = list(zip(unique, counts))
+        # A word in no product name at all is noise, not a rare gem — drop it,
+        # unless that would leave us with nothing to search on.
+        present = [(w, n) for w, n in scored if n > 0]
+        if present:
+            present.sort(key=lambda wn: wn[1])          # rarest first
+            return [w for w, _ in present[:max_terms]]
+    except Exception as e:
+        log_event("warn", "services.keyword_rarity_failed", str(e)[:160])
+
+    unique.sort(key=len, reverse=True)                  # fallback: old behaviour
     return unique[:max_terms]
 
 

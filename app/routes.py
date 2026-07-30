@@ -288,6 +288,13 @@ def instagram_webhook():
                 # image-only filter dropped it and the AI never saw what the
                 # customer sent. Pull a usable image URL out of those too.
                 image_urls = []
+                # When the customer forwards one of OUR posts, keep the post's
+                # media id as well as its picture. Our own caption normally
+                # names the exact product ("Vivo Lani Maxi Dress in Satin"),
+                # which pins it down far better than asking vision to guess the
+                # garment from a photo. Previously only image_url survived and
+                # the caption was discarded.
+                shared_post_id = None
                 for a in (msg.get("attachments") or []):
                     payload = a.get("payload") or {}
                     atype = a.get("type")
@@ -296,6 +303,8 @@ def instagram_webhook():
                     elif atype in ("ig_post", "share", "ig_reel", "story_mention"):
                         u = payload.get("image_url") or payload.get("thumbnail_url")
                         post_mid = payload.get("ig_post_media_id")
+                        if post_mid and not shared_post_id:
+                            shared_post_id = post_mid
                         if not u and post_mid:
                             try:
                                 from app.integrations.meta import fetch_instagram_media
@@ -321,7 +330,7 @@ def instagram_webhook():
                         image_urls.append(u)
                 mid = msg.get("mid")
                 if sender_id and (text or image_urls):
-                    events.append((sender_id, text or "", mid, image_urls))
+                    events.append((sender_id, text or "", mid, image_urls, shared_post_id))
 
             # Shape 2: changes[] with field=messages
             for change in (entry.get("changes") or []):
@@ -340,6 +349,7 @@ def instagram_webhook():
                 # image-only filter dropped it and the AI never saw what the
                 # customer sent. Pull a usable image URL out of those too.
                 image_urls = []
+                shared_post_id = None    # see the note on the other shape above
                 for a in (msg.get("attachments") or []):
                     payload = a.get("payload") or {}
                     atype = a.get("type")
@@ -348,6 +358,8 @@ def instagram_webhook():
                     elif atype in ("ig_post", "share", "ig_reel", "story_mention"):
                         u = payload.get("image_url") or payload.get("thumbnail_url")
                         post_mid = payload.get("ig_post_media_id")
+                        if post_mid and not shared_post_id:
+                            shared_post_id = post_mid
                         if not u and post_mid:
                             try:
                                 from app.integrations.meta import fetch_instagram_media
@@ -373,7 +385,7 @@ def instagram_webhook():
                         image_urls.append(u)
                 mid = msg.get("mid")
                 if sender_id and (text or image_urls):
-                    events.append((sender_id, text or "", mid, image_urls))
+                    events.append((sender_id, text or "", mid, image_urls, shared_post_id))
 
             # Shape 3: changes[] with field=comments  →  IG comment events
             for change in (entry.get("changes") or []):
@@ -425,7 +437,7 @@ def instagram_webhook():
             for sender_id, _sender_events in _grouped.items():
                 if len(_sender_events) > 1:
                     from app.services import _save_message
-                    for (_sid, _txt, _mid, _imgs) in _sender_events[:-1]:
+                    for (_sid, _txt, _mid, _imgs, _post) in _sender_events[:-1]:
                         try:
                             _save_message(
                                 user_id=sender_id, channel="instagram_dm",
@@ -435,13 +447,14 @@ def instagram_webhook():
                             )
                         except Exception:
                             pass
-                _sid, message_text, mid, image_urls = _sender_events[-1]
+                _sid, message_text, mid, image_urls, shared_post_id = _sender_events[-1]
                 try:
                     process_inbound(
                         message=message_text,
                         user_id=sender_id,
                         channel="instagram_dm",
                         external_id=mid,
+                        media_id=shared_post_id,   # our post, if they forwarded one
                         image_urls=image_urls,
                     )
                     # DM webhooks carry only the numeric IGSID, so resolve the

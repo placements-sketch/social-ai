@@ -286,19 +286,30 @@ def describe_product_in_image(image_urls: list) -> str | None:
             return None
         blocks.append({
             "type": "text",
-            "text": ("Identify the main fashion or beauty product in this image. "
-                     "Reply with ONLY 2-5 search keywords describing it (type, colour, "
-                     "style) — no sentences, no punctuation. Example: tan leather mules"),
+            "text": (
+                "Identify the main fashion or beauty product in this image.\n\n"
+                "FIRST: if the image contains readable text naming the product — a "
+                "screenshot of a product page, a post with the title written on it, a "
+                "price tag, a label — copy those exact words. A real product name beats "
+                "any description you could write, because it can be looked up directly.\n"
+                "THEN: add 2-5 keywords describing what you see (type, colour, style).\n\n"
+                "Reply with the words only, space separated. No sentences, no "
+                "punctuation, no explanation.\n"
+                "Example with visible text: Vivo Lani Maxi Dress Satin black white print\n"
+                "Example without:           tan leather mules"
+            ),
         })
 
         client = anthropic.Anthropic(api_key=current_app.config["ANTHROPIC_API_KEY"])
         model = current_app.config.get("CLASSIFIER_MODEL") or current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
         resp = client.messages.create(
             model=model,
-            max_tokens=30,
+            # Room for a product name plus descriptors — 30 tokens truncated
+            # mid-name once the prompt started asking for on-image text.
+            max_tokens=80,
             messages=[{"role": "user", "content": blocks}],
         )
-        text = resp.content[0].text.strip().replace("\n", " ")[:80].strip()
+        text = resp.content[0].text.strip().replace("\n", " ")[:160].strip()
         log_event("info", "ai.vision.describe",
                   f"Vision product description: {text!r}",
                   payload={"description": text})
