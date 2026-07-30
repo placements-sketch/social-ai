@@ -871,6 +871,26 @@ agent writes from the Instagram app simply recreates it.
 
 ### Step 15 — Make the global AI kill switch reversible
 
+> ## ⚠ RUN THIS BEFORE DEPLOYING THE CODE
+>
+> This is the only step so far that the application **requires**. Steps 13 and
+> 14 are optional improvements; this one adds a column the `Conversation` model
+> declares, and SQLAlchemy selects every declared column on every query.
+>
+> Deploy the code without this and **every endpoint touching conversations
+> returns 500** — the inbox, the counts, analytics, alerts and channels all at
+> once — with `psycopg2.errors.UndefinedColumn: column
+> conversations.ai_auto_paused_at does not exist` in the Render logs and
+> `Unexpected token '<'` in the browser console (that is Render's HTML error
+> page arriving where JSON was expected).
+>
+> If that has already happened, run the SQL below. No restart is needed; the
+> next request picks it up.
+>
+> **General rule this belongs to:** additive schema changes run *before* the
+> code that uses them, never after.
+
+
 **Why.** The master switch in Settings is a flag checked when a reply is about
 to be sent. It never touches `conversations.ai_enabled`. So while it is off:
 

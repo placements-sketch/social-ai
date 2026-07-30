@@ -447,6 +447,21 @@ body::before {
 
 .dark .card,
 .dark .stat-card,
+/* Dialog surfaces.
+   .glass is 66% opaque in light mode and 55% in dark. Over a plain page that
+   reads as material; over the conversation list — which is the only place a
+   confirmation ever appears — the text behind it shows through and the message
+   becomes hard to read. A dialog is a decision point, so legibility wins: keep
+   the blur and the lit edge, drop the transparency. */
+.glass-modal {
+  background-color: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+.dark .glass-modal {
+  background-color: rgba(24, 24, 24, 0.97);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
 .dark .glass {
   background-color: var(--glass-bg);
   border-color: var(--glass-border);
