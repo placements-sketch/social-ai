@@ -125,11 +125,20 @@ def conversation_counts():
     # admin's means "unread". Resolved threads are excluded from both: a closed
     # conversation with an unread message is not outstanding work.
     open_q = query.filter(Conversation.status != 'resolved')
+    open_convs = open_q.all()
+
+    # Unread is PER USER, from each person's own read position — the same
+    # source the inbox list uses. Reading Conversation.unread_count instead
+    # would be a different number entirely: that column is a shared counter
+    # that mark_read never touches, so the badge would keep claiming unread
+    # mail the list had already shown as read.
+    unread_map = _unread_counts_for_user(current_user.id, open_convs) if current_user else {}
+
     return jsonify({
-        'needs_human': open_q.filter(Conversation.ai_enabled.is_(False)).count(),
-        'unread':      open_q.filter(Conversation.unread_count > 0).count(),
-        'unassigned':  open_q.filter(Conversation.assigned_to.is_(None),
-                                     Conversation.status == 'human_override').count(),
+        'needs_human': sum(1 for c in open_convs if not c.ai_enabled),
+        'unread':      sum(1 for c in open_convs if unread_map.get(c.id, 0) > 0),
+        'unassigned':  sum(1 for c in open_convs
+                           if c.assigned_to is None and c.status == 'human_override'),
     }), 200
 
 
@@ -328,7 +337,16 @@ def send_reply(conversation_id):
     conv.last_message = content
     conv.last_message_at = now
     if sender == 'human':
+        was_resolved = conv.status == 'resolved'
         conv.status = 'human_override'
+        # Replying re-opens a resolved conversation, so the resolution stamps
+        # have to go with it. Leaving them set produced a conversation that was
+        # 'human_override' but still carried resolved_at — and the per-agent
+        # "resolved in window" metric counts that column, so a re-opened
+        # conversation stayed on the books as resolved.
+        if was_resolved:
+            conv.resolved_at = None
+            conv.resolved_by = None
         if conv.ai_enabled:                          # only stamp the transition
             conv.ai_disabled_at = now
         conv.ai_enabled = False                      # human takes over → pause Claude

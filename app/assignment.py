@@ -113,8 +113,19 @@ def assign(conversation_id):
     if not isinstance(agent_id, int):
         return jsonify({'error': 'agent_id (integer) is required'}), 400
 
-    if current_user.role == 'agent' and agent_id != current_user.id:
-        return jsonify({'error': 'Agents can only self-claim conversations'}), 403
+    if current_user.role == 'agent':
+        if agent_id != current_user.id:
+            return jsonify({'error': 'Agents can only self-claim conversations'}), 403
+        # Self-claim means taking from the QUEUE, not taking from a colleague.
+        # This checked who could be assigned but never which conversation, so
+        # an agent could POST any conversation id and reassign it to
+        # themselves — verified: agent 7 took conversation 11 off agent 5.
+        # Reassigning someone else's work stays a supervisor decision.
+        if conv.assigned_to is not None and conv.assigned_to != current_user.id:
+            return jsonify({
+                'error': 'That conversation is already assigned to someone else. '
+                         'Ask a supervisor to reassign it.'
+            }), 403
 
     target = AuthUser.query.get(agent_id)
     if not target:
