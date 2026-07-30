@@ -24,6 +24,21 @@ additive, so the running code keeps working against the new columns.
 
 ---
 
+## Just want to get it done?
+
+Open **[`dashboard-all-steps.sql`](dashboard-all-steps.sql)**, paste the whole
+thing into the Supabase SQL editor, run it. That's steps 2–6 in the right
+order, in one block.
+
+It doesn't matter what you've already run. Every statement is guarded, so
+anything applied before matches zero rows the second time. Verified: running
+the whole file against an already-migrated database changed **0 rows on every
+statement**.
+
+The step-by-step version below exists if you want to know what each part does.
+
+---
+
 ## "Which steps have I already run?"
 
 **Don't rely on memory — ask the database.** These two queries report the state
