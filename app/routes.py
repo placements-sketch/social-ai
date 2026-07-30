@@ -397,12 +397,22 @@ def instagram_webhook():
                 from_user = value.get("from") or {}
                 sender_id = from_user.get("id")
                 username = from_user.get("username")
-                # Skip if it's our own comment (a previous reply we sent)
-                if sender_id in our_ids:
-                    continue
+                # Our own comments are no longer dropped here. They are passed
+                # to the pipeline like any other event, where _authored_by_us()
+                # stops the AI reacting and record_own_platform_reply() files
+                # them into the customer's thread. Dropping them at the door
+                # meant an agent's reply written in the Instagram app never
+                # appeared in our inbox at all, so the thread showed a question
+                # with no answer under it.
+                #
+                # parent_id is what makes that possible: on a reply to another
+                # comment Meta sends the id of the comment being replied to,
+                # which is the customer's original comment.
+                parent_id = value.get("parent_id")
                 media_id = (value.get("media") or {}).get("id")
                 if sender_id and text and comment_id:
-                    comment_events.append((sender_id, text, comment_id, username, media_id))
+                    comment_events.append((sender_id, text, comment_id, username,
+                                           media_id, parent_id))
 
     except Exception as e:
         current_app.logger.error(f"[IG webhook] parse error: {e}")
@@ -480,7 +490,8 @@ def instagram_webhook():
                     app_obj.logger.error(f"[IG webhook bg] DM process error for {sender_id}: {e}")
 
             # Process Comment events
-            for sender_id, comment_text, comment_id, username, media_id in comment_events:
+            for (sender_id, comment_text, comment_id, username, media_id,
+                 parent_id) in comment_events:
                 try:
                     process_message(
                         message=comment_text,
@@ -488,6 +499,7 @@ def instagram_webhook():
                         channel="instagram_comment",
                         external_id=comment_id,
                         media_id=media_id,
+                        parent_id=parent_id,
                     )
                     # Patch the username on the User row so the UI shows the
                     # handle instead of the numeric ID.
@@ -533,6 +545,9 @@ def instagram_comments_webhook():
 
     sender_id = None
     message_text = None
+    comment_id = None
+    media_id = None
+    parent_id = None
 
     try:
         for entry in (data.get("entry") or []):
@@ -542,6 +557,16 @@ def instagram_comments_webhook():
                 value = change.get("value") or {}
                 sender_id = (value.get("from") or {}).get("id")
                 message_text = value.get("text", "")
+                # Carried through so this route behaves like the main webhook.
+                # It used to pass only the text and the sender, so a comment
+                # arriving here got no idempotency key, no post context, and no
+                # parent — meaning an agent's on-platform reply could not be
+                # filed into the customer's thread and a redelivery would be
+                # saved twice. Which of the two routes Meta uses should not
+                # change what happens to the comment.
+                comment_id = value.get("id")
+                media_id = (value.get("media") or {}).get("id")
+                parent_id = value.get("parent_id")
                 if sender_id and message_text:
                     break
             if sender_id and message_text:
@@ -556,7 +581,10 @@ def instagram_comments_webhook():
     reply = process_message(
         message=message_text,
         user_id=sender_id,
-        channel="instagram_comment"
+        channel="instagram_comment",
+        external_id=comment_id,
+        media_id=media_id,
+        parent_id=parent_id,
     )
 
     return jsonify({"reply": reply}), 200

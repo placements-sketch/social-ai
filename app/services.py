@@ -329,8 +329,100 @@ def _authored_by_us(user_id: str, channel: str) -> bool:
     return candidate.lower().lstrip('@') in handles
 
 
+def record_own_platform_reply(message: str, channel: str,
+                              external_id: str | None = None,
+                              parent_id: str | None = None) -> bool:
+    """
+    File a reply an agent wrote on the platform itself into the customer's thread.
+
+    Agents answer comments straight from the Instagram app. Those replies used to
+    be dropped on the floor: the guard in process_message() stopped the AI
+    reacting to them, but the thread in our inbox then showed the customer's
+    question with no answer under it, and an agent picking it up later had no way
+    to know it had already been handled.
+
+    Meta sends `parent_id` on a comment that replies to another comment. That is
+    the customer's original comment, which we stored with its comment id in
+    Message.external_id — so the parent points straight at the thread this
+    belongs to.
+
+    Returns True when the reply was filed, False when there is nothing to attach
+    it to (a fresh top-level comment we posted under our own post belongs to no
+    customer conversation, and inventing one would recreate the very problem
+    this replaced).
+    """
+    if not parent_id or not message:
+        return False
+
+    from app import db
+    from app.models import Message, Conversation
+
+    try:
+        # Idempotent: Meta redelivers webhooks, and this must not double-post
+        # into the thread.
+        if external_id:
+            existing = Message.query.filter_by(external_id=external_id).first()
+            if existing:
+                return True
+
+        parent = Message.query.filter_by(external_id=parent_id).first()
+        if not parent:
+            # The comment we replied to was never ingested — most likely it
+            # predates this integration. Nothing to attach to.
+            log_event("info", "services.own_reply_unattached",
+                      "Agent replied on-platform to a comment we never ingested",
+                      payload={"channel": channel, "parent_id": str(parent_id)[:64]})
+            return False
+
+        conversation = Conversation.query.get(parent.conversation_id)
+        if not conversation:
+            return False
+
+        row = Message(
+            conversation_id=conversation.id,
+            user_id=parent.user_id,          # still the customer's thread
+            channel=channel,
+            direction="outbound",
+            sender="human",                  # a person wrote it, just not in here
+            content=message,
+            external_id=external_id,
+            media_id=parent.media_id,
+            ai_eligible=False,               # the AI was never in a position to send it
+        )
+        db.session.add(row)
+
+        conversation.last_message = message[:200]
+        conversation.last_message_at = datetime.utcnow()
+
+        # A human has visibly taken this thread over on the platform. Leaving the
+        # AI armed invites exactly the collision this whole change is about: the
+        # agent answers on Instagram, the AI answers again underneath, and the
+        # customer gets two different replies in public.
+        if conversation.ai_enabled:
+            conversation.ai_enabled = False
+            log_event("info", "services.ai_off_agent_replied_on_platform",
+                      "AI switched off for this conversation — an agent answered "
+                      "from the platform app",
+                      conversation_id=conversation.id)
+
+        db.session.commit()
+        log_event("info", "services.own_reply_recorded",
+                  "Filed an agent's on-platform reply into the customer thread",
+                  conversation_id=conversation.id)
+        return True
+
+    except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        log_event("error", "services.own_reply_failed", str(e))
+        return False
+
+
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None,
-                    media_id: str | None = None, image_urls: list | None = None) -> str:
+                    media_id: str | None = None, image_urls: list | None = None,
+                    parent_id: str | None = None) -> str:
     """
     Public pipeline entry point — a thin wrapper that guarantees an unanswered
     message is always explainable.
@@ -348,11 +440,19 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # nothing is persisted either — an agent replying from the Instagram app
     # must not create a conversation in which we are the customer.
     if _authored_by_us(user_id, channel):
+        # Not merely ignored — filed into the customer's thread when we can tell
+        # which thread it belongs to, so the inbox shows the answer the customer
+        # actually received.
+        filed = record_own_platform_reply(message, channel,
+                                          external_id=external_id,
+                                          parent_id=parent_id)
         log_event("info", "services.no_reply_sent",
-                  f"Ignored an event authored by our own account on {channel}",
+                  f"Event authored by our own account on {channel} "
+                  f"({'filed into the customer thread' if filed else 'no thread to file it under'})",
                   payload={"reason": NO_REPLY_OWN_ACCOUNT,
                            "channel": channel,
-                           "sender": str(user_id)[:64]})
+                           "sender": str(user_id)[:64],
+                           "filed": filed})
         return AI_SUPPRESSED
 
     try:

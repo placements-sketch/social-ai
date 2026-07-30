@@ -303,6 +303,85 @@ now requires the post to appear in a conversation the caller is allowed to open.
 
 ---
 
+## 9b. Replies your agents write inside the Instagram app
+
+### The problem
+
+Agents often answer a comment straight from the Instagram app rather than from
+this platform. Instagram sends those replies back to us through the same
+webhook a customer's comment arrives on — same shape, same fields, our own
+account as the sender.
+
+They were being ingested as **inbound customer messages**. That is why the inbox
+contained a conversation whose "customer" was our own handle.
+
+The clutter was the small part. The AI treats an inbound message as a question
+to answer. So an agent's reply ending in a question mark — *"want me to check
+your size?"* — would have been answered by the AI, publicly, under our own post.
+And because the AI's own comment replies come back through that same webhook,
+each answer produces another event to answer. A loop, in public, under our
+brand name. The only thing preventing it was the AI master switch being off.
+
+### Why the existing guard didn't catch it
+
+There *was* a check. It failed for two reasons:
+
+1. It read the account ID from an **environment variable**, while the real
+   account identity comes from the Instagram OAuth connection stored in the
+   database. If the variable is unset or points at a different account, the
+   check passes everything through and says nothing.
+2. There are two Instagram comment webhook routes and **one of them had no
+   check at all.**
+
+### What happens now
+
+One guard at the single point every webhook funnels through, rather than a
+check repeated in four route handlers — a guard you have to remember at four
+call sites is a guard that will be missing at one of them. It reads identity
+from the OAuth connection *and* the environment variables, so a missing
+connection row cannot silently switch it off.
+
+Then, rather than throwing the reply away, we file it where it belongs.
+Instagram sends a `parent_id` on a comment that replies to another comment —
+that is the customer's original comment, which we already stored. So the reply
+is attached to that customer's thread as an outbound message from a person.
+
+The result: the inbox shows the customer's question **and** the answer they
+actually received, even though it was typed in the Instagram app.
+
+Three details worth knowing:
+
+- **It's idempotent.** Instagram redelivers webhooks. Filing checks the comment
+  id first, so a redelivery does not post the reply into the thread twice.
+- **A top-level comment we post under our own post is not filed anywhere.** It
+  belongs to no customer conversation, and inventing one would recreate the
+  original problem.
+- **The AI is switched off for that conversation automatically.** This is a
+  deliberate behaviour change, and the one to flag: a human has visibly taken
+  the thread over on the platform, so leaving the AI armed invites the exact
+  collision this change exists to prevent — the agent answers on Instagram, the
+  AI answers again underneath, and the customer receives two different replies
+  in public. It is logged as `services.ai_off_agent_replied_on_platform`. If
+  you would rather agents kept the AI running after replying by hand, this is a
+  one-line change.
+
+### Checking it works, after deploy
+
+```sql
+SELECT created_at, message, payload
+FROM logs
+WHERE source IN ('services.no_reply_sent', 'services.own_reply_recorded')
+  AND (payload->>'reason' = 'authored_by_us' OR source = 'services.own_reply_recorded')
+ORDER BY created_at DESC LIMIT 20;
+```
+
+`services.own_reply_unattached` is the one to watch: it means an agent replied
+on-platform to a comment we never ingested, so there was no thread to file it
+under. A few of those is normal (comments predating the integration). A lot of
+them means comments are not being ingested.
+
+---
+
 ## 10. Honest limitations
 
 Things I could not fully verify, so you aren't caught out:
