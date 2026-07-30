@@ -81,6 +81,9 @@ const statusMatchers = {
   resolved:  c => c.status === 'resolved',
 }
 
+// Rows per page in the conversation list.
+const PAGE_SIZE = 20
+
 const STATUS_FILTERS = [
   { key: 'unclaimed', label: 'Unclaimed',  dot: 'bg-red-500'   },
   { key: 'human',     label: 'With agent', dot: 'bg-amber-500' },
@@ -190,6 +193,10 @@ export default function Messages() {
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
   const [channelFilter, setChannelFilter] = useState('all') // filters by DB `channel`
   const [statusFilter, setStatusFilter] = useState(null)        // null | unclaimed | human | ai | resolved
+  const [page, setPage] = useState(1)
+  const [totalConvos, setTotalConvos] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [statusCounts, setStatusCounts] = useState(null)         // server-side, whole set
   const [assignedFilter, setAssignedFilter] = useState(null)    // null | 'me' | 'unassigned' (set by deep links)
   const [search, setSearch]             = useState('')
 
@@ -256,6 +263,9 @@ export default function Messages() {
   const channels = allChannels
 
   // ── Load the conversation list (re-runs on filter / search change) ────────
+  // Paged. The list previously requested page 1 / 20 rows and offered no way
+  // to reach the rest — with 46 conversations, 26 were simply unreachable
+  // through the UI, with nothing on screen to suggest they existed.
   const loadList = useCallback(async () => {
     setLoadingList(true)
     setListError(null)
@@ -266,9 +276,11 @@ export default function Messages() {
         channel: channelFilter,
         search,
         page: 1,
-        per_page: 20,
+        per_page: PAGE_SIZE,
       })
       setConversations(data.conversations || [])
+      setTotalConvos(data.total ?? (data.conversations || []).length)
+      setPage(1)
     } catch (err) {
       setListError(err.message)
     } finally {
@@ -276,31 +288,80 @@ export default function Messages() {
     }
   }, [channelFilter, search])
 
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      const next = page + 1
+      const data = await listConversations({
+        channel: channelFilter, search, page: next, per_page: PAGE_SIZE,
+      })
+      const incoming = data.conversations || []
+      // Merge by id — a conversation can move between pages while you're
+      // reading (a new message reorders the list), which would otherwise
+      // duplicate it.
+      setConversations(prev => {
+        const seen = new Set(prev.map(c => c.id))
+        return [...prev, ...incoming.filter(c => !seen.has(c.id))]
+      })
+      setTotalConvos(data.total ?? totalConvos)
+      setPage(next)
+    } catch { /* leave the list as-is; the button stays available */ }
+    finally { setLoadingMore(false) }
+  }, [channelFilter, search, page, loadingMore, totalConvos])
+
   useEffect(() => {
     // Load conversations on initial mount and when filters change
     const t = setTimeout(loadList, search ? 300 : 0)
     return () => clearTimeout(t)
   }, [loadList, search, channelFilter])
 
-  // ── Poll the conversation list every 10s for new conversations / messages.
+  // Status counts come from the server so the chips describe the whole inbox
+  // rather than the page you happen to have loaded.
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const { getConversationCounts } = await import('../api/messages')
+        const counts = await getConversationCounts()
+        if (!cancelled) setStatusCounts(counts.by_status || null)
+      } catch { /* chips fall back to counting the loaded page */ }
+    }
+    load()
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') load()
+    }, 15000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
+
+  // ── Poll the conversation list for new conversations / messages.
   // Silent refresh: doesn't toggle loadingList so the list never flickers.
   useEffect(() => {
     const silentRefresh = async () => {
+      if (document.visibilityState !== 'visible') return
       try {
+        // Refresh page 1 only and MERGE, so polling can't throw away pages the
+        // user has already loaded — replacing wholesale would have snapped a
+        // scrolled list back to the first 20 every 10 seconds.
         const data = await listConversations({
-          channel: channelFilter,
-          search,
-          page: 1,
-          per_page: 20,
+          channel: channelFilter, search, page: 1, per_page: PAGE_SIZE,
         })
-        setConversations(data.conversations || [])
+        const fresh = data.conversations || []
+        setTotalConvos(data.total ?? totalConvos)
+        setConversations(prev => {
+          if (prev.length <= fresh.length) return fresh
+          const byId = new Map(fresh.map(c => [c.id, c]))
+          const updated = prev.map(c => byId.get(c.id) || c)
+          const known = new Set(prev.map(c => c.id))
+          return [...fresh.filter(c => !known.has(c.id)), ...updated]
+        })
       } catch {
         // Silent fail — the visible list should never crash on poll error
       }
     }
     const timer = setInterval(silentRefresh, 10000)
     return () => clearInterval(timer)
-  }, [channelFilter, search])
+  }, [channelFilter, search, totalConvos])
 
   // Typing indicator: show ~3s after a new inbound message arrives,
   // OR until the AI reply appears (whichever first).
@@ -730,7 +791,9 @@ const handleSend = async () => {
             filter above. Counts are of what's currently loaded. */}
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {STATUS_FILTERS.map(({ key, label, dot }) => {
-            const n = conversations.filter(statusMatchers[key]).length
+            // Server count over the WHOLE set; the loaded-page count is only
+            // a fallback for the moment before the first counts call lands.
+            const n = statusCounts?.[key] ?? conversations.filter(statusMatchers[key]).length
             const active = statusFilter === key
             return (
               <button
@@ -861,6 +924,24 @@ const handleSend = async () => {
           </button>
           )
         })}
+
+        {/* Load more. Without this the inbox silently ended at 20 rows — no
+            control, no count, nothing to indicate more existed. Hidden while
+            a status filter is active, since that filters the loaded set and
+            paging through it would be misleading. */}
+        {!loadingList && !listError && !statusFilter && conversations.length < totalConvos && (
+          <div className="px-2 py-3">
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="w-full py-2.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {loadingMore
+                ? 'Loading…'
+                : `Load more · showing ${conversations.length} of ${totalConvos}`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -9,6 +9,7 @@ on:
     - cron: '10 */3 * * *'   # every 3h, :10 — products
     - cron: '0 2 * * 0'    # Sunday 05:00 EAT — weekly reconcile
     - cron: '0 1 * * *'    # daily 04:00 EAT — conversion attribution
+    - cron: '30 1 * * *'   # daily 04:30 EAT — auto-resolve stale conversations
 
   # Allow manual triggering from the GitHub UI for testing
   workflow_dispatch:
@@ -25,6 +26,7 @@ on:
           - all
           - reconcile
           - attribute
+          - auto-resolve
 
 jobs:
   sync:
@@ -58,6 +60,9 @@ jobs:
           elif [ "$SCHEDULE" = "0 1 * * *" ]; then
             echo "Scheduled run for attribution"
             echo "sync=attribute" >> $GITHUB_OUTPUT
+          elif [ "$SCHEDULE" = "30 1 * * *" ]; then
+            echo "Scheduled run for auto-resolve"
+            echo "sync=auto-resolve" >> $GITHUB_OUTPUT
           else
             echo "Unknown trigger, running nothing"
             echo "sync=none" >> $GITHUB_OUTPUT
@@ -174,6 +179,23 @@ jobs:
           echo "Status: $status"; echo "Body: $body"
           if [ "$status" != "202" ] && [ "$status" != "409" ]; then
             echo "::error::Attribution failed with status $status"; exit 1
+          fi
+
+      # Closes conversations that have gone quiet. Not part of 'all' — it
+      # mutates conversation state, so it only runs on its own schedule or a
+      # deliberate manual choice.
+      - name: Trigger auto-resolve
+        if: steps.which.outputs.sync == 'auto-resolve'
+        run: |
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://social-ai-backend-tult.onrender.com/api/cron/auto-resolve" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+          echo "Status: $status"; echo "Body: $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Auto-resolve failed with status $status"; exit 1
           fi
 
       - name: Discord alert on failure

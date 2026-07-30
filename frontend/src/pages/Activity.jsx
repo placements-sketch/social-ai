@@ -4,15 +4,25 @@ import clsx from 'clsx'
 import { Bell, ScrollText } from 'lucide-react'
 import Notifications from './Notifications'
 import Logs from './Logs'
+import { useAuth } from '../context/AuthContext'
 
-const TABS = [
-  { key: 'notifications', label: 'Notifications', Icon: Bell,       Comp: Notifications },
-  { key: 'logs',          label: 'System Logs',   Icon: ScrollText, Comp: Logs },
+// System Logs is admin-only. Raw pipeline logs are engineering output — an
+// agent or supervisor can act on none of it, and it leaks internals (database
+// hostnames, IPs, stack traces). Anything they DO need reaches them as a
+// notification instead.
+const ALL_TABS = [
+  { key: 'notifications', label: 'Notifications', Icon: Bell,       Comp: Notifications, roles: ['admin', 'supervisor', 'agent'] },
+  { key: 'logs',          label: 'System Logs',   Icon: ScrollText, Comp: Logs,          roles: ['admin'] },
 ]
 
 export default function Activity() {
+  const { user } = useAuth()
   const [params, setParams] = useSearchParams()
-  const initial = params.get('tab') === 'logs' ? 'logs' : 'notifications'
+  const TABS = ALL_TABS.filter(t => t.roles.includes(user?.role))
+  const wanted = params.get('tab') === 'logs' ? 'logs' : 'notifications'
+  // A non-admin landing on ?tab=logs (an old link, a bookmark) falls back to
+  // notifications rather than hitting a tab that isn't there.
+  const initial = TABS.some(t => t.key === wanted) ? wanted : 'notifications'
   const [tab, setTab] = useState(initial)
 
   const select = (key) => {
@@ -20,7 +30,7 @@ export default function Activity() {
     setParams(key === 'notifications' ? {} : { tab: key }, { replace: true })
   }
 
-  const Active = TABS.find(t => t.key === tab).Comp
+  const Active = (TABS.find(t => t.key === tab) || TABS[0]).Comp
 
   return (
     <div className="space-y-5 w-full max-w-5xl mx-auto">

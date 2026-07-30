@@ -31,9 +31,11 @@ const allNav = [
       { to: '/settings?tab=channels', label: 'Channels', roles: ['admin'] },
     ] },
 
+  // System Logs is admin-only — raw pipeline output nobody else can act on.
+  // For supervisors and agents this renders as a plain link with no submenu.
   { to: '/notifications', icon: Bell, label: 'Activity', roles: ['admin', 'agent', 'supervisor'], group: 'System',
     children: [
-      { to: '/logs', label: 'System Logs', roles: ['admin', 'agent', 'supervisor'] },
+      { to: '/logs', label: 'System Logs', roles: ['admin'] },
     ] },
 ]
 
@@ -54,15 +56,18 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
   const [messagesBadge, setMessagesBadge] = useState(0)
   useEffect(() => {
     let cancelled = false
-    const isAgent = user?.role === 'agent'
     const load = async () => {
       try {
         const { getConversationCounts } = await import('../api/messages')
         const counts = await getConversationCounts()
         if (cancelled) return
-        // Agents: conversations waiting on a person — the AI handles the rest.
-        // Admins / supervisors: unread. Both exclude resolved, server-side.
-        setMessagesBadge(isAgent ? (counts.needs_human || 0) : (counts.unread || 0))
+        // "Needs a person" for EVERY role — chats where the AI is switched off
+        // and a human has to act. It used to show UNREAD to admins and
+        // supervisors, which for someone who oversees rather than replies means
+        // "conversations you personally haven't opened" — 19 here versus 3
+        // that actually need anyone. A badge that never goes down unless you
+        // read every chat isn't telling you anything.
+        setMessagesBadge(counts.needs_human || 0)
       } catch { /* silent — a badge should never crash the sidebar */ }
     }
     load()

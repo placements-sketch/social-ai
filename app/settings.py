@@ -27,6 +27,11 @@ DEFAULTS = {
         # How long a customer may wait on an agent who already owns the
         # conversation before it shows in that agent's "Needs Attention" panel.
         "agent_waiting_minutes": int(os.getenv("AGENT_WAITING_MINUTES", "10")),
+        # Close a conversation after this many days of silence — but only when
+        # WE spoke last. If the customer spoke last we still owe them a reply,
+        # and auto-closing that would hide a dropped customer rather than
+        # finish a conversation. 0 disables auto-resolution entirely.
+        "auto_resolve_days": int(os.getenv("AUTO_RESOLVE_DAYS", "14")),
         "bridging_reply": (
             "Thanks for reaching out — I'm connecting you with a member of our team "
             "who'll get back to you shortly. We appreciate your patience."

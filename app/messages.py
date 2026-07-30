@@ -134,11 +134,24 @@ def conversation_counts():
     # mail the list had already shown as read.
     unread_map = _unread_counts_for_user(current_user.id, open_convs) if current_user else {}
 
+    # Status buckets for the inbox filter chips. Computed server-side over the
+    # WHOLE scoped set: the chips used to count whatever the list had loaded,
+    # which is one page of 20, so with 46 conversations "Resolved" read 11 when
+    # the real answer was 27. A count that depends on how far you've scrolled
+    # is worse than no count.
     return jsonify({
         'needs_human': sum(1 for c in open_convs if not c.ai_enabled),
         'unread':      sum(1 for c in open_convs if unread_map.get(c.id, 0) > 0),
         'unassigned':  sum(1 for c in open_convs
                            if c.assigned_to is None and c.status == 'human_override'),
+        'by_status': {
+            'unclaimed': sum(1 for c in open_convs
+                             if not c.assigned_to and not c.ai_enabled),
+            'human':     sum(1 for c in open_convs
+                             if c.assigned_to and not c.ai_enabled),
+            'ai':        sum(1 for c in open_convs if c.ai_enabled),
+            'resolved':  query.filter(Conversation.status == 'resolved').count(),
+        },
     }), 200
 
 

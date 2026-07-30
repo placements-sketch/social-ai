@@ -1100,3 +1100,57 @@ def cron_check_unclaimed():
               f"{len(result['alerted'])} newly alerted",
               payload=result)
     return jsonify({'ok': True, **result}), 200
+
+
+@cron_bp.route('/auto-resolve', methods=['POST'])
+@require_cron_secret
+def cron_auto_resolve():
+    """
+    Close conversations that have gone quiet, so the inbox stays a worklist
+    rather than an archive.
+
+    NOTHING else ever resolves a conversation — the only other path is an agent
+    clicking Resolve, and nobody watches AI-handled conversations, so they sat
+    open indefinitely. That also defeated conversation threading: a returning
+    customer joins the most recent OPEN conversation, so without closure every
+    customer had one thread for life and "a dress in July / trousers in
+    September" were the same conversation.
+
+    The rule is deliberately one-sided: only close where WE spoke last. If the
+    customer spoke last we still owe them a reply, and auto-closing that would
+    bury a dropped customer instead of finishing a conversation.
+    """
+    from sqlalchemy import text as _sql
+    from app.settings import get_section
+
+    days = int(get_section('handoff').get('auto_resolve_days', 14))
+    if days <= 0:
+        return jsonify({'ok': True, 'resolved': 0, 'reason': 'auto-resolve disabled'}), 200
+
+    # One statement: pick open conversations idle past the cutoff whose newest
+    # message is outbound, and close them.
+    result = db.session.execute(_sql("""
+        WITH candidates AS (
+          SELECT c.id
+          FROM conversations c
+          JOIN LATERAL (
+              SELECT direction FROM messages
+               WHERE conversation_id = c.id
+               ORDER BY created_at DESC LIMIT 1
+          ) last_msg ON true
+          WHERE c.status <> 'resolved'
+            AND c.last_message_at IS NOT NULL
+            AND c.last_message_at < now() - make_interval(days => :days)
+            AND last_msg.direction = 'outbound'
+        )
+        UPDATE conversations SET status = 'resolved', resolved_at = now()
+        WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+    """), {'days': days})
+    ids = [r[0] for r in result]
+    db.session.commit()
+
+    log_event("info", "cron.auto_resolve",
+              f"Auto-resolved {len(ids)} conversation(s) idle for {days}+ days",
+              payload={'days': days, 'count': len(ids), 'conversation_ids': ids[:50]})
+    return jsonify({'ok': True, 'resolved': len(ids), 'days': days}), 200
