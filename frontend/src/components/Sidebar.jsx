@@ -84,31 +84,19 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         maxHeight: '100vh',
       }}
     >
-      {/* ── Header: logo + the ONE collapse control ──
-          There used to be three controls for this single action: the TopBar
-          hamburger, a ChevronLeft here (expanded only), and a ChevronRight
-          down in the FOOTER (collapsed only) — so the arrow appeared to jump
-          from the top of the sidebar to the bottom when you collapsed it.
-          Now: one button, always in the header, in the same place, with the
-          chevron flipping to show direction. The TopBar hamburger is mobile-
-          only. */}
+      {/* ── Header: logo only. The collapse control lives in its own row at
+          the foot of the nav — see below. */}
       <div
         className={clsx(
-          'flex shrink-0 px-4 pt-4 lg:pt-5',
-          isMobile
-            ? 'items-center justify-between h-14 lg:h-16'
-            : (collapsed
-                // Stacked when narrow — there isn't room for logo and button
-                // side by side at 80px, but it stays in the header either way.
-                ? 'md:flex-col md:items-center md:gap-3 md:px-0 items-center justify-between h-auto md:pb-1'
-                : 'items-center justify-between h-14 lg:h-16')
+          'flex shrink-0 px-4 pt-4 lg:pt-5 items-center h-14 lg:h-16',
+          isMobile ? 'justify-between' : (collapsed ? 'md:justify-center md:px-0 justify-between' : 'justify-between')
         )}
       >
         <div className="flex items-center gap-2.5">
           <img src={szLogo} alt="Shop Zetu" className="w-8 h-8 lg:w-9 lg:h-9 shrink-0" />
           <div className={clsx(isMobile ? 'block' : (collapsed ? 'md:hidden' : 'block'))}>
             <p className="text-sm font-bold text-white leading-tight tracking-tight">Shop Zetu</p>
-            <p className="text-[11px] text-gray-400 mt-0.5">Social AI</p>
+            <p className="text-[11px] text-gray-300 mt-0.5">Social AI</p>
           </div>
         </div>
 
@@ -120,16 +108,6 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
           <X size={18} />
         </button>
 
-        {!isMobile && (
-          <button
-            onClick={onToggle}
-            className="hidden md:flex items-center justify-center w-8 h-8 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        )}
       </div>
 
       {/* ── Nav links ── */}
@@ -147,12 +125,12 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
             <div key={groupName} className={idx === 0 ? '' : 'mt-2 lg:mt-3'}>
               {idx > 0 && (
                 <div className="mb-2 lg:mb-3 px-3">
-                  <div className="h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
+                  <div className="h-px bg-white/[0.08]" />
                 </div>
               )}
 
               {!collapsed && (
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-1.5 lg:mb-2">
+                <p className="text-[11px] font-bold text-gray-300/90 uppercase tracking-[0.12em] px-3 mb-1.5 lg:mb-2">
                   {groupName}
                 </p>
               )}
@@ -176,12 +154,13 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                           : (collapsed
                               ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2'
                               : 'gap-3 px-3 py-1.5 lg:py-2'),
-                        // gray-400 on a near-black panel read as disabled.
-                        // gray-300 keeps the hierarchy against an active item
-                        // without the whole menu looking switched off.
+                        // Near-white. gray-300 and below read as disabled
+                        // against #111 — the whole menu looked switched off.
+                        // Hierarchy now comes from the active item's lime fill
+                        // and weight, not from dimming everything else.
                         isActive
-                          ? 'bg-brand-600 text-white shadow-lg'
-                          : 'text-gray-300 hover:text-white hover:bg-white/10'
+                          ? 'bg-brand-500 text-[#0a0a0a] font-semibold shadow-[0_0_20px_rgba(199,234,70,0.25)]'
+                          : 'text-gray-100 hover:text-white hover:bg-white/[0.09]'
                       )
                     }
                   >
@@ -235,8 +214,8 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                               'before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2',
                               'before:h-1.5 before:w-1.5 before:rounded-full before:transition-colors',
                               isActive
-                                ? 'text-white font-semibold bg-white/[0.06] before:bg-brand-500'
-                                : 'text-gray-300 hover:text-white hover:bg-white/[0.06] before:bg-white/30 hover:before:bg-brand-500'
+                                ? 'text-white font-semibold bg-white/[0.08] before:bg-brand-500'
+                                : 'text-gray-200 hover:text-white hover:bg-white/[0.06] before:bg-white/40 hover:before:bg-brand-500'
                             )
                           }
                         >
@@ -254,7 +233,35 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         })}
       </nav>
 
-      {/* ── Footer: user info + desktop expand button ── */}
+      {/* ── Collapse control ──
+          Its own full-width row at the foot of the nav, above the user block.
+          It was crammed into the header beside the logo, which is the busiest
+          part of the panel and where nothing else is clickable. Down here it
+          gets a label instead of a bare chevron, sits in one fixed place in
+          both states, and is the last thing in the tab order rather than the
+          second. */}
+      {!isMobile && (
+        <div className="hidden md:block shrink-0 px-3 pb-1">
+          <div className="mb-2 h-px bg-white/[0.08]" />
+          <button
+            onClick={onToggle}
+            className={clsx(
+              'w-full flex items-center rounded-xl py-2 text-sm font-medium',
+              'text-gray-300 hover:text-white hover:bg-white/10 transition-colors',
+              collapsed ? 'justify-center px-0' : 'gap-3 px-3'
+            )}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed
+              ? <ChevronRight className="w-[18px] h-[18px] shrink-0" />
+              : <ChevronLeft className="w-[18px] h-[18px] shrink-0" />}
+            {!collapsed && <span className="flex-1 text-left">Collapse</span>}
+          </button>
+        </div>
+      )}
+
+      {/* ── Footer: user info ── */}
       <div
         className={clsx(
           'shrink-0',
@@ -285,7 +292,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[13px] font-semibold text-white truncate">{user?.full_name || 'User'}</p>
-            <p className="text-[11px] text-gray-400 truncate capitalize">{user?.role || 'user'}</p>
+            <p className="text-[11px] text-gray-300 truncate capitalize">{user?.role || 'user'}</p>
           </div>
           <PresenceDot status={user?.presence || 'online'} />
         </div>
