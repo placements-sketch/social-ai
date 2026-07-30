@@ -500,6 +500,7 @@ def instagram_webhook():
                         external_id=comment_id,
                         media_id=media_id,
                         parent_id=parent_id,
+                        username=username,
                     )
                     # Patch the username on the User row so the UI shows the
                     # handle instead of the numeric ID.
@@ -548,6 +549,7 @@ def instagram_comments_webhook():
     comment_id = None
     media_id = None
     parent_id = None
+    username = None
 
     try:
         for entry in (data.get("entry") or []):
@@ -567,6 +569,7 @@ def instagram_comments_webhook():
                 comment_id = value.get("id")
                 media_id = (value.get("media") or {}).get("id")
                 parent_id = value.get("parent_id")
+                username = (value.get("from") or {}).get("username")
                 if sender_id and message_text:
                     break
             if sender_id and message_text:
@@ -585,6 +588,7 @@ def instagram_comments_webhook():
         external_id=comment_id,
         media_id=media_id,
         parent_id=parent_id,
+        username=username,
     )
 
     return jsonify({"reply": reply}), 200

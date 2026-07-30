@@ -283,21 +283,33 @@ def _our_account_identifiers() -> tuple[set[str], set[str]]:
         # Never let a lookup failure open the gate.
         log_event("warn", "services.own_account_lookup_failed", str(e))
 
-    for var in ("IG_BUSINESS_ACCOUNT_ID", "FB_PAGE_ID", "TIKTOK_ACCOUNT_ID",
-                "IG_USERNAME", "BUSINESS_HANDLE"):
-        value = os.getenv(var)
-        if not value:
+    # Environment fallback. Every one of these accepts a comma-separated list,
+    # because an account we cannot complete OAuth for has no row in
+    # meta_connections and its numeric id is then a hand-maintained string —
+    # exactly the kind that drifts. OUR_ACCOUNT_HANDLES is the durable one: a
+    # business always knows its own @handle, even when nobody can produce the
+    # 17-digit account id.
+    id_vars = ("IG_BUSINESS_ACCOUNT_ID", "FB_PAGE_ID", "TIKTOK_ACCOUNT_ID",
+               "OUR_ACCOUNT_IDS")
+    handle_vars = ("IG_USERNAME", "BUSINESS_HANDLE", "OUR_ACCOUNT_HANDLES")
+
+    for var in id_vars + handle_vars:
+        raw = os.getenv(var)
+        if not raw:
             continue
-        value = value.strip()
-        if var in ("IG_USERNAME", "BUSINESS_HANDLE"):
-            handles.add(value.lower().lstrip('@'))
-        else:
-            ids.add(value)
+        for value in raw.split(','):
+            value = value.strip()
+            if not value:
+                continue
+            if var in handle_vars:
+                handles.add(value.lower().lstrip('@'))
+            else:
+                ids.add(value)
 
     return ids, handles
 
 
-def _authored_by_us(user_id: str, channel: str) -> bool:
+def _authored_by_us(user_id: str, channel: str, username: str | None = None) -> bool:
     """
     True when an inbound event was written by our own account.
 
@@ -320,13 +332,23 @@ def _authored_by_us(user_id: str, channel: str) -> bool:
     carried the check. A guard that has to be remembered at N call sites is a
     guard that will be missing at one of them.
     """
-    if not user_id:
+    if not user_id and not username:
         return False
     ids, handles = _our_account_identifiers()
-    candidate = str(user_id).strip()
-    if candidate in ids:
+
+    candidate = str(user_id or '').strip()
+    if candidate and candidate in ids:
         return True
-    return candidate.lower().lstrip('@') in handles
+
+    # Match on the handle too. The numeric account id is the precise signal but
+    # a brittle one: it only reaches us through OAuth or a hand-typed
+    # environment variable, and when the two disagree the guard silently passes
+    # our own comments straight through. Instagram sends `from.username` on
+    # every comment event, and a business can always state its own @handle.
+    for value in (username, user_id):
+        if value and str(value).strip().lower().lstrip('@') in handles:
+            return True
+    return False
 
 
 def record_own_platform_reply(message: str, channel: str,
@@ -422,7 +444,7 @@ def record_own_platform_reply(message: str, channel: str,
 
 def process_message(message: str, user_id: str, channel: str, external_id: str | None = None,
                     media_id: str | None = None, image_urls: list | None = None,
-                    parent_id: str | None = None) -> str:
+                    parent_id: str | None = None, username: str | None = None) -> str:
     """
     Public pipeline entry point — a thin wrapper that guarantees an unanswered
     message is always explainable.
@@ -439,7 +461,7 @@ def process_message(message: str, user_id: str, channel: str, external_id: str |
     # Never react to our own writing. Checked before _process_message so that
     # nothing is persisted either — an agent replying from the Instagram app
     # must not create a conversation in which we are the customer.
-    if _authored_by_us(user_id, channel):
+    if _authored_by_us(user_id, channel, username=username):
         # Not merely ignored — filed into the customer's thread when we can tell
         # which thread it belongs to, so the inbox shows the answer the customer
         # actually received.

@@ -776,6 +776,99 @@ LIMIT 20;
 
 ---
 
+### Step 14b — Set the account identity (required for the self-reply guard)
+
+**Context that changes what "us" means.** Production is deliberately connected
+to a **dummy Instagram account that stands in for Shop Zetu**, so the whole
+pipeline can be exercised without replying to real customers. Comments written
+by the *real* shopzetu team therefore arrive as if they were from a third party.
+
+Two accounts must both count as "us":
+
+| Account | Role | Identified by |
+|---|---|---|
+| The connected dummy | The business this platform posts as | `IG_BUSINESS_ACCOUNT_ID` |
+| The real `shopzetu` | Where agents actually reply from | `OUR_ACCOUNT_IDS` / `OUR_ACCOUNT_HANDLES` |
+
+**Do NOT change `IG_BUSINESS_ACCOUNT_ID`.** It is not just a label for the
+guard — `app/integrations/meta_poller.py` uses it to decide which participant in
+a DM thread is the business and which is the customer, and `app/meta_test.py`
+validates it against the account actually linked to the Page. Repointing it at
+the real shopzetu id would misidentify the sender of every polled DM.
+
+Found on production by running Step 14's diagnostic:
+
+- `meta_connections` is **empty** (no OAuth completed — deliberate).
+- The self-conversation's `external_id` is **`17841412308701394`**, username
+  `shopzetu` — the real account.
+- `IG_BUSINESS_ACCOUNT_ID` holds a different id — the dummy. Correct, leave it.
+
+So the guard knew about the dummy and nothing about the real account, which is
+why our own comments came through.
+
+**Fix — ADD these on Render, changing nothing that already exists:**
+
+```
+OUR_ACCOUNT_IDS=17841412308701394
+OUR_ACCOUNT_HANDLES=shopzetu
+```
+
+Both accept comma-separated lists. The handle is the durable one: Instagram
+sends `from.username` on every comment event, and a business can always state
+its own @handle even when nobody can produce the 17-digit id. The id is the
+precise one. Either alone is enough; together they survive the other being
+wrong.
+
+Handle matching is exact after stripping a leading `@`, so `shopzetu` does not
+match `shopzetu_test` — the dummy keeps its own identity.
+
+> **Side effect worth knowing.** Once the real shopzetu account is listed here,
+> the AI will never reply to anything posted from it. If you were using that
+> account to pose as a test customer, use a third account for that instead.
+
+**Verify after redeploy** — reply to a comment from the Instagram app, then:
+
+```sql
+SELECT created_at, message, payload
+FROM logs
+WHERE source = 'services.no_reply_sent'
+  AND payload->>'reason' = 'authored_by_us'
+ORDER BY created_at DESC LIMIT 5;
+```
+
+A row means the guard recognised us. No row means the identity is still wrong.
+
+---
+
+### Step 14c — Delete the one conversation already created
+
+Run 1 of Step 14 found exactly one, because `meta_connections` is empty and the
+generic query could not match. By explicit id:
+
+```sql
+-- Confirm it is the right row before deleting.
+SELECT c.id, u.name AS customer, u.external_id, c.channel,
+       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS msgs
+FROM conversations c JOIN users u ON u.id = c.user_id
+WHERE c.id = 58;
+```
+
+Expect: `shopzetu`, `17841412308701394`, `instagram_comment`, 2 messages. If it
+shows anything else, stop — the id has moved.
+
+```sql
+BEGIN;
+DELETE FROM conversation_reads WHERE conversation_id = 58;
+DELETE FROM messages          WHERE conversation_id = 58;
+DELETE FROM conversations     WHERE id             = 58;
+COMMIT;
+```
+
+Do this **after** Step 14b and the redeploy — otherwise the next comment an
+agent writes from the Instagram app simply recreates it.
+
+---
+
 ### Step 15 — Make the global AI kill switch reversible
 
 **Why.** The master switch in Settings is a flag checked when a reply is about
