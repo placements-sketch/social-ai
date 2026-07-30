@@ -307,11 +307,6 @@ export default function Messages() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [statusCounts, setStatusCounts] = useState(null)         // server-side, whole set
 
-  // Settle the typing before asking the server.
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchInput])
   const [assignedFilter, setAssignedFilter] = useState(null)    // null | 'me' | 'unassigned' (set by deep links)
   // Two states on purpose. `searchInput` is what you see in the box and updates
   // on every keystroke; `search` is what the server is asked about and lags it
@@ -319,6 +314,19 @@ export default function Messages() {
   // search reaches into message bodies each one scans every message row.
   const [searchInput, setSearchInput]   = useState('')
   const [search, setSearch]             = useState('')
+
+  // Settle the typing before asking the server.
+  //
+  // Must sit AFTER the two useState lines above, not before them. A hook's
+  // dependency array is evaluated during render, so `[searchInput]` reads the
+  // binding right then — and a `const` cannot be read before its declaration
+  // is reached. Placed above, this threw "Cannot access 'searchInput' before
+  // initialization" and took the whole page down. The build cannot catch it:
+  // it is legal JavaScript that only fails when it runs.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
   const [conversations, setConversations] = useState([])
   const [allChannels, setAllChannels] = useState(['all']) // Track all channels - only set once

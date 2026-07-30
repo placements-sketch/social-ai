@@ -560,15 +560,18 @@ CREATE INDEX IF NOT EXISTS idx_messages_content_trgm
     ON messages USING gin (content gin_trgm_ops);
 ```
 
-Building the index takes a table lock for the duration. On a table of this size
-that is seconds, but if the inbox is busy you can avoid the lock entirely by
-running it outside a transaction instead:
+**Run the block above. That is the whole step.**
 
-```sql
--- Optional alternative. Must be run on its own, NOT inside BEGIN/COMMIT.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_messages_content_trgm
-    ON messages USING gin (content gin_trgm_ops);
-```
+Building the index takes a brief table lock. On a table this size that is
+under a second, so there is nothing to work around.
+
+> **Do not use `CREATE INDEX CONCURRENTLY` here.** It exists to avoid locking a
+> large, busy table for minutes, which is not the situation. More practically,
+> the Supabase SQL editor runs what you paste inside a transaction, and
+> `CONCURRENTLY` is one of the few statements Postgres refuses to run inside
+> one — it would fail with *"CREATE INDEX CONCURRENTLY cannot run inside a
+> transaction block"*. Noted here only so the option doesn't look like an
+> oversight.
 
 **Verify.** The index exists and is being used:
 
