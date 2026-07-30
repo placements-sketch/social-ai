@@ -12,6 +12,7 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models import AppSettings, AuthUser
 from app.auth import current_user_id
+from app.utils.logger import log_event
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api')
 
@@ -262,6 +263,99 @@ def update_settings():
     row.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'settings': get_settings()}), 200
+
+def _ai_handover_counts():
+    """How many conversations the global switch is currently affecting."""
+    from app.models import Conversation
+    live = (Conversation.query
+            .filter(Conversation.status != 'resolved',
+                    Conversation.ai_enabled.is_(True))
+            .count())
+    restorable = (Conversation.query
+                  .filter(Conversation.status != 'resolved',
+                          Conversation.ai_auto_paused_at.isnot(None))
+                  .count())
+    return live, restorable
+
+
+@settings_bp.route('/settings/ai/handover', methods=['GET'])
+@jwt_required()
+def ai_handover_status():
+    """
+    What turning the master switch would affect right now.
+
+    The Settings toggle asks this before it acts so the prompt can state a real
+    number instead of a vague warning.
+    """
+    live, restorable = _ai_handover_counts()
+    return jsonify({
+        'ai_enabled': bool(get_section('ai').get('enabled', True)),
+        'live_ai_conversations': live,
+        'restorable': restorable,
+    }), 200
+
+
+@settings_bp.route('/settings/ai/handover', methods=['POST'])
+@jwt_required()
+def ai_handover():
+    """
+    Move conversations between the AI and the human queue when the master
+    switch flips.
+
+    Two actions, and the split matters:
+
+      queue   — everything the AI currently holds is switched off and stamped
+                with ai_auto_paused_at, which drops it into the Unclaimed
+                bucket where agents can see it. The stamp is what makes this
+                reversible.
+
+      restore — hands back exactly the stamped set. Conversations an agent
+                turned off by hand were never stamped (and the per-conversation
+                toggle clears the stamp), so a restore cannot take a thread away
+                from the person who claimed it.
+
+    Doing this as an explicit action rather than a side effect of PATCHing the
+    setting keeps the destructive part opt-in: an admin who just wants the AI
+    quiet for ten minutes should not have their whole queue redistributed.
+    """
+    if not _require_admin():
+        return jsonify({'error': 'Only admins can change AI handover'}), 403
+
+    from app.models import Conversation
+    action = (request.get_json(silent=True) or {}).get('action')
+    now = datetime.utcnow()
+
+    if action == 'queue':
+        rows = (Conversation.query
+                .filter(Conversation.status != 'resolved',
+                        Conversation.ai_enabled.is_(True))
+                .all())
+        for c in rows:
+            c.ai_enabled = False
+            c.ai_auto_paused_at = now
+            if c.ai_disabled_at is None:
+                c.ai_disabled_at = now
+        db.session.commit()
+        log_event("info", "settings.ai_queued_for_humans",
+                  f"Global AI switch off — {len(rows)} conversations queued for agents")
+        return jsonify({'action': 'queue', 'affected': len(rows)}), 200
+
+    if action == 'restore':
+        rows = (Conversation.query
+                .filter(Conversation.status != 'resolved',
+                        Conversation.ai_auto_paused_at.isnot(None))
+                .all())
+        for c in rows:
+            c.ai_enabled = True
+            c.ai_auto_paused_at = None
+            c.ai_disabled_at = None
+        db.session.commit()
+        log_event("info", "settings.ai_restored_from_queue",
+                  f"Global AI switch on — {len(rows)} conversations handed back to the AI")
+        return jsonify({'action': 'restore', 'affected': len(rows)}), 200
+
+    return jsonify({'error': "action must be 'queue' or 'restore'"}), 400
+
 
 @settings_bp.route('/settings/integrations', methods=['GET'])
 @jwt_required()

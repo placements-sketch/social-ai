@@ -119,7 +119,11 @@ const POLL_IDLE_BEFORE_BACKOFF = 40      // 40 x 3s = 2 minutes
 const STATUS_FILTERS = [
   { key: 'unclaimed', label: 'Unclaimed',  dot: 'bg-red-500'   },
   { key: 'human',     label: 'With agent', dot: 'bg-amber-500' },
-  { key: 'ai',        label: 'AI handling', dot: 'bg-brand-500' },
+  { key: 'ai',        label: 'AI handling', dot: 'bg-brand-500',
+    // Renamed while the master switch is off. "AI handling 37" is a false
+    // statement then: nothing is handling them, and because Unclaimed requires
+    // ai_enabled = false they are not offered to agents either.
+    offLabel: 'Stalled · AI off', offDot: 'bg-red-500' },
   { key: 'resolved',  label: 'Resolved',   dot: 'bg-gray-400'  },
 ]
 
@@ -306,6 +310,8 @@ export default function Messages() {
   const [totalConvos, setTotalConvos] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
   const [statusCounts, setStatusCounts] = useState(null)         // server-side, whole set
+  // Whether the master switch is off, and how many conversations it queued.
+  const [aiGloballyOffCounts, setAiGloballyOffCounts] = useState(null)
 
   const [assignedFilter, setAssignedFilter] = useState(null)    // null | 'me' | 'unassigned' (set by deep links)
   // Two states on purpose. `searchInput` is what you see in the box and updates
@@ -463,7 +469,13 @@ export default function Messages() {
       try {
         const { getConversationCounts } = await import('../api/messages')
         const counts = await getConversationCounts()
-        if (!cancelled) setStatusCounts(counts.by_status || null)
+        if (!cancelled) {
+          setStatusCounts(counts.by_status || null)
+          setAiGloballyOffCounts({
+            off: !!counts.ai_globally_off,
+            queued: counts.ai_auto_paused || 0,
+          })
+        }
       } catch { /* chips fall back to counting the loaded page */ }
     }
     load()
@@ -1010,8 +1022,23 @@ const handleSend = async (retryOf = null) => {
             in app/messages.py. Both used to be worked out here in the browser
             over one loaded page, which is how a chip could read 27 above a
             list of 11. */}
+        {aiGloballyOffCounts?.off && (statusCounts?.ai > 0 || aiGloballyOffCounts.queued > 0) && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+            <p className="text-[11px] font-bold text-amber-800">AI is off for the whole platform</p>
+            <p className="text-[11px] text-amber-700 mt-0.5 leading-snug">
+              {statusCounts?.ai > 0
+                ? `${statusCounts.ai} conversation${statusCounts.ai === 1 ? '' : 's'} still marked for the AI — nobody is answering ${statusCounts.ai === 1 ? 'it' : 'them'} until it is switched back on or they are queued for agents in Settings.`
+                : `${aiGloballyOffCounts.queued} conversation${aiGloballyOffCounts.queued === 1 ? '' : 's'} queued for agents while the AI is off.`}
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-1.5 pt-0.5">
-          {STATUS_FILTERS.map(({ key, label, dot }) => {
+          {STATUS_FILTERS.map((f) => {
+            const stalled = f.key === 'ai' && aiGloballyOffCounts?.off
+            const { key } = f
+            const label = stalled ? f.offLabel : f.label
+            const dot = stalled ? f.offDot : f.dot
             // Server count over the whole scoped set. No loaded-page fallback:
             // the list now arrives already narrowed to the active bucket, so
             // counting it would report 0 for every OTHER chip. Blank until the

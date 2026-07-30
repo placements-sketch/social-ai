@@ -636,14 +636,23 @@ the `IG_BUSINESS_ACCOUNT_ID` environment variable on Render against the
 `ig_business_account_id` column above. Add the offending handle by name to the
 `lower(u.name) IN (...)` list below rather than guessing.
 
-**Then delete.** Messages first — `messages.conversation_id` is NOT NULL, so
-deleting the conversation first fails on the foreign key.
+**Then delete.** Two separate runs. Do not paste them together.
+
+The Supabase SQL editor executes everything you give it, so a `COMMIT` at the
+bottom of a script commits before you have read anything above it — "inspect the
+count, then commit" only works in an interactive psql session. So the counting
+happens in run 1, on its own, and run 2 does the deleting.
+
+There is no temp table here either. The earlier version used one, which made
+Supabase warn about row-level security — a false positive (a `TEMP` table is
+session-scoped and no PostgREST client can reach it), but the warning is
+avoidable and the subquery is clear enough repeated.
+
+**Run 1 — how many, and which.** Read the output before going further.
 
 ```sql
-BEGIN;
-
-CREATE TEMP TABLE self_convs AS
-SELECT c.id
+SELECT c.id, c.channel, u.name AS customer, u.external_id, c.last_message_at,
+       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS msgs
 FROM conversations c
 JOIN users u ON u.id = c.user_id
 WHERE u.external_id IN (
@@ -652,18 +661,105 @@ WHERE u.external_id IN (
       )
    OR lower(u.name) IN (
         SELECT lower(ig_username) FROM meta_connections WHERE ig_username IS NOT NULL
-      );
+      )
+ORDER BY c.last_message_at DESC;
+```
 
--- Check this number before committing.
-SELECT count(*) AS conversations_to_delete FROM self_convs;
+Every row here is a conversation whose "customer" is our own account. If a row
+looks like a real customer, **stop** — the identity in `meta_connections` is
+wrong and deleting would remove genuine conversations.
 
-DELETE FROM conversation_reads WHERE conversation_id IN (SELECT id FROM self_convs);
-DELETE FROM messages          WHERE conversation_id IN (SELECT id FROM self_convs);
-DELETE FROM conversations     WHERE id IN (SELECT id FROM self_convs);
+**If run 1 returns no rows but you can see the problem in the inbox**, do not
+run the delete — it would match nothing. The identity is not where this query is
+looking. `meta_connections` is populated by the Instagram OAuth flow; a
+deployment still running on the `IG_BUSINESS_ACCOUNT_ID` environment variable
+will have that table empty.
 
--- Inspect the count above. COMMIT if it looks right, ROLLBACK if it does not.
+Note this does NOT mean the code fix is broken. `_authored_by_us()` reads the
+OAuth table *and* the environment variables, so it works either way. Only this
+cleanup query is narrower, because the SQL editor cannot read env vars.
+
+Find the rows by the handle you can see in the inbox instead:
+
+```sql
+-- Is the OAuth table populated at all?
+SELECT count(*) AS rows,
+       count(ig_business_account_id) AS with_ig_id,
+       count(ig_username) AS with_username
+FROM meta_connections;
+
+-- Find it by handle. Replace shopzetu if your account name differs.
+SELECT c.id, c.channel, u.name AS customer, u.external_id, c.last_message_at,
+       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS msgs
+FROM conversations c
+JOIN users u ON u.id = c.user_id
+WHERE lower(u.name) LIKE '%shopzetu%'
+ORDER BY c.last_message_at DESC;
+```
+
+Compare the `external_id` that comes back with `IG_BUSINESS_ACCOUNT_ID` on
+Render. If they match, the env var is correct and the guard will work; the
+cleanup below just needs the ids passed in directly:
+
+```sql
+-- Delete by explicit id. Substitute the ids from the query above, and only
+-- those you have confirmed are our own account.
+BEGIN;
+DELETE FROM conversation_reads WHERE conversation_id IN (00, 00);
+DELETE FROM messages          WHERE conversation_id IN (00, 00);
+DELETE FROM conversations     WHERE id             IN (00, 00);
 COMMIT;
 ```
+
+If they do NOT match, the env var points at the wrong account — fix that on
+Render before relying on the guard, because it is one of the two sources
+`_authored_by_us()` trusts.
+
+**Run 2 — delete them.** Only after run 1 looked right.
+
+Messages before conversations: `messages.conversation_id` is `NOT NULL`, so the
+other order fails on the foreign key. The whole thing is one transaction, so a
+failure part-way leaves nothing half-deleted.
+
+```sql
+BEGIN;
+
+DELETE FROM conversation_reads
+WHERE conversation_id IN (
+    SELECT c.id FROM conversations c JOIN users u ON u.id = c.user_id
+    WHERE u.external_id IN (
+            SELECT ig_business_account_id FROM meta_connections WHERE ig_business_account_id IS NOT NULL
+            UNION SELECT page_id FROM meta_connections)
+       OR lower(u.name) IN (
+            SELECT lower(ig_username) FROM meta_connections WHERE ig_username IS NOT NULL));
+
+DELETE FROM messages
+WHERE conversation_id IN (
+    SELECT c.id FROM conversations c JOIN users u ON u.id = c.user_id
+    WHERE u.external_id IN (
+            SELECT ig_business_account_id FROM meta_connections WHERE ig_business_account_id IS NOT NULL
+            UNION SELECT page_id FROM meta_connections)
+       OR lower(u.name) IN (
+            SELECT lower(ig_username) FROM meta_connections WHERE ig_username IS NOT NULL));
+
+DELETE FROM conversations
+WHERE id IN (
+    SELECT c.id FROM conversations c JOIN users u ON u.id = c.user_id
+    WHERE u.external_id IN (
+            SELECT ig_business_account_id FROM meta_connections WHERE ig_business_account_id IS NOT NULL
+            UNION SELECT page_id FROM meta_connections)
+       OR lower(u.name) IN (
+            SELECT lower(ig_username) FROM meta_connections WHERE ig_username IS NOT NULL));
+
+COMMIT;
+```
+
+Repeating the subquery is safe: it reads `conversations` and `users`, and
+nothing before the final statement modifies either.
+
+The `users` rows for our own account are left in place deliberately. They are
+harmless once their conversations are gone, and deleting them would break the
+foreign key from any message elsewhere that happens to reference them.
 
 **Verify.** Re-run the second query from the "look first" block — it should
 return no rows. And after the deploy, these should start appearing whenever an
@@ -676,4 +772,65 @@ WHERE source = 'services.no_reply_sent'
   AND payload->>'reason' = 'authored_by_us'
 ORDER BY created_at DESC
 LIMIT 20;
+```
+
+---
+
+### Step 15 — Make the global AI kill switch reversible
+
+**Why.** The master switch in Settings is a flag checked when a reply is about
+to be sent. It never touches `conversations.ai_enabled`. So while it is off:
+
+- every conversation the AI held still has `ai_enabled = true`, so the inbox
+  goes on reporting them under **AI handling** — when nothing is handling them;
+- the **Unclaimed** bucket requires `ai_enabled = false`, so those same
+  conversations are not offered to agents either.
+
+They are invisible. They do resume correctly when the switch goes back on —
+the gap is only that nobody can see they are stranded meanwhile.
+
+Two things ship with the deploy and need no SQL: the inbox now relabels that
+chip **"Stalled · AI off"** with a banner, and Settings asks what to do when you
+flip the switch.
+
+This step adds the one column that makes the answer reversible.
+
+**What the column is for.** When an admin chooses "queue them for agents", each
+affected conversation is stamped with `ai_auto_paused_at`. Switching the AI back
+on can then hand back **exactly that set**. Without the stamp there is no way to
+distinguish a conversation an agent deliberately took over from one the master
+switch happened to catch, and a restore would take threads away from the people
+who claimed them.
+
+Safe to re-run.
+
+```sql
+ALTER TABLE conversations
+    ADD COLUMN IF NOT EXISTS ai_auto_paused_at TIMESTAMP NULL;
+
+CREATE INDEX IF NOT EXISTS idx_conversations_ai_auto_paused
+    ON conversations (ai_auto_paused_at);
+```
+
+**Verify.** The column exists and nothing is stamped yet:
+
+```sql
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'conversations' AND column_name = 'ai_auto_paused_at';
+
+SELECT count(*) AS currently_queued_by_the_switch
+FROM conversations
+WHERE ai_auto_paused_at IS NOT NULL;
+```
+
+The second query should return 0 until someone uses the new prompt.
+
+**Seeing what the switch is holding right now** — this is the number the prompt
+shows you, and the one that is currently stranded if the switch is off:
+
+```sql
+SELECT count(*) AS conversations_still_marked_for_the_ai
+FROM conversations
+WHERE status <> 'resolved' AND ai_enabled IS TRUE;
 ```

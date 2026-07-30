@@ -128,6 +128,16 @@ def _match_snippet(text: str, term: str, width: int = 90) -> str:
     return ('…' if start > 0 else '') + out + ('…' if end < len(body) else '')
 
 
+def _ai_globally_enabled() -> bool:
+    """The master switch, read defensively — an unreadable setting must not be
+    reported as 'the AI is fine'."""
+    try:
+        from app.settings import get_section
+        return bool(get_section("ai").get("enabled", True))
+    except Exception:
+        return True
+
+
 INBOX_BUCKETS = ('unclaimed', 'human', 'ai', 'resolved')
 
 
@@ -204,6 +214,19 @@ def conversation_counts():
         # to be two separate implementations — Python sums here, no filter at
         # all there — which is precisely how they drifted.
         'by_status': {k: _bucket_filter(query, k).count() for k in INBOX_BUCKETS},
+
+        # The global kill switch is a settings flag checked at reply time — it
+        # never touches conversations.ai_enabled. So while it is off, every
+        # conversation in the 'ai' bucket still claims the AI is handling it,
+        # and nothing is. They are not in 'unclaimed' either (that requires
+        # ai_enabled = false), so no agent is shown them. The bucket cannot be
+        # redefined without making the counts depend on a setting, so the flag
+        # travels with the counts and the label changes instead.
+        'ai_globally_off': not _ai_globally_enabled(),
+        'ai_auto_paused': (query
+                           .filter(Conversation.status != 'resolved',
+                                   Conversation.ai_auto_paused_at.isnot(None))
+                           .count()),
     }), 200
 
 
@@ -633,6 +656,11 @@ def toggle_ai(conversation_id):
     data = request.get_json(silent=True) or {}
     if 'ai_enabled' not in data:
         return jsonify({'error': 'ai_enabled (boolean) is required'}), 400
+
+    # Someone has made a deliberate decision about this one conversation, so it
+    # is no longer "whatever the global switch did to it". Clearing the mark
+    # keeps a later global restore from overriding a person's explicit choice.
+    conv.ai_auto_paused_at = None
 
     now = datetime.utcnow()
     was_enabled = conv.ai_enabled

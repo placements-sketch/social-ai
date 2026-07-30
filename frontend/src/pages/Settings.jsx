@@ -113,11 +113,21 @@ export default function Settings({ embedded = false }) {
 function AIMasterSwitch({ settings, setSettings }) {
   const enabled = settings?.ai?.enabled !== false
   const [saving, setSaving] = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const [confirming, setConfirming] = useState(false)   // 'on' | 'off' | false
+  const [handover, setHandover] = useState(null)        // counts from the server
   const [msg, setMsg] = useState(null)
 
-  const apply = async (next) => {
-    setMsg(null); setSaving(true); setConfirming(false)
+  // What flipping the switch would actually affect, so the prompt can state a
+  // real number instead of a vague warning.
+  const loadHandover = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/settings/ai/handover`, { headers: authHeaders() })
+      if (res.ok) setHandover(await res.json())
+    } catch { /* the prompt still works without the count */ }
+  }
+
+  const apply = async (next, action = null) => {
+    setMsg(null); setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/settings`, {
         method: 'PATCH', headers: authHeaders(),
@@ -126,14 +136,36 @@ function AIMasterSwitch({ settings, setSettings }) {
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || 'Failed to save')
       setSettings(d.settings)
+
+      // The queue/restore move is a separate call on purpose. Switching the AI
+      // off and redistributing the queue are different decisions, and folding
+      // the second into the first would redistribute everything every time an
+      // admin wanted the AI quiet for ten minutes.
+      if (action) {
+        const r2 = await fetch(`${API_BASE}/settings/ai/handover`, {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({ action }),
+        })
+        const d2 = await r2.json()
+        if (!r2.ok) throw new Error(d2.error || 'Failed to move conversations')
+        setMsg({ type: 'ok', text: action === 'queue'
+          ? `${d2.affected} conversation${d2.affected === 1 ? '' : 's'} moved to the agent queue.`
+          : `${d2.affected} conversation${d2.affected === 1 ? '' : 's'} handed back to the AI.` })
+      }
     } catch (err) {
       setMsg({ type: 'error', text: err.message })
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false); setConfirming(false); setHandover(null)
+    }
   }
 
-  // Turning ON is the risky direction — it starts auto-replying to real
-  // customers — so that one asks first. Turning OFF is immediate.
-  const onToggle = () => (enabled ? apply(false) : setConfirming(true))
+  // Both directions now ask, because both have consequences an admin should
+  // see the size of first. Turning ON starts answering real customers; turning
+  // OFF strands whatever the AI was holding unless it is queued for people.
+  const onToggle = async () => {
+    await loadHandover()
+    setConfirming(enabled ? 'off' : 'on')
+  }
 
   return (
     <div className={clsx(
@@ -171,18 +203,106 @@ function AIMasterSwitch({ settings, setSettings }) {
         </button>
       </div>
 
-      {confirming && (
+      {/* Turning OFF — decide what happens to what the AI is holding.
+          Leaving them is not a no-op: their conversations keep ai_enabled=true,
+          so the inbox goes on reporting them as "AI handling" while nothing is
+          handling them, and because Unclaimed requires ai_enabled=false no
+          agent is shown them either. Hence the choice, stated with a number. */}
+      {confirming === 'off' && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <p className="text-xs text-gray-700">
-            Turn automated replies back on? The assistant will start answering real
-            customers on every connected channel immediately.
+          <p className="text-xs font-bold text-gray-900">
+            Turn automated replies off?
           </p>
-          <div className="flex gap-2 mt-2.5">
-            <button onClick={() => apply(true)} disabled={saving}
-              className="text-xs font-semibold px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
-              {saving ? 'Turning on…' : 'Yes, turn AI on'}
+          <p className="text-xs text-gray-600 mt-1">
+            {handover?.live_ai_conversations > 0
+              ? `${handover.live_ai_conversations} open conversation${handover.live_ai_conversations === 1 ? ' is' : 's are'} currently with the AI.`
+              : 'No conversations are currently with the AI.'}
+          </p>
+
+          {handover?.live_ai_conversations > 0 && (
+            <div className="mt-3 space-y-2">
+              <button onClick={() => apply(false, 'queue')} disabled={saving}
+                className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                <span className="block text-xs font-bold text-gray-900">
+                  Queue them for agents now
+                </span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  Moves them to Unclaimed so agents can pick them up. Already-assigned
+                  chats go back to whoever owns them. You can hand them back to the AI
+                  when you switch it on again.
+                </span>
+              </button>
+              <button onClick={() => apply(false)} disabled={saving}
+                className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                <span className="block text-xs font-bold text-gray-900">
+                  Leave them for the AI to resume
+                </span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  Nothing moves. They will show as stalled in the inbox until you
+                  switch the AI back on. Best for a short pause.
+                </span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-3">
+            {!handover?.live_ai_conversations && (
+              <button onClick={() => apply(false)} disabled={saving}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-black disabled:opacity-50">
+                {saving ? 'Turning off…' : 'Turn AI off'}
+              </button>
+            )}
+            <button onClick={() => { setConfirming(false); setHandover(null) }}
+              className="text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
+              Cancel
             </button>
-            <button onClick={() => setConfirming(false)}
+          </div>
+        </div>
+      )}
+
+      {/* Turning ON — offer to hand back exactly what the switch took away. */}
+      {confirming === 'on' && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <p className="text-xs font-bold text-gray-900">Turn automated replies back on?</p>
+          <p className="text-xs text-gray-600 mt-1">
+            The assistant will start answering real customers on every connected
+            channel immediately.
+          </p>
+
+          {handover?.restorable > 0 && (
+            <div className="mt-3 space-y-2">
+              <button onClick={() => apply(true, 'restore')} disabled={saving}
+                className="w-full text-left px-3 py-2.5 rounded-lg border border-brand-200 bg-brand-50 hover:bg-brand-100 disabled:opacity-50">
+                <span className="block text-xs font-bold text-gray-900">
+                  Turn on and hand back {handover.restorable} queued conversation
+                  {handover.restorable === 1 ? '' : 's'}
+                </span>
+                <span className="block text-[11px] text-gray-600 mt-0.5">
+                  Only the ones this switch paused. Chats an agent took over by hand
+                  are left with that agent.
+                </span>
+              </button>
+              <button onClick={() => apply(true)} disabled={saving}
+                className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                <span className="block text-xs font-bold text-gray-900">
+                  Turn on for new messages only
+                </span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  The {handover.restorable} queued conversation
+                  {handover.restorable === 1 ? '' : 's'} stay with agents.
+                </span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-3">
+            {!handover?.restorable && (
+              <button onClick={() => apply(true)} disabled={saving}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
+                {saving ? 'Turning on…' : 'Yes, turn AI on'}
+              </button>
+            )}
+            <button onClick={() => { setConfirming(false); setHandover(null) }}
               className="text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
               Cancel
             </button>
@@ -197,7 +317,11 @@ function AIMasterSwitch({ settings, setSettings }) {
         </p>
       )}
 
-      {msg && <p className="text-xs text-red-600 mt-2">{msg.text}</p>}
+      {msg && (
+        <p className={clsx('text-xs mt-2', msg.type === 'error' ? 'text-red-600' : 'text-green-700')}>
+          {msg.text}
+        </p>
+      )}
     </div>
   )
 }

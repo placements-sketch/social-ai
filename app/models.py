@@ -204,6 +204,12 @@ class Conversation(db.Model):
     # app/messages.py; both stay NULL until the event happens.
     escalated_at   = db.Column(db.DateTime, nullable=True, index=True)
     ai_disabled_at = db.Column(db.DateTime, nullable=True, index=True)
+    # Set when the GLOBAL kill switch queued this conversation for humans, so
+    # switching the AI back on can restore exactly that set — and nothing else.
+    # Without it there is no way to tell a conversation an agent deliberately
+    # took over from one the master switch happened to catch, and a restore
+    # would hand agent-claimed threads back to the AI.
+    ai_auto_paused_at = db.Column(db.DateTime, nullable=True, index=True)
 
     # Relationships use explicit foreign_keys because there are 3 FKs to auth_users
     assignee   = db.relationship("AuthUser", foreign_keys=[assigned_to])
@@ -223,6 +229,7 @@ class Conversation(db.Model):
             'channel': self.channel,
             'status': self.status,
             'ai_enabled': self.ai_enabled,
+            'ai_auto_paused': self.ai_auto_paused_at is not None,
             'ai_disabled': not self.ai_enabled,
             'lastMessage': self.last_message,
             'last_message_at': self.last_message_at.isoformat() if self.last_message_at else None,
