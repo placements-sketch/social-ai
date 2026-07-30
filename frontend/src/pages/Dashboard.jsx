@@ -92,6 +92,12 @@ const NO_REPLY_LABELS = {
   no_reason_recorded:          'No reason recorded',
 }
 
+// Below this many conversations a rate is theatre: at 7, one conversation
+// swings it 14 points and the trend reads "↑129%". Arithmetically correct,
+// practically meaningless. Shared by the KPI cards and the AI Performance
+// card so the same metric can't be guarded in one place and not the other.
+const SMALL_SAMPLE = 10
+
 // How often Live Activity refetches. Short enough to deserve the "Live"
 // badge, long enough not to hammer the API from an idle dashboard.
 const ACTIVITY_POLL_MS = 20000
@@ -211,10 +217,20 @@ function AlertRow({ alert }) {
 // level of a component. Calling it inside .map() + an if/else (as before)
 // breaks the Rules of Hooks — the animated value stopped re-targeting when
 // the period filter changed, so the KPI cards looked frozen.
-function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDirection, kpis, periodLabel }) {
+function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDirection,
+                    sampleKey, kpis, periodLabel }) {
   const prev = kpis.previous || {}
   const currentValue = kpiKey ? (kpis[kpiKey] ?? 0) : 0
   const previousValue = kpiKey ? (prev[kpiKey] ?? 0) : 0
+
+  // A rate needs enough underlying conversations for a comparison to mean
+  // anything. Without this the Success Rate card cheerfully reported
+  // "↑ 128.6%" off 7 conversations, while the AI Performance card beside it
+  // suppressed the very same trend — the same metric behaving two ways on one
+  // screen. sampleKey names the denominator; counts don't need one.
+  const sample = sampleKey ? (kpis[sampleKey] ?? 0) : null
+  const prevSample = sampleKey ? (prev[sampleKey] ?? 0) : null
+  const thinSample = sample !== null && (sample < SMALL_SAMPLE || prevSample < SMALL_SAMPLE)
 
   const animatedValue = useCountAnimation(
     isPercentage ? currentValue * 100 : currentValue,
@@ -246,11 +262,13 @@ function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDire
   // move. With no previous value there's nothing to divide by, so say so
   // rather than render Infinity.
   const relativeChange = previousValue !== 0 ? (change / Math.abs(previousValue)) * 100 : null
+  // toFixed(0), matching the AI Performance card — 128.6% and 129% for the same
+  // metric on the same screen was just two roundings of one number.
   const changeDisplay = !isPercentage
     ? Math.abs(change)
     : relativeChange === null
       ? (change === 0 ? '0%' : 'new')
-      : `${Math.abs(relativeChange).toFixed(1)}%`
+      : `${Math.abs(relativeChange).toFixed(0)}%`
 
   return (
     <div className="stat-card min-w-0">
@@ -258,13 +276,19 @@ function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDire
         <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', bg)}>
           <Icon size={18} className={color} />
         </div>
-        <span className={`text-[10px] font-semibold whitespace-nowrap ${colorClass}`}>
-          {arrow} {changeDisplay}
-        </span>
+        {thinSample ? (
+          <span className="text-[10px] font-semibold whitespace-nowrap text-gray-400">—</span>
+        ) : (
+          <span className={`text-[10px] font-semibold whitespace-nowrap ${colorClass}`}>
+            {arrow} {changeDisplay}
+          </span>
+        )}
       </div>
       <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mt-2 tabular-nums truncate">{displayValue}</p>
       <p className="text-sm text-gray-500 font-semibold truncate">{label}</p>
-      <p className="text-[10px] text-gray-400 truncate">vs {periodLabel}</p>
+      <p className="text-[10px] text-gray-400 truncate">
+        {thinSample ? `${sample} convos · too few to compare` : `vs ${periodLabel}`}
+      </p>
     </div>
   )
 }
@@ -400,7 +424,8 @@ export default function Dashboard() {
     // Quality
     { label: 'Failed Replies',  kpiKey: 'failed_responses',     icon: XCircle,       color: 'text-red-500',    bg: 'bg-red-50',    goodDirection: 'down'    },
     { label: 'Escalated',       kpiKey: 'escalated_total',      icon: Flag,          color: 'text-purple-500', bg: 'bg-purple-50', goodDirection: 'down'    },
-    { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: Target,        color: 'text-green-500',  bg: 'bg-green-50',  goodDirection: 'up', isPercentage: true },
+    // sampleKey ties the trend to the number of conversations behind the rate.
+    { label: 'Success Rate',    kpiKey: 'ai_success_rate',      icon: Target,        color: 'text-green-500',  bg: 'bg-green-50',  goodDirection: 'up', isPercentage: true, sampleKey: 'ai_handled_total' },
   ]
 
   // /api/alerts already returns faults grouped, ranked and capped, so this is
