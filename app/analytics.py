@@ -598,26 +598,41 @@ def summary():
         # denominator counted recommendations in the window, so an order today
         # against last month's recommendation landed in one and not the other,
         # letting the rate exceed 100%.
-        recommended_conv_ids = set(
-            cid for (cid,) in db.session.query(Message.conversation_id)
-              .filter(Message.utm_token.isnot(None))
+        # A RECOMMENDATION is a reply that actually pointed at a product, i.e.
+        # carries product_url. It is NOT "has a utm_token": generator.py stamps
+        # a token on EVERY successful AI reply, so keying off it counted plain
+        # answers like "what are your hours?" as product recommendations. That
+        # inflated the denominator with conversations where nothing was ever
+        # recommended, making the conversion rate structurally too low.
+        recommended_rows = (
+            db.session.query(Message.id, Message.conversation_id)
+              .filter(Message.direction == 'outbound')
+              .filter(Message.sender == 'ai')
+              .filter(Message.product_url.isnot(None))
               .filter(Message.created_at >= cutoff)
               .filter(Message.created_at < win.end)
-              .distinct().all()
-            if cid is not None
+              .all()
         )
+        recommended_msg_ids = {mid for mid, _ in recommended_rows}
+        recommended_conv_ids = {cid for _, cid in recommended_rows if cid is not None}
         recommended_convos = len(recommended_conv_ids)
 
         converted_convos = 0
         attributed_orders = 0
         attributed_revenue_raw = 0
-        if recommended_conv_ids:
+        if recommended_msg_ids:
+            # Matched on the MESSAGE, not the conversation. Matching by
+            # conversation credited this window's recommendation with orders
+            # driven by an earlier one in the same thread — including orders
+            # placed before the recommendation existed. The utm token ties an
+            # order to the exact message that earned it, so use that.
             conv_rows = (
                 db.session.query(ConversionAttribution)
-                  .filter(ConversionAttribution.conversation_id.in_(recommended_conv_ids))
+                  .filter(ConversionAttribution.message_id.in_(recommended_msg_ids))
                   .all()
             )
-            converted_convos = len({r.conversation_id for r in conv_rows})
+            converted_convos = len({r.conversation_id for r in conv_rows
+                                    if r.conversation_id is not None})
             attributed_orders = len(conv_rows)
             attributed_revenue_raw = sum(float(r.order_total or 0) for r in conv_rows)
 

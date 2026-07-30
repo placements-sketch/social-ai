@@ -301,6 +301,39 @@ To see the queue without waiting for an alert (supervisor/admin only):
 GET /api/conversations/unclaimed?threshold_minutes=0
 ```
 
+### Step 6c — Schedule the conversion attribution job
+
+**No database change, but Conversion Rate stays permanently 0 without it.**
+
+`POST /api/cron/attribute` scans recent Shopify orders, reads our UTM token
+out of each order's `landing_site`, and writes the `conversion_attributions`
+row that links the order back to the message that earned it. Nothing else
+writes that table.
+
+It has **never run** — `sync_jobs` has rows for `products_apply`,
+`orders_apply` and `customers_apply`, but none for `attribute`, and there are
+no `cron.attribute.*` log entries at all. So every conversion figure on the
+Dashboard has been structurally zero since launch, regardless of how many
+customers actually bought.
+
+```
+POST /api/cron/attribute      header: X-Cron-Secret: <CRON_SECRET>
+```
+
+Schedule it **at least daily**. It looks back only `window_days = 7`
+(`app/cron_routes.py`), so an order that isn't picked up within a week of its
+last update is never attributed — the data is lost, not delayed. If the job is
+paused for longer than that, widen the window before re-enabling.
+
+Verify after the first run:
+
+```sql
+SELECT count(*) AS rows,
+       min(order_date) AS oldest,
+       max(order_date) AS newest
+FROM conversion_attributions;
+```
+
 ### Step 7 — Not database changes
 
 **`tzdata` dependency.** The deploy crashes without it — analytics resolves
