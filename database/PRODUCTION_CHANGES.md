@@ -464,3 +464,62 @@ they decide when "Today", "This week" and "This month" begin.
 ## Later pages
 
 Appended as each page is finished.
+
+---
+
+## Appended after go-live
+
+### Step 12 — Fix `EMAXCONNSESSION` (Shopify webhooks failing)
+
+**Not SQL — an environment variable change plus a redeploy.** Do this one
+first; it's dropping live webhook data.
+
+Production is logging, ~70 times in half an hour:
+
+```
+shopify_webhook.handler_failed
+Handler for 'products/update' failed: (psycopg2.OperationalError)
+connection to server at "aws-1-us-west-2.pooler.supabase.com", port 5432
+failed: FATAL: (EMAXCONNSESSION) max clients reached in session mode
+```
+
+Every one of those is a Shopify product/inventory update **thrown away**, so
+the product cache silently drifts out of date.
+
+**Cause.** `DATABASE_URL` points at the Supabase pooler on **port 5432**,
+which is *session mode*: each client holds a dedicated server connection for
+its entire life, so the slots run out quickly. *Transaction mode* on **port
+6543** hands the connection back after every transaction and supports far
+more clients.
+
+**Fix — change the port in `DATABASE_URL` on Render:**
+
+```
+postgresql://…@aws-1-us-west-2.pooler.supabase.com:5432/postgres    ← now
+postgresql://…@aws-1-us-west-2.pooler.supabase.com:6543/postgres    ← change to
+```
+
+Nothing else in the string changes. Redeploy after saving.
+
+**Also shipped in the code** (`app/config.py`): our own pool was far too big
+for session mode. The pool is per *worker process*, and the Procfile runs
+2 workers × 4 threads, so the previous `pool_size=5, max_overflow=10` meant up
+to **30 connections from the web dyno alone**, before cron jobs and webhook
+handlers. Now `pool_size=4` (matching the thread count) and
+`max_overflow=1` → **10 maximum**. Tunable via `DB_POOL_SIZE` /
+`DB_MAX_OVERFLOW` if needed.
+
+**Transaction mode caveat:** it doesn't support session-level features —
+`LISTEN`/`NOTIFY`, advisory locks held across transactions, or server-side
+prepared statements spanning transactions. This app uses none of them, and
+psycopg2 doesn't use server-side prepared statements by default.
+
+Verify after redeploy — this should return no rows:
+
+```sql
+SELECT created_at, left(message, 90)
+FROM logs
+WHERE source = 'shopify_webhook.handler_failed'
+  AND created_at > now() - interval '30 minutes'
+ORDER BY created_at DESC;
+```

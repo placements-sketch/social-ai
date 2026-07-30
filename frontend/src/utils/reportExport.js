@@ -57,10 +57,19 @@ function buildSections(data) {
         ['Inbound', num(kpis.inbound_total)],
         ['AI replies', num(kpis.ai_replies_total)],
         ['Human replies', num(kpis.human_replies_total)],
+        // Denominator alongside the rate — "42.9%" means little in a
+        // spreadsheet without the 3-of-7 behind it.
+        ['Conversations the AI was on duty for', num(kpis.ai_handled_total)],
         ['AI success rate', pct(kpis.ai_success_rate)],
+        ['  of which engaged', num(kpis.ai_engaged_total)],
+        ['AI response rate', pct(kpis.ai_response_rate)],
         ['Avg response time', ms(kpis.avg_response_time_ms)],
-        ['Human overrides', num(kpis.human_override_total)],
+        // These three were on the Dashboard but missing from every export:
+        // a report that omits the failure count isn't a report of the page.
+        ['Failed replies', num(kpis.failed_responses)],
         ['Escalated', num(kpis.escalated_total)],
+        ['Override rate', pct(kpis.override_rate)],
+        ['Human overrides', num(kpis.human_override_total)],
         ['Total conversations', num(kpis.conversations_total)],
       ],
     },
@@ -82,6 +91,27 @@ function buildSections(data) {
       title: 'Channel breakdown',
       head: ['Channel', 'Messages', 'Share'],
       rows: channels.map((c) => [clean(c.name), num(c.count), `${c.percent}%`]),
+    })
+
+  // Per-channel health — the whole Channel Performance sheet was absent from
+  // exports, so the one view that says WHICH channel needs attention never
+  // left the screen.
+  const perf = data?.channel_performance || []
+  if (perf.length)
+    sections.push({
+      title: 'Channel performance',
+      head: ['Channel', 'Inbound', 'Prev', 'On duty', 'Answered', 'Human', 'No reply', 'Escalated', 'Avg reply'],
+      rows: perf.map((c) => [
+        clean(c.channel),
+        num(c.inbound),
+        num(c.prev_inbound),
+        num(c.handled_convos),
+        num(c.answered_convos),
+        num(c.human_convos),
+        num(c.no_reply_convos),
+        num(c.escalated),
+        ms(c.avg_response_time_ms),
+      ]),
     })
 
   if (intents.length)

@@ -39,6 +39,18 @@ async function handle(fetchPromise) {
 }
 
 /**
+ * Counts for the sidebar badge — role-scoped, resolved excluded.
+ * Cheap by design: a COUNT server-side rather than downloading conversations
+ * to measure them.
+ * @returns {Promise<{needs_human:number, unread:number, unassigned:number}>}
+ */
+export function getConversationCounts() {
+  return handle(
+    fetch(`${API_BASE}/conversations/counts`, { method: 'GET', headers: authHeaders() })
+  )
+}
+
+/**
  * List conversations for the inbox.
  * @param {{page?:number, per_page?:number, channel?:string, status?:string, search?:string}} opts
  * @returns {Promise<{conversations:Array, total:number, page:number, per_page:number}>}

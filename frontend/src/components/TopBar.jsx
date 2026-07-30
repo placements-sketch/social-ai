@@ -175,13 +175,34 @@ export default function TopBar({ onMenuClick }) {
   const { toggleTheme, isDark } = useTheme()
   const navigate = useNavigate()
 
-  const now = new Date().toLocaleString('en-KE', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-
   const API_BASE = import.meta.env.VITE_API_BASE || '/api'
   const [health, setHealth] = useState({ status: 'operational' })
+  const [clockTick, setClockTick] = useState(0)
+
+  // This was `const now = new Date()...` in the render body: computed once and
+  // then frozen until something else re-rendered the bar, so the clock could
+  // sit minutes or hours behind. Tick it every 30s instead.
+  useEffect(() => {
+    const id = setInterval(() => setClockTick(t => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Rendered in the BUSINESS timezone, not the viewer's. The Dashboard buckets
+  // "Today" and "This week" by Nairobi days, so a browser-local clock beside
+  // those figures would disagree for anyone working from another country.
+  const now = (() => {
+    void clockTick   // re-evaluate on tick
+    const opts = {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }
+    try {
+      return new Date().toLocaleString('en-KE',
+        health.timezone ? { ...opts, timeZone: health.timezone } : opts)
+    } catch {
+      return new Date().toLocaleString('en-KE', opts)   // unknown zone → viewer's
+    }
+  })()
   const [showHealth, setShowHealth] = useState(false)
 
   useEffect(() => {
@@ -387,12 +408,14 @@ export default function TopBar({ onMenuClick }) {
   return (
     <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'var(--topbar-bg)', backdropFilter: 'blur(20px) saturate(180%)', borderBottom: '1px solid var(--topbar-line)' }}>
       <div className="flex items-center gap-3">
-        {/* Hamburger */}
+        {/* Hamburger — MOBILE ONLY, where it opens the drawer. On desktop it
+            duplicated the sidebar's own collapse button, so the same action
+            had two controls in two places. The sidebar owns that job now. */}
         <button
           onClick={onMenuClick}
-          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors"
-          title="Toggle sidebar"
-          aria-label="Toggle sidebar"
+          className="md:hidden p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors"
+          title="Open menu"
+          aria-label="Open menu"
         >
           <Menu size={18} />
         </button>

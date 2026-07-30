@@ -94,6 +94,45 @@ def _agent_can_access_conversation(agent_user: AuthUser, conversation: Conversat
     )
 
 
+@messages_bp.route('/conversations/counts', methods=['GET'])
+@jwt_required()
+def conversation_counts():
+    """
+    Counts for the sidebar badge. Same role scoping as the inbox list.
+
+    Exists because the badge was fetching 100 full conversation records every
+    15 seconds — ~24 KB per poll for an admin — purely to call .filter().length
+    on them. Worse, it silently capped: MAX_PER_PAGE is 100, so past 100
+    conversations the badge would quietly under-report forever. A COUNT in the
+    database has neither problem.
+    """
+    current_user = _current_user()
+    query = Conversation.query
+
+    if current_user and current_user.role == 'agent':
+        query = query.filter(
+            db.or_(
+                Conversation.assigned_to == current_user.id,
+                db.and_(
+                    Conversation.assigned_to.is_(None),
+                    Conversation.status == 'human_override',
+                ),
+            )
+        )
+
+    # Two different questions, deliberately. An agent's badge means "waiting on
+    # a person" — the AI handles everything else and they needn't see it. An
+    # admin's means "unread". Resolved threads are excluded from both: a closed
+    # conversation with an unread message is not outstanding work.
+    open_q = query.filter(Conversation.status != 'resolved')
+    return jsonify({
+        'needs_human': open_q.filter(Conversation.ai_enabled.is_(False)).count(),
+        'unread':      open_q.filter(Conversation.unread_count > 0).count(),
+        'unassigned':  open_q.filter(Conversation.assigned_to.is_(None),
+                                     Conversation.status == 'human_override').count(),
+    }), 200
+
+
 @messages_bp.route('/conversations', methods=['GET'])
 @jwt_required()
 def list_conversations():

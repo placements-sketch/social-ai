@@ -26,21 +26,33 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///dev.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Connection pooling. Supabase sits behind PgBouncer, which drops idle
-    # connections without telling the client — so a pooled connection sitting
-    # between webhooks is often already dead by the time we use it, surfacing
-    # as the handler failure seen in production:
-    #   psycopg2.OperationalError: connection to server at
-    #   "aws-1-us-west-2.pooler.supabase.com" ... port 5432 failed
-    # pool_pre_ping issues a cheap check before handing a connection out and
-    # transparently reconnects when it's stale; pool_recycle retires
-    # connections before the pooler's own idle timeout can. Without both, the
-    # first query after a quiet spell fails.
+    # ── Connection pooling ───────────────────────────────────────────────
+    # Two distinct Supabase failures to defend against:
+    #
+    # 1. STALE CONNECTIONS. The pooler drops idle connections without telling
+    #    the client, so one sitting between webhooks is often already dead.
+    #    pool_pre_ping checks before handing it out; pool_recycle retires it
+    #    before the pooler's own idle timeout can.
+    #
+    # 2. TOO MANY CONNECTIONS — seen in production as:
+    #      FATAL: (EMAXCONNSESSION) max clients reached in session mode
+    #    That is the SESSION-mode pooler (port 5432) running out of slots.
+    #    Session mode dedicates a server connection to each client for its
+    #    whole life, so slots are few. The real fix is to point DATABASE_URL
+    #    at the TRANSACTION-mode pooler on port 6543, which returns the
+    #    connection after every transaction and supports far more clients.
+    #
+    # These defaults keep our own footprint small either way. Procfile runs
+    # 2 workers x 4 threads, and the pool is PER WORKER PROCESS — so the old
+    # 5 + 10 overflow meant up to 30 connections from the web dyno alone,
+    # before cron jobs and webhook handlers. pool_size now matches the thread
+    # count so threads rarely queue, with only a little overflow on top:
+    # (4 + 1) x 2 workers = 10 maximum.
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
-        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "280")),   # under PgBouncer's 300s
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "280")),   # under the pooler's 300s
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "4")),           # = gunicorn threads
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "1")),
         "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),
     }
 

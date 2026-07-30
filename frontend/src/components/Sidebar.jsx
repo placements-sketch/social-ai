@@ -46,23 +46,23 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
   // route is active), so landing on /customers/config shows it expanded.
   const [openMenus, setOpenMenus] = useState({})
 
-  // Live unread badge for Messages — number of conversations needing attention.
+  // Live badge for Messages. Counted server-side: this used to pull 100 full
+  // conversation records every 15s (~24 KB a poll) just to call .length on a
+  // filter, and capped silently at MAX_PER_PAGE — past 100 conversations the
+  // badge would under-report forever. /conversations/counts is 49 bytes and
+  // has no ceiling.
   const [messagesBadge, setMessagesBadge] = useState(0)
   useEffect(() => {
     let cancelled = false
     const isAgent = user?.role === 'agent'
     const load = async () => {
       try {
-        const { listConversations } = await import('../api/messages')
-        const data = await listConversations({ channel: 'all', page: 1, per_page: 100 })
+        const { getConversationCounts } = await import('../api/messages')
+        const counts = await getConversationCounts()
         if (cancelled) return
-        const convos = data.conversations || []
-        const count = isAgent
-          // Agents: only conversations escalated to a human — the AI handles the rest.
-          ? convos.filter(c => c.status !== 'resolved' && !c.ai_enabled).length
-          // Admins / supervisors: all unread conversations.
-          : convos.filter(c => (c.unread_count || 0) > 0).length
-        setMessagesBadge(count)
+        // Agents: conversations waiting on a person — the AI handles the rest.
+        // Admins / supervisors: unread. Both exclude resolved, server-side.
+        setMessagesBadge(isAgent ? (counts.needs_human || 0) : (counts.unread || 0))
       } catch { /* silent — a badge should never crash the sidebar */ }
     }
     load()
@@ -84,24 +84,37 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         maxHeight: '100vh',
       }}
     >
-      {/* ── Header: logo + close/collapse button ── */}
+      {/* ── Header: logo + the ONE collapse control ──
+          There used to be three controls for this single action: the TopBar
+          hamburger, a ChevronLeft here (expanded only), and a ChevronRight
+          down in the FOOTER (collapsed only) — so the arrow appeared to jump
+          from the top of the sidebar to the bottom when you collapsed it.
+          Now: one button, always in the header, in the same place, with the
+          chevron flipping to show direction. The TopBar hamburger is mobile-
+          only. */}
       <div
         className={clsx(
-          'flex items-center shrink-0 h-14 lg:h-16 px-4 pt-4 lg:pt-5',
-          isMobile ? 'justify-between' : (collapsed ? 'md:justify-center md:px-0 justify-between' : 'justify-between')
+          'flex shrink-0 px-4 pt-4 lg:pt-5',
+          isMobile
+            ? 'items-center justify-between h-14 lg:h-16'
+            : (collapsed
+                // Stacked when narrow — there isn't room for logo and button
+                // side by side at 80px, but it stays in the header either way.
+                ? 'md:flex-col md:items-center md:gap-3 md:px-0 items-center justify-between h-auto md:pb-1'
+                : 'items-center justify-between h-14 lg:h-16')
         )}
       >
         <div className="flex items-center gap-2.5">
           <img src={szLogo} alt="Shop Zetu" className="w-8 h-8 lg:w-9 lg:h-9 shrink-0" />
           <div className={clsx(isMobile ? 'block' : (collapsed ? 'md:hidden' : 'block'))}>
             <p className="text-sm font-bold text-white leading-tight tracking-tight">Shop Zetu</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">Social AI</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Social AI</p>
           </div>
         </div>
 
         <button
           onClick={onClose}
-          className={clsx(isMobile ? 'block' : 'md:hidden', 'text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors')}
+          className={clsx(isMobile ? 'block' : 'md:hidden', 'text-gray-300 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors')}
           aria-label="Close menu"
         >
           <X size={18} />
@@ -110,13 +123,11 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         {!isMobile && (
           <button
             onClick={onToggle}
-            className={clsx(
-              'hidden md:flex text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5',
-              collapsed && 'md:hidden'
-            )}
-            title="Collapse sidebar"
+            className="hidden md:flex items-center justify-center w-8 h-8 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <ChevronLeft size={16} />
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         )}
       </div>
@@ -141,7 +152,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
               )}
 
               {!collapsed && (
-                <p className="text-[10px] lg:text-xs font-semibold text-gray-300 uppercase tracking-widest px-3 mb-1 lg:mb-1.5">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-1.5 lg:mb-2">
                   {groupName}
                 </p>
               )}
@@ -165,9 +176,12 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                           : (collapsed
                               ? 'md:justify-center md:w-10 md:h-10 md:mx-auto md:px-0 gap-3 px-3 py-2'
                               : 'gap-3 px-3 py-1.5 lg:py-2'),
+                        // gray-400 on a near-black panel read as disabled.
+                        // gray-300 keeps the hierarchy against an active item
+                        // without the whole menu looking switched off.
                         isActive
                           ? 'bg-brand-600 text-white shadow-lg'
-                          : 'text-gray-400 hover:text-white hover:bg-white/5'
+                          : 'text-gray-300 hover:text-white hover:bg-white/10'
                       )
                     }
                   >
@@ -205,20 +219,24 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                     )}
                   </NavLink>
 
+                  {/* Children were 13px in gray-500 — two steps dimmer AND
+                      smaller than their parent, which pushed them past
+                      "secondary" into "unreadable". Now 14px in gray-300,
+                      one clear step below the parent and nothing more. */}
                   {showKids && (
-                    <div className="mt-1 mb-1 ml-[1.4rem] pl-3 border-l border-white/[0.07] space-y-0.5">
+                    <div className="mt-1 mb-1 ml-[1.4rem] pl-3 border-l border-white/[0.12] space-y-0.5">
                       {kids.map(kid => (
                         <NavLink
                           key={kid.to}
                           to={kid.to}
                           className={({ isActive }) =>
                             clsx(
-                              'relative block rounded-lg pl-3 pr-3 py-1.5 text-[13px] transition-colors',
+                              'relative block rounded-lg pl-3 pr-3 py-2 text-sm transition-colors',
                               'before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2',
-                              'before:h-1 before:w-1 before:rounded-full before:transition-colors',
+                              'before:h-1.5 before:w-1.5 before:rounded-full before:transition-colors',
                               isActive
-                                ? 'text-white font-medium before:bg-brand-500'
-                                : 'text-gray-500 hover:text-gray-200 before:bg-white/20 hover:before:bg-white/40'
+                                ? 'text-white font-semibold bg-white/[0.06] before:bg-brand-500'
+                                : 'text-gray-300 hover:text-white hover:bg-white/[0.06] before:bg-white/30 hover:before:bg-brand-500'
                             )
                           }
                         >
@@ -243,9 +261,12 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
           isMobile ? 'px-4 py-3' : (collapsed ? 'md:px-2 md:py-3 px-4 py-3' : 'px-4 py-3 lg:py-4')
         )}
       >
+        {/* Collapsed: just the avatar. The expand button that used to live
+            here has moved to the header, where the collapse button already
+            was — one control, one location. */}
         {!isMobile && (
-          <div className={clsx('flex-col items-center gap-2', collapsed ? 'md:flex hidden' : 'hidden')}>
-            <div className="relative">
+          <div className={clsx('flex-col items-center', collapsed ? 'md:flex hidden' : 'hidden')}>
+            <div className="relative" title={`${user?.full_name || 'User'} · ${user?.role || ''}`}>
               <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
                 {user?.full_name?.charAt(0).toUpperCase() || 'U'}
               </div>
@@ -255,13 +276,6 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                 className="absolute bottom-0 right-0 ring-1 ring-[#0d0d0d]"
               />
             </div>
-            <button
-              onClick={onToggle}
-              className="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
-              title="Expand sidebar"
-            >
-              <ChevronRight size={14} />
-            </button>
           </div>
         )}
 
@@ -270,8 +284,8 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-white truncate">{user?.full_name || 'User'}</p>
-            <p className="text-[11px] text-gray-500 truncate capitalize">{user?.role || 'user'}</p>
+            <p className="text-[13px] font-semibold text-white truncate">{user?.full_name || 'User'}</p>
+            <p className="text-[11px] text-gray-400 truncate capitalize">{user?.role || 'user'}</p>
           </div>
           <PresenceDot status={user?.presence || 'online'} />
         </div>
