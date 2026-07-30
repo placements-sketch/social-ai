@@ -52,16 +52,25 @@ export function getConversationCounts() {
 
 /**
  * List conversations for the inbox.
- * @param {{page?:number, per_page?:number, channel?:string, status?:string, search?:string}} opts
+ * `bucket` is one of the four inbox chips (unclaimed | human | ai | resolved).
+ * It is a compound condition over status + assigned_to + ai_enabled, which is
+ * why it can't ride on `status`. Filtering it server-side is what keeps the
+ * list in agreement with the chip's count — done in the browser it could only
+ * ever filter the page already fetched.
+ *
+ * @param {{page?:number, per_page?:number, channel?:string, status?:string,
+ *          search?:string, bucket?:string, assigned_to?:string}} opts
  * @returns {Promise<{conversations:Array, total:number, page:number, per_page:number}>}
  */
-export function listConversations({ page = 1, per_page = 20, channel = null, status = null, search = null } = {}) {
+export function listConversations({ page = 1, per_page = 20, channel = null, status = null, search = null, bucket = null, assigned_to = null } = {}) {
   const params = new URLSearchParams()
   params.set('page', page)
   params.set('per_page', per_page)
   if (channel && channel !== 'all') params.set('channel', channel)
   if (status && status !== 'all') params.set('status', status)
   if (search) params.set('search', search)
+  if (bucket) params.set('bucket', bucket)
+  if (assigned_to) params.set('assigned_to', assigned_to)
 
   return handle(
     fetch(`${API_BASE}/conversations?${params.toString()}`, {

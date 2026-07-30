@@ -94,6 +94,38 @@ def _agent_can_access_conversation(agent_user: AuthUser, conversation: Conversat
     )
 
 
+# The four inbox filter chips, expressed once as SQL.
+#
+# These are compound conditions — a bucket depends on status AND assigned_to
+# AND ai_enabled together — so they cannot be expressed with the plain ?status=
+# parameter the list endpoint already had. Without a server-side equivalent the
+# frontend filtered the page it happened to have loaded, while the chip counted
+# the whole inbox, and the two disagreed the moment the inbox exceeded one page:
+# "Resolved 27" over a list showing 11, "Unclaimed 2" over an empty list.
+#
+# Defined here and used by BOTH the counts endpoint and the list endpoint, so
+# the number on a chip and the rows behind it are answers to the same question.
+INBOX_BUCKETS = ('unclaimed', 'human', 'ai', 'resolved')
+
+
+def _bucket_filter(query, bucket):
+    """Narrow `query` to one inbox bucket. Unknown bucket → unchanged query."""
+    if bucket == 'unclaimed':
+        return query.filter(Conversation.status != 'resolved',
+                            Conversation.assigned_to.is_(None),
+                            Conversation.ai_enabled.is_(False))
+    if bucket == 'human':
+        return query.filter(Conversation.status != 'resolved',
+                            Conversation.assigned_to.isnot(None),
+                            Conversation.ai_enabled.is_(False))
+    if bucket == 'ai':
+        return query.filter(Conversation.status != 'resolved',
+                            Conversation.ai_enabled.is_(True))
+    if bucket == 'resolved':
+        return query.filter(Conversation.status == 'resolved')
+    return query
+
+
 @messages_bp.route('/conversations/counts', methods=['GET'])
 @jwt_required()
 def conversation_counts():
@@ -144,14 +176,11 @@ def conversation_counts():
         'unread':      sum(1 for c in open_convs if unread_map.get(c.id, 0) > 0),
         'unassigned':  sum(1 for c in open_convs
                            if c.assigned_to is None and c.status == 'human_override'),
-        'by_status': {
-            'unclaimed': sum(1 for c in open_convs
-                             if not c.assigned_to and not c.ai_enabled),
-            'human':     sum(1 for c in open_convs
-                             if c.assigned_to and not c.ai_enabled),
-            'ai':        sum(1 for c in open_convs if c.ai_enabled),
-            'resolved':  query.filter(Conversation.status == 'resolved').count(),
-        },
+        # Counted with the same _bucket_filter the list endpoint applies, so a
+        # chip's number and the rows it reveals can never disagree. They used
+        # to be two separate implementations — Python sums here, no filter at
+        # all there — which is precisely how they drifted.
+        'by_status': {k: _bucket_filter(query, k).count() for k in INBOX_BUCKETS},
     }), 200
 
 
@@ -195,6 +224,13 @@ def list_conversations():
 
     if status and status != 'all':
         query = query.filter(Conversation.status == status)
+
+    # Inbox filter chips. Applied in SQL so the list matches the chip's count
+    # rather than showing whichever members of the bucket happened to land in
+    # the page already loaded.
+    bucket = request.args.get('bucket', type=str)
+    if bucket in INBOX_BUCKETS:
+        query = _bucket_filter(query, bucket)
 
     # Optional filters for supervisor/admin dashboards
     assigned_to = request.args.get('assigned_to', type=str)

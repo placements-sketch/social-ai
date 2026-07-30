@@ -95,12 +95,8 @@ function attentionInfo(conv) {
 // Status filters for the conversation list. Each is a plain question about
 // where a conversation stands, rather than the old single "needs attention"
 // toggle whose rule you had to know in advance.
-const statusMatchers = {
-  unclaimed: c => c.status !== 'resolved' && !c.assigned_to && !c.ai_enabled,
-  human:     c => c.status !== 'resolved' && !!c.assigned_to && !c.ai_enabled,
-  ai:        c => c.status !== 'resolved' && c.ai_enabled,
-  resolved:  c => c.status === 'resolved',
-}
+// The buckets themselves now live in SQL (app/messages.py::_bucket_filter);
+// keeping a second copy here is what let the two definitions drift apart.
 
 // Rows per page in the conversation list.
 const PAGE_SIZE = 20
@@ -300,6 +296,8 @@ export default function Messages() {
         search,
         page: 1,
         per_page: PAGE_SIZE,
+        bucket: statusFilter || null,
+        assigned_to: assignedFilter || null,
       })
       setConversations(data.conversations || [])
       setTotalConvos(data.total ?? (data.conversations || []).length)
@@ -309,7 +307,7 @@ export default function Messages() {
     } finally {
       setLoadingList(false)
     }
-  }, [channelFilter, search])
+  }, [channelFilter, search, statusFilter, assignedFilter])
 
   const loadMore = useCallback(async () => {
     if (loadingMore) return
@@ -318,6 +316,8 @@ export default function Messages() {
       const next = page + 1
       const data = await listConversations({
         channel: channelFilter, search, page: next, per_page: PAGE_SIZE,
+        bucket: statusFilter || null,
+        assigned_to: assignedFilter || null,
       })
       const incoming = data.conversations || []
       // Merge by id — a conversation can move between pages while you're
@@ -331,13 +331,13 @@ export default function Messages() {
       setPage(next)
     } catch { /* leave the list as-is; the button stays available */ }
     finally { setLoadingMore(false) }
-  }, [channelFilter, search, page, loadingMore, totalConvos])
+  }, [channelFilter, search, statusFilter, assignedFilter, page, loadingMore, totalConvos])
 
   useEffect(() => {
     // Load conversations on initial mount and when filters change
     const t = setTimeout(loadList, search ? 300 : 0)
     return () => clearTimeout(t)
-  }, [loadList, search, channelFilter])
+  }, [loadList, search, channelFilter, statusFilter, assignedFilter])
 
   // Status counts come from the server so the chips describe the whole inbox
   // rather than the page you happen to have loaded.
@@ -368,7 +368,9 @@ export default function Messages() {
         // scrolled list back to the first 20 every 10 seconds.
         const data = await listConversations({
           channel: channelFilter, search, page: 1, per_page: PAGE_SIZE,
-        })
+        bucket: statusFilter || null,
+        assigned_to: assignedFilter || null,
+      })
         const fresh = data.conversations || []
         setTotalConvos(data.total ?? totalConvos)
         setConversations(prev => {
@@ -384,7 +386,7 @@ export default function Messages() {
     }
     const timer = setInterval(silentRefresh, 10000)
     return () => clearInterval(timer)
-  }, [channelFilter, search, totalConvos])
+  }, [channelFilter, search, statusFilter, assignedFilter, totalConvos])
 
   // Typing indicator: show ~3s after a new inbound message arrives,
   // OR until the AI reply appears (whichever first).
@@ -482,7 +484,9 @@ export default function Messages() {
           channel: 'all',
           page: 1,
           per_page: 100,
-        })
+        bucket: statusFilter || null,
+        assigned_to: assignedFilter || null,
+      })
         const uniqueChannels = new Set(['all'])
         data.conversations?.forEach(c => uniqueChannels.add(c.platform))
         setAllChannels(Array.from(uniqueChannels))
@@ -575,24 +579,23 @@ export default function Messages() {
     setActiveConv(null)
   }
 
-  // Attention filter uses the exact same flag shown on the rows.
-  // The assignment filter is set by deep links from the Dashboard alerts.
-  // Three independent filters, all narrowing the same list: channel (applied
-  // server-side), status, and the assignment deep-link from the Dashboard.
+  // Every filter — channel, status bucket, and the assignment deep-link from
+  // the Dashboard — is now applied in SQL and arrives already narrowed.
+  //
+  // All three used to be re-applied here over `conversations`, which holds one
+  // page of 20. So the chip counted the whole inbox server-side while the list
+  // filtered a single page, and they disagreed as soon as the inbox was larger
+  // than a page: "Resolved 27" above a list of 11, "Unclaimed 2" above "No
+  // unclaimed conversations." A filter that only searches what you've already
+  // scrolled past isn't a filter.
   const filteredConversations = conversations
-    .filter(c => (statusFilter ? statusMatchers[statusFilter](c) : true))
-    .filter(c => (
-      assignedFilter === 'unassigned' ? !c.assigned_to :
-      assignedFilter === 'me'         ? c.assigned_to === user?.id :
-                                        true
-    ))
 
-  // Counts for the empty state, from the same matchers the filters use so the
-  // two can never disagree.
+  // Empty-state copy quotes the server's counts, not the loaded page, for the
+  // same reason.
   const inboxSummary = {
-    open:      conversations.filter(c => c.status !== 'resolved').length,
-    unclaimed: conversations.filter(statusMatchers.unclaimed).length,
-    ai:        conversations.filter(statusMatchers.ai).length,
+    open:      (statusCounts?.unclaimed ?? 0) + (statusCounts?.human ?? 0) + (statusCounts?.ai ?? 0),
+    unclaimed: statusCounts?.unclaimed ?? 0,
+    ai:        statusCounts?.ai ?? 0,
   }
 
   // Effective AI state for the open conversation — the global master switch
@@ -811,12 +814,20 @@ const handleSend = async () => {
             which was one opaque switch hiding a rule you had to already know
             ("AI is off for this conversation"). These say what they select,
             show how many are in each, and can be combined with the channel
-            filter above. Counts are of what's currently loaded. */}
+            filter above.
+
+            Counts come from the server over the whole scoped inbox, computed
+            with the same predicate that filters the list — see _bucket_filter
+            in app/messages.py. Both used to be worked out here in the browser
+            over one loaded page, which is how a chip could read 27 above a
+            list of 11. */}
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {STATUS_FILTERS.map(({ key, label, dot }) => {
-            // Server count over the WHOLE set; the loaded-page count is only
-            // a fallback for the moment before the first counts call lands.
-            const n = statusCounts?.[key] ?? conversations.filter(statusMatchers[key]).length
+            // Server count over the whole scoped set. No loaded-page fallback:
+            // the list now arrives already narrowed to the active bucket, so
+            // counting it would report 0 for every OTHER chip. Blank until the
+            // first counts call lands is honest; a wrong number is not.
+            const n = statusCounts?.[key]
             const active = statusFilter === key
             return (
               <button
@@ -830,7 +841,9 @@ const handleSend = async () => {
               >
                 <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', dot)} />
                 {label}
-                <span className={clsx('tabular-nums', active ? 'text-white/70' : 'text-gray-400')}>{n}</span>
+                {n != null && (
+                  <span className={clsx('tabular-nums', active ? 'text-white/70' : 'text-gray-400')}>{n}</span>
+                )}
               </button>
             )
           })}
@@ -866,11 +879,27 @@ const handleSend = async () => {
           </div>
         )}
         {!loadingList && !listError && filteredConversations.length === 0 && (
-          <p className="px-4 py-12 text-center text-xs text-gray-400">
-            {statusFilter
-              ? `No ${STATUS_FILTERS.find(f => f.key === statusFilter)?.label.toLowerCase()} conversations.`
-              : 'No conversations yet.'}
-          </p>
+          <div className="px-6 py-12 text-center">
+            <p className="text-xs text-gray-500">
+              {statusFilter
+                ? `No ${STATUS_FILTERS.find(f => f.key === statusFilter)?.label.toLowerCase()} conversations`
+                : 'No conversations'}
+              {channelFilter && channelFilter !== 'all' && ` in ${platformLabel(channelFilter)}`}
+              {search && ` matching “${search}”`}.
+            </p>
+            {/* An empty bucket now means the bucket is genuinely empty — the
+                filter runs in SQL over the whole inbox. But channel and search
+                narrow it further, so when one of those is what emptied the
+                list, offer the way back rather than leaving a dead end. */}
+            {(channelFilter !== 'all' || search || statusFilter) && (
+              <button
+                onClick={() => { setStatusFilter(null); setChannelFilter('all'); setSearch('') }}
+                className="mt-2 text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
         )}
         {!loadingList && !listError && filteredConversations.map((conv) => {
           const attn = attentionInfo(conv)
