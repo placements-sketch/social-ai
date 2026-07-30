@@ -25,7 +25,7 @@ from flask_jwt_extended import jwt_required
 from sqlalchemy import func
 
 from app import db
-from app.models import AuthUser, Channel, Conversation, Message
+from app.models import AuthUser, Channel, Conversation, Message, ConversationRead
 from app.auth import log_audit, current_user_id
 
 channels_bp = Blueprint('channels', __name__, url_prefix='/api')
@@ -86,13 +86,38 @@ def _stats_for_channels(channel_keys: list[str]) -> dict[str, dict]:
         .group_by(Message.channel)
         .all()
     )
-    unread_rows = (
-        db.session.query(Conversation.channel, func.sum(Conversation.unread_count))
-        .filter(Conversation.channel.in_(channel_keys))
-        .group_by(Conversation.channel)
-        .all()
-    )
-    unread_counts = {ch: int(n or 0) for ch, n in unread_rows}
+    # Unread is per user, counted from that person's own read position — the
+    # same source the inbox list and the sidebar badge use.
+    #
+    # This used to SUM(conversations.unread_count), a single shared counter that
+    # mark_read() zeroes whenever ANYONE opens a conversation. So an admin
+    # glancing at a chat wiped it for every agent, and the number drifted far
+    # below the truth: on the development database the shared counter totalled
+    # 4 while every individual user actually had 19 conversations with unread
+    # messages. Two places, two answers, same question.
+    unread_counts = {ch: 0 for ch in channel_keys}
+    viewer_id = current_user_id()
+    if viewer_id:
+        last_read = (
+            db.session.query(ConversationRead.conversation_id,
+                             ConversationRead.last_read_message_id)
+            .filter(ConversationRead.user_id == viewer_id)
+        )
+        read_map = {cid: mid for cid, mid in last_read}
+
+        rows = (
+            db.session.query(Conversation.channel, Conversation.id,
+                             func.max(Message.id))
+            .join(Message, Message.conversation_id == Conversation.id)
+            .filter(Conversation.channel.in_(channel_keys),
+                    Conversation.status != 'resolved',
+                    Message.direction == 'inbound')
+            .group_by(Conversation.channel, Conversation.id)
+            .all()
+        )
+        for ch, conv_id, newest_inbound in rows:
+            if newest_inbound and newest_inbound > (read_map.get(conv_id) or 0):
+                unread_counts[ch] = unread_counts.get(ch, 0) + 1
 
     last_rows = (
         db.session.query(Conversation.channel, func.max(Conversation.last_message_at))

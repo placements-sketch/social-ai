@@ -523,3 +523,61 @@ WHERE source = 'shopify_webhook.handler_failed'
   AND created_at > now() - interval '30 minutes'
 ORDER BY created_at DESC;
 ```
+
+---
+
+### Step 13 — Make inbox search cover message bodies
+
+**Why.** Inbox search only looked at `conversations.last_message`, the customer
+name and the handle. Anything said in the middle of a thread was unfindable —
+searching "refund" returned a conversation only if "refund" happened to be the
+most recent line in it. On the local database the difference is stark:
+
+| Search term | Matched before | Matches now |
+|---|---|---|
+| refund   | 1 | 8  |
+| dress    | 4 | 14 |
+| delivery | 3 | 6  |
+| size     | 2 | 4  |
+
+The application change (a correlated `EXISTS` over `messages.content`) ships
+with the deploy and needs no SQL. This step is purely about speed.
+
+**What this does.** `ILIKE '%term%'` cannot use an ordinary B-tree index, so
+without this the database reads every message row on every search. `pg_trgm`
+provides a trigram GIN index, which Postgres *can* use for a leading-wildcard
+match. Verified locally: the planner switches from a sequential scan to a
+`Bitmap Index Scan on idx_messages_content_trgm`.
+
+Safe to re-run — both statements are `IF NOT EXISTS`.
+
+```sql
+-- Trigram matching, so ILIKE '%term%' can use an index.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Index for searching message bodies from the inbox search box.
+CREATE INDEX IF NOT EXISTS idx_messages_content_trgm
+    ON messages USING gin (content gin_trgm_ops);
+```
+
+Building the index takes a table lock for the duration. On a table of this size
+that is seconds, but if the inbox is busy you can avoid the lock entirely by
+running it outside a transaction instead:
+
+```sql
+-- Optional alternative. Must be run on its own, NOT inside BEGIN/COMMIT.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_messages_content_trgm
+    ON messages USING gin (content gin_trgm_ops);
+```
+
+**Verify.** The index exists and is being used:
+
+```sql
+SELECT indexname FROM pg_indexes WHERE indexname = 'idx_messages_content_trgm';
+
+EXPLAIN
+SELECT 1 FROM messages WHERE content ILIKE '%refund%';
+```
+
+On a small table Postgres may still prefer a sequential scan — that is correct
+behaviour, not a failure. The index earns its keep as the table grows.

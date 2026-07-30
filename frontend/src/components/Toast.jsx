@@ -59,30 +59,34 @@ function ToastCard({ toast, onDismiss }) {
 
   // Visual treatment per severity
   const sev = toast.severity || 'info'
+  // Severity is carried by the icon and a 3px accent bar down the left edge,
+  // not by ringing the whole card in colour. A full bright border reads as a
+  // much heavier line than the 1px it is, and it competes with the text it is
+  // supposed to be framing.
   const styling = sev === 'urgent'
-    ? { Icon: AlertOctagon, iconBg: 'bg-red-50', iconColor: 'text-red-600', border: 'border-red-200' }
+    ? { Icon: AlertOctagon, iconBg: 'bg-red-50', iconColor: 'text-red-600', accent: 'bg-red-500' }
     : sev === 'warning'
-      ? { Icon: AlertTriangle, iconBg: 'bg-amber-50', iconColor: 'text-amber-600', border: 'border-amber-200' }
-      : { Icon: Bell, iconBg: 'bg-brand-50', iconColor: 'text-brand-600', border: 'border-gray-200' }
+      ? { Icon: AlertTriangle, iconBg: 'bg-amber-50', iconColor: 'text-amber-600', accent: 'bg-amber-500' }
+      : { Icon: Bell, iconBg: 'bg-brand-50', iconColor: 'text-brand-600', accent: 'bg-brand-500' }
 
   return (
     <div
       className={clsx(
-        'pointer-events-auto bg-white rounded-xl shadow-2xl',
-        'w-80 max-w-[calc(100vw-2rem)] overflow-hidden border',
-        styling.border,
+        'pointer-events-auto bg-white rounded-xl shadow-2xl relative',
+        'w-80 max-w-[calc(100vw-2rem)] overflow-hidden border border-gray-200',
         'transition-all duration-300 ease-out',
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0',
       )}
     >
-      <div className="flex items-start gap-3 p-4">
+      <span className={clsx('absolute left-0 top-0 bottom-0 w-[3px]', styling.accent)} />
+      <div className="flex items-start gap-3 p-4 pl-5">
         <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', styling.iconBg)}>
           <styling.Icon size={16} className={styling.iconColor} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-bold text-gray-900">{toast.title}</p>
           {toast.body && (
-            <p className="text-xs text-gray-600 mt-0.5 leading-snug">{toast.body}</p>
+            <p className="text-xs text-gray-700 mt-0.5 leading-snug">{toast.body}</p>
           )}
         </div>
         <button

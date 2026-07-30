@@ -3,6 +3,7 @@ import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
   RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
   CheckCircle2, RotateCcw, ExternalLink, MessageSquare, Zap, Clock, Search,
+  AlertCircle, ImageOff,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -101,6 +102,20 @@ function attentionInfo(conv) {
 // Rows per page in the conversation list.
 const PAGE_SIZE = 20
 
+// How often the open conversation re-fetches.
+//
+// It used to be a flat 3s setInterval that ran forever — 20 requests a minute
+// per open chat, per agent, whether or not anyone was looking at the screen.
+// Gunicorn here runs 2 workers x 4 threads = 8 concurrent slots, so ten agents
+// with a chat open was 200 req/min of pure polling before anyone did any work.
+//
+// Now: 3s while the conversation is live, dropping to 20s once nothing has
+// changed for two minutes, and stopping altogether while the tab is hidden.
+// Switching back to the tab refreshes immediately and resets to fast.
+const POLL_FAST_MS = 3000
+const POLL_SLOW_MS = 20000
+const POLL_IDLE_BEFORE_BACKOFF = 40      // 40 x 3s = 2 minutes
+
 const STATUS_FILTERS = [
   { key: 'unclaimed', label: 'Unclaimed',  dot: 'bg-red-500'   },
   { key: 'human',     label: 'With agent', dot: 'bg-amber-500' },
@@ -178,6 +193,81 @@ function CommentPostPreview({ mediaId }) {
 const URL_SPLIT_RE = /(https?:\/\/[^\s<>()"']+)/g
 const IS_URL_RE = /^https?:\/\//
 
+// Bold the searched term inside a match snippet. Split on the term rather
+// than using dangerouslySetInnerHTML — the term comes from the search box, so
+// injecting it as markup would be an XSS hole opened by the user typing.
+// One image in a message bubble.
+//
+// A bare <img> was a bad fit here because these URLs expire. Instagram and
+// Facebook serve attachments from signed CDN links with a lifetime, so a photo
+// a customer sent last month renders as a broken-image icon — and when the
+// message text is the placeholder "[Sent a photo]" (which the bubble hides),
+// the whole bubble came out completely empty. An agent scrolling back saw a
+// blank gap with no way to tell whether something failed or nothing was there.
+function Attachment({ url, onOpen }) {
+  const [state, setState] = useState('loading')
+
+  if (state === 'error') {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="flex items-center gap-2 rounded-xl border border-dashed border-gray-300 px-3 py-2.5 max-w-[220px] hover:border-gray-400 transition-colors"
+      >
+        <ImageOff size={14} className="text-gray-400 shrink-0" />
+        <span className="text-[11px] text-gray-500 leading-snug">
+          Image unavailable
+          <span className="block text-[10px] text-gray-400">
+            The link from the platform has expired — open directly
+          </span>
+        </span>
+      </a>
+    )
+  }
+
+  return (
+    <div className="relative max-w-[220px] w-full">
+      {state === 'loading' && (
+        <div className="absolute inset-0 rounded-xl bg-gray-100 animate-pulse" />
+      )}
+      <img
+        src={url}
+        alt="attachment"
+        onClick={onOpen}
+        onLoad={() => setState('ok')}
+        onError={() => setState('error')}
+        className={clsx(
+          'rounded-xl w-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity',
+          state === 'loading' && 'opacity-0'
+        )}
+        loading="lazy"
+      />
+    </div>
+  )
+}
+
+// A search term goes straight into a RegExp, so every character that means
+// something to the engine has to be neutralised first. Typing "20%" or "(sale)"
+// would otherwise throw and blank the whole list.
+const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function Highlighted({ text, term }) {
+  const t = (term || '').trim()
+  if (!t) return <>{text}</>
+  const parts = String(text).split(new RegExp('(' + escapeRegExp(t) + ')', 'ig'))
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === t.toLowerCase()
+          ? <mark key={i} className="bg-brand-200 text-gray-900 rounded-sm px-0.5">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  )
+}
+
 function Linkified({ text, on = 'light' }) {
   return (
     <>
@@ -216,7 +306,18 @@ export default function Messages() {
   const [totalConvos, setTotalConvos] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
   const [statusCounts, setStatusCounts] = useState(null)         // server-side, whole set
+
+  // Settle the typing before asking the server.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
   const [assignedFilter, setAssignedFilter] = useState(null)    // null | 'me' | 'unassigned' (set by deep links)
+  // Two states on purpose. `searchInput` is what you see in the box and updates
+  // on every keystroke; `search` is what the server is asked about and lags it
+  // by 300ms. Without the gap, typing "dress" fired five requests, and now that
+  // search reaches into message bodies each one scans every message row.
+  const [searchInput, setSearchInput]   = useState('')
   const [search, setSearch]             = useState('')
 
   const [conversations, setConversations] = useState([])
@@ -227,6 +328,13 @@ export default function Messages() {
   const [loadingConv, setLoadingConv]   = useState(false)
   const [listError, setListError]       = useState(null)
   const [convError, setConvError]       = useState(null)
+
+  // A send that failed, kept so it can be retried verbatim.
+  // Failures used to be written into convError — the same state the *conversation
+  // failed to load* path uses. Its Retry button re-fetches the thread, so the
+  // one button offered after a failed send did nothing about the message that
+  // hadn't been sent, and the error panel elbowed the thread down the screen.
+  const [sendError, setSendError]       = useState(null)
   const [reassignedError, setReassignedError] = useState(false)  // Track if conv was reassigned
 
   const [replyText, setReplyText]       = useState('')
@@ -392,6 +500,9 @@ export default function Messages() {
   // OR until the AI reply appears (whichever first).
   const [aiTyping, setAiTyping] = useState(false)
 
+  // Consecutive polls that found nothing new. Drives the backoff above.
+  const pollIdleRef = useRef(0)
+
   // ── Poll the active conversation every 5s so new inbound messages appear
   // without clicking back into the thread. Silent — no loading state.
   useEffect(() => {
@@ -424,14 +535,54 @@ export default function Messages() {
             }
           }
 
+          if (newMsgs.length !== oldMsgs.length) pollIdleRef.current = 0
+
           return { ...prev, ...data.conversation }
         })
       } catch {
         // Silent fail
       }
     }
-    const timer = setInterval(silentRefresh, 3000)
-    return () => clearInterval(timer)
+
+    let cancelled = false
+    let timer = null
+
+    // Self-scheduling rather than setInterval: the delay has to be able to
+    // change between ticks, and setInterval can't do that. It also can't skip
+    // a tick, so a slow response would stack requests on top of each other.
+    const tick = async () => {
+      if (cancelled || document.hidden) return
+      pollIdleRef.current += 1
+      await silentRefresh()
+      schedule()
+    }
+
+    const schedule = () => {
+      if (cancelled || document.hidden) return
+      clearTimeout(timer)
+      timer = setTimeout(tick, pollIdleRef.current >= POLL_IDLE_BEFORE_BACKOFF
+        ? POLL_SLOW_MS
+        : POLL_FAST_MS)
+    }
+
+    // A hidden tab shows nobody anything, so polling it is pure waste. Coming
+    // back deserves fresh data at once, not after another interval.
+    const onVisibility = () => {
+      clearTimeout(timer)
+      if (document.hidden) return
+      pollIdleRef.current = 0
+      silentRefresh().then(schedule)
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    pollIdleRef.current = 0
+    schedule()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [selected])
 
   // Fetch the IG post info when an IG-comment conversation is opened.
@@ -577,6 +728,7 @@ export default function Messages() {
   const backToList = () => {
     setSelected(null)
     setActiveConv(null)
+    setSendError(null)
   }
 
   // Every filter — channel, status bucket, and the assignment deep-link from
@@ -620,12 +772,30 @@ export default function Messages() {
     if (!confirmed) return
 
     const next = !activeConv.ai_enabled
-    setActiveConv(c => ({ ...c, ai_enabled: next }))   // optimistic
+    // Optimistic in BOTH places. Only activeConv was updated before, so the
+    // header said "AI paused" while the row in the list still showed the AI
+    // handler badge — the same conversation described two ways on one screen.
+    setActiveConv(c => ({ ...c, ai_enabled: next }))
+    setConversations(list => list.map(c =>
+      c.id === activeConv.id ? { ...c, ai_enabled: next } : c))
     try {
       const data = await toggleAI(activeConv.id, next) // { conversation: {...} }
       setActiveConv(c => ({ ...c, ...data.conversation }))
-    } catch {
-      setActiveConv(c => ({ ...c, ai_enabled: !next })) // revert
+      setConversations(list => list.map(c =>
+        c.id === activeConv.id ? { ...c, ...data.conversation } : c))
+    } catch (err) {
+      // Reverting in silence was the dangerous part: the agent saw the AI go
+      // quiet, started typing a manual reply, and the AI was still live and
+      // answering underneath them. A failed toggle has to be announced.
+      setActiveConv(c => ({ ...c, ai_enabled: !next }))
+      setConversations(list => list.map(c =>
+        c.id === activeConv.id ? { ...c, ai_enabled: !next } : c))
+      showToast(
+        next
+          ? 'Could not switch the AI back on — it is still paused for this chat.'
+          : 'Could not pause the AI — it is STILL replying to this customer.',
+        'warning'
+      )
     }
   }
 
@@ -657,29 +827,38 @@ export default function Messages() {
       setConversations(list => list.map(c =>
         c.id === activeConv.id ? { ...c, ...fresh } : c))
     } catch (err) {
-      console.error('Failed to update status:', err)
+      // The button silently flipped back and the only trace was a console line
+      // no agent will ever open.
       setActiveConv(c => ({ ...c, status: previous }))                 // revert both
       setConversations(list => list.map(c =>
         c.id === activeConv.id ? { ...c, status: previous } : c))
+      showToast(
+        next === 'resolved'
+          ? 'Could not mark this resolved — it is still open.'
+          : 'Could not re-open this conversation — it is still marked resolved.',
+        'warning'
+      )
     } finally {
       setResolving(false)
     }
   }
 
   // ── Send a manual reply ───────────────────────────────────────────────────
-const handleSend = async () => {
-    const content = replyText.trim()
+const handleSend = async (retryOf = null) => {
+    const content = retryOf ? retryOf.content : replyText.trim()
+    const ctx = retryOf ? retryOf.replyContext : replyContext
     if (!content || !activeConv || sendingRef.current) return
     sendingRef.current = true
     setSending(true)
+    setSendError(null)
     try {
       // If replying to a specific message, prepend a quote line so the
       // customer sees what we're responding to. Truncate long quotes.
       let outgoing = content
-      if (replyContext) {
-        const quoted = replyContext.text.length > 100
-          ? `${replyContext.text.substring(0, 100)}…`
-          : replyContext.text
+      if (ctx) {
+        const quoted = ctx.text.length > 100
+          ? `${ctx.text.substring(0, 100)}…`
+          : ctx.text
         outgoing = `Replying to: "${quoted}"\n⠀\n${content}`
       }
 
@@ -707,7 +886,9 @@ const handleSend = async () => {
         showToast('Saved, but Instagram did not accept it — the customer has NOT received this.', 'warning')
       }
     } catch (err) {
-      setConvError(err.message)
+      // Hold the exact message so Retry resends THIS text. The composer keeps
+      // its contents too, so nothing the agent typed is lost either way.
+      setSendError({ message: err.message, content, replyContext: ctx })
     } finally {
       sendingRef.current = false
       setSending(false)
@@ -791,8 +972,8 @@ const handleSend = async () => {
         <input
           className="input w-full text-xs rounded-xl"
           placeholder="Search conversations…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
         />
         <div className="flex gap-1.5 overflow-x-auto hide-scrollbar sm:flex-wrap">
           {channels.map(p => (
@@ -893,7 +1074,7 @@ const handleSend = async () => {
                 list, offer the way back rather than leaving a dead end. */}
             {(channelFilter !== 'all' || search || statusFilter) && (
               <button
-                onClick={() => { setStatusFilter(null); setChannelFilter('all'); setSearch('') }}
+                onClick={() => { setStatusFilter(null); setChannelFilter('all'); setSearchInput(''); setSearch('') }}
                 className="mt-2 text-xs font-semibold text-brand-600 hover:text-brand-700"
               >
                 Clear all filters
@@ -949,6 +1130,21 @@ const handleSend = async () => {
                 )}>
                   {conv.lastMessage}
                 </p>
+
+                {/* Search now matches anything ever said in the thread, so a
+                    row can match on a line that isn't the one displayed above.
+                    Showing the matched line — and who said it — is what stops
+                    the agent opening every result to find which one they
+                    meant. The server only sends this when the visible line
+                    doesn't already contain the term. */}
+                {conv.match_snippet && (
+                  <p className="text-[11px] text-gray-500 mt-1 pl-2 border-l-2 border-brand-300 line-clamp-2">
+                    <span className="font-semibold text-gray-400">
+                      {conv.match_from === 'customer' ? 'They said: ' : 'We said: '}
+                    </span>
+                    <Highlighted text={conv.match_snippet} term={search} />
+                  </p>
+                )}
 
                 <div className="flex items-center gap-1.5 mt-2">
                   {conv.platform && conv.platform.includes('comment') && (
@@ -1399,14 +1595,7 @@ const handleSend = async () => {
                       {msg.image_urls && msg.image_urls.length > 0 && (
                         <div className="flex flex-col gap-1.5 mb-1.5">
                           {msg.image_urls.map((url, i) => (
-                            <img
-                              key={i}
-                              src={url}
-                              alt="attachment"
-                              onClick={() => setLightbox(url)}
-                              className="rounded-xl max-w-[220px] w-full object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
-                              loading="lazy"
-                            />
+                            <Attachment key={i} url={url} onOpen={() => setLightbox(url)} />
                           ))}
                         </div>
                       )}
@@ -1554,6 +1743,38 @@ const handleSend = async () => {
                 </div>
               )}
 
+              {sendError && (
+                <div className="mx-2 sm:mx-3 md:mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={13} className="text-red-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-red-800">Message not sent</p>
+                      <p className="text-[11px] text-red-700 mt-0.5 leading-snug">
+                        {sendError.message || 'The reply could not be delivered.'}
+                      </p>
+                      <p className="text-[11px] text-gray-600 mt-1 truncate italic">
+                        “{sendError.content}”
+                      </p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <button
+                          onClick={() => handleSend(sendError)}
+                          disabled={sending}
+                          className="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md px-2.5 py-1 disabled:opacity-50"
+                        >
+                          {sending ? 'Retrying…' : 'Retry'}
+                        </button>
+                        <button
+                          onClick={() => setSendError(null)}
+                          className="text-[11px] font-semibold text-gray-500 hover:text-gray-800"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 flex gap-1.5 sm:gap-2">
                 <input
                   className="input flex-1 text-xs sm:text-sm"
@@ -1564,7 +1785,7 @@ const handleSend = async () => {
                   disabled={sending}
                 />
                 <button
-                  onClick={handleSend}
+                  onClick={() => handleSend()}
                   disabled={sending || !replyText.trim()}
                   className="btn-primary flex items-center gap-1 px-2 sm:px-4 py-2 disabled:opacity-50 whitespace-nowrap text-xs sm:text-sm"
                 >

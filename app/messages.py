@@ -105,6 +105,29 @@ def _agent_can_access_conversation(agent_user: AuthUser, conversation: Conversat
 #
 # Defined here and used by BOTH the counts endpoint and the list endpoint, so
 # the number on a chip and the rows behind it are answers to the same question.
+def _match_snippet(text: str, term: str, width: int = 90) -> str:
+    """
+    A window of `text` centred on the first occurrence of `term`.
+
+    Searching message bodies is only half the feature. Without this, a search
+    for "refund" surfaces a row whose visible line is the LAST message —
+    "ok thanks!" — with nothing on screen explaining why it matched. The agent
+    then has to open every result to find out which one they wanted.
+    """
+    if not text:
+        return ''
+    body = text.strip()
+    pos = body.lower().find(term.lower())
+    if pos == -1:
+        return body[:width] + ('…' if len(body) > width else '')
+
+    pad = max(0, (width - len(term)) // 2)
+    start = max(0, pos - pad)
+    end = min(len(body), start + width)
+    out = body[start:end]
+    return ('…' if start > 0 else '') + out + ('…' if end < len(body) else '')
+
+
 INBOX_BUCKETS = ('unclaimed', 'human', 'ai', 'resolved')
 
 
@@ -241,13 +264,28 @@ def list_conversations():
     elif assigned_to and assigned_to.isdigit():
         query = query.filter(Conversation.assigned_to == int(assigned_to))
 
-    if search:
-        like = f"%{search.strip()}%"
+    term = (search or '').strip()
+    if term:
+        like = f"%{term}%"
+        # A correlated EXISTS over messages, so a conversation matches on
+        # anything ever said in it — not just whichever line happens to be
+        # sitting in Conversation.last_message. Searching "refund" used to
+        # return nothing unless "refund" was the most recent message, which
+        # made the box feel broken on the one page where search matters most.
+        # EXISTS rather than a join: a join would emit one row per matching
+        # message and silently multiply the conversation across the results.
+        said_in_thread = (
+            Message.query
+            .filter(Message.conversation_id == Conversation.id,
+                    Message.content.ilike(like))
+            .exists()
+        )
         query = query.join(User, Conversation.user_id == User.id).filter(
             db.or_(
                 Conversation.last_message.ilike(like),
                 User.name.ilike(like),
                 User.external_id.ilike(like),
+                said_in_thread,
             )
         )
 
@@ -263,10 +301,33 @@ def list_conversations():
     # Per-user unread: override the shared counter with THIS user's own count,
     # so an admin opening a chat doesn't clear an agent's unread and vice versa.
     unread_map = _unread_counts_for_user(current_user.id, conversations) if current_user else {}
+
+    # When the match came from inside the thread, hand back the line it matched
+    # on so the row can show it. DISTINCT ON gives exactly one message per
+    # conversation — the most recent match — in a single query for the page,
+    # rather than one query per row.
+    snippet_map = {}
+    if term and conversations:
+        ids = [c.id for c in conversations]
+        rows = (
+            db.session.query(Message.conversation_id, Message.content, Message.direction)
+            .filter(Message.conversation_id.in_(ids), Message.content.ilike(like))
+            .distinct(Message.conversation_id)
+            .order_by(Message.conversation_id, Message.created_at.desc())
+            .all()
+        )
+        snippet_map = {r[0]: (r[1], r[2]) for r in rows}
+
     conv_dicts = []
     for c in conversations:
         d = c.to_dict(include_messages=False)
         d['unread_count'] = unread_map.get(c.id, 0)
+        hit = snippet_map.get(c.id)
+        # Only worth showing when the visible line doesn't already contain the
+        # term — otherwise the row would say the same thing twice.
+        if hit and term.lower() not in (c.last_message or '').lower():
+            d['match_snippet'] = _match_snippet(hit[0], term)
+            d['match_from'] = 'customer' if hit[1] == 'inbound' else 'us'
         conv_dicts.append(d)
 
     return jsonify({
@@ -825,9 +886,36 @@ def get_instagram_media(media_id):
     """
     Fetch IG post info (caption, thumbnail, permalink) from Meta Graph API.
     Used by the Messages page to show post context on comment conversations.
+
+    Scoped to media the caller can actually reach. Previously any logged-in user
+    could pass any media_id and have the server fetch it with the business
+    token. The data returned is public post metadata, so this was never a
+    serious leak — but it made the endpoint an open proxy onto our Graph API
+    quota, and an agent could pull posts belonging to conversations outside
+    their own queue. Now the id has to appear on a message in a conversation
+    the caller is allowed to open.
     """
     import os
     import requests
+
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+
+    # Several customers can comment on the same post, so one media_id can belong
+    # to several conversations. Access is granted if the caller can open ANY of
+    # them — taking just the first row would deny an agent the post context for
+    # a conversation that is genuinely theirs, purely because someone else's
+    # conversation on the same post happened to sort first.
+    candidates = (Conversation.query
+                  .join(Message, Message.conversation_id == Conversation.id)
+                  .filter(Message.media_id == media_id)
+                  .limit(25)
+                  .all())
+    if not candidates:
+        return jsonify({'error': 'Unknown media'}), 404
+    if not any(_agent_can_access_conversation(current_user, c) for c in candidates):
+        return jsonify({'error': 'Forbidden'}), 403
     
     from app.integrations.meta import _get_meta_credentials
     _, token = _get_meta_credentials()
