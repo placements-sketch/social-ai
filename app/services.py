@@ -1144,13 +1144,21 @@ def _save_message(user_id, channel, content, intent, direction,
             db.session.add(user)
             db.session.flush()
 
-        # Find the customer's most recent conversation on this channel,
-        # regardless of status. A new conversation is only created for a
-        # genuinely new customer — changing status (e.g. active →
-        # human_override) must NOT fork the thread.
+        # Find the customer's most recent OPEN conversation on this channel.
+        # Changing status (active → human_override) must NOT fork the thread,
+        # so only a resolved conversation ends it.
+        #
+        # Why resolved is excluded: a customer who buys a dress in July and
+        # comes back for trousers in September is having two conversations,
+        # not one. Appending to the closed one also broke it outright — the
+        # message landed in a conversation still marked 'resolved', and every
+        # alert and queue filters those out, so the customer became invisible.
+        # Resolving is an explicit "this is finished"; a reply after it starts
+        # something new. Same model as any helpdesk.
         conversation = (
             Conversation.query
             .filter_by(user_id=user.id, channel=channel)
+            .filter(Conversation.status != 'resolved')
             .order_by(Conversation.id.desc())
             .first()
         )

@@ -71,6 +71,23 @@ function attentionInfo(conv) {
   return { urgent: false, badge: null }   // handed off but assigned — border only
 }
 
+// Status filters for the conversation list. Each is a plain question about
+// where a conversation stands, rather than the old single "needs attention"
+// toggle whose rule you had to know in advance.
+const statusMatchers = {
+  unclaimed: c => c.status !== 'resolved' && !c.assigned_to && !c.ai_enabled,
+  human:     c => c.status !== 'resolved' && !!c.assigned_to && !c.ai_enabled,
+  ai:        c => c.status !== 'resolved' && c.ai_enabled,
+  resolved:  c => c.status === 'resolved',
+}
+
+const STATUS_FILTERS = [
+  { key: 'unclaimed', label: 'Unclaimed',  dot: 'bg-red-500'   },
+  { key: 'human',     label: 'With agent', dot: 'bg-amber-500' },
+  { key: 'ai',        label: 'AI handling', dot: 'bg-brand-500' },
+  { key: 'resolved',  label: 'Resolved',   dot: 'bg-gray-400'  },
+]
+
 const handlerBadge = (conv) => {
   const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
   if (conv.status === 'resolved') {
@@ -172,7 +189,7 @@ export default function Messages() {
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
   const [channelFilter, setChannelFilter] = useState('all') // filters by DB `channel`
-  const [attentionFilter, setAttentionFilter] = useState(false) // show only conversations needing attention
+  const [statusFilter, setStatusFilter] = useState(null)        // null | unclaimed | human | ai | resolved
   const [assignedFilter, setAssignedFilter] = useState(null)    // null | 'me' | 'unassigned' (set by deep links)
   const [search, setSearch]             = useState('')
 
@@ -476,14 +493,23 @@ export default function Messages() {
 
   // Attention filter uses the exact same flag shown on the rows.
   // The assignment filter is set by deep links from the Dashboard alerts.
-  const filteredConversations = (attentionFilter
-    ? conversations.filter(c => attentionInfo(c) !== null)
-    : conversations
-  ).filter(c => (
-    assignedFilter === 'unassigned' ? !c.assigned_to :
-    assignedFilter === 'me'         ? c.assigned_to === user?.id :
-                                      true
-  ))
+  // Three independent filters, all narrowing the same list: channel (applied
+  // server-side), status, and the assignment deep-link from the Dashboard.
+  const filteredConversations = conversations
+    .filter(c => (statusFilter ? statusMatchers[statusFilter](c) : true))
+    .filter(c => (
+      assignedFilter === 'unassigned' ? !c.assigned_to :
+      assignedFilter === 'me'         ? c.assigned_to === user?.id :
+                                        true
+    ))
+
+  // Counts for the empty state, from the same matchers the filters use so the
+  // two can never disagree.
+  const inboxSummary = {
+    open:      conversations.filter(c => c.status !== 'resolved').length,
+    unclaimed: conversations.filter(statusMatchers.unclaimed).length,
+    ai:        conversations.filter(statusMatchers.ai).length,
+  }
 
   // Effective AI state for the open conversation — the global master switch
   // overrides the per-conversation flag.
@@ -697,27 +723,32 @@ const handleSend = async () => {
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setAttentionFilter(!attentionFilter)}
-          className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl hover:bg-gray-50 transition-colors"
-        >
-          <span className="flex items-center gap-2 min-w-0">
-            <span className={clsx(
-              'w-1.5 h-1.5 rounded-full shrink-0 transition-colors',
-              attentionFilter ? 'bg-amber-400' : 'bg-gray-300'
-            )} />
-            <span className="text-xs font-medium text-gray-600">Needs attention</span>
-          </span>
-          <span
-            className="relative inline-flex w-8 h-4 rounded-full transition-all duration-300 shrink-0"
-            style={{ backgroundColor: attentionFilter ? 'var(--toggle-on)' : 'var(--toggle-off)' }}
-          >
-            <span
-              className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-300"
-              style={{ transform: attentionFilter ? 'translateX(16px)' : 'translateX(0px)' }}
-            />
-          </span>
-        </button>
+        {/* Status filters. These replace the old "Needs attention" toggle,
+            which was one opaque switch hiding a rule you had to already know
+            ("AI is off for this conversation"). These say what they select,
+            show how many are in each, and can be combined with the channel
+            filter above. Counts are of what's currently loaded. */}
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          {STATUS_FILTERS.map(({ key, label, dot }) => {
+            const n = conversations.filter(statusMatchers[key]).length
+            const active = statusFilter === key
+            return (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(active ? null : key)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors',
+                  active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+                title={active ? 'Clear this filter' : `Show only ${label.toLowerCase()}`}
+              >
+                <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', dot)} />
+                {label}
+                <span className={clsx('tabular-nums', active ? 'text-white/70' : 'text-gray-400')}>{n}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
       {/* A deep link silently hiding most of the inbox would look like an
           empty inbox. Say what's filtered, and make it one click to clear. */}
@@ -750,7 +781,9 @@ const handleSend = async () => {
         )}
         {!loadingList && !listError && filteredConversations.length === 0 && (
           <p className="px-4 py-12 text-center text-xs text-gray-400">
-            {attentionFilter ? 'No conversations needing attention.' : 'No conversations yet.'}
+            {statusFilter
+              ? `No ${STATUS_FILTERS.find(f => f.key === statusFilter)?.label.toLowerCase()} conversations.`
+              : 'No conversations yet.'}
           </p>
         )}
         {!loadingList && !listError && filteredConversations.map((conv) => {
@@ -838,9 +871,36 @@ const handleSend = async () => {
       'flex-1 flex flex-col min-w-0 min-h-0 bg-gray-50',
       !selected ? 'hidden lg:flex' : 'flex',
     )}>
+      {/* Empty state. A bare line of grey text wasted the largest area on the
+          page — this puts the two numbers worth knowing before you pick a
+          conversation, and a way straight to the one that needs you most. */}
       {!selected && (
-        <div className="hidden lg:flex flex-1 items-center justify-center text-gray-400 text-sm">
-          Select a conversation to get started.
+        <div className="hidden lg:flex flex-1 items-center justify-center p-8">
+          <div className="text-center max-w-sm">
+            <div className="w-14 h-14 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mx-auto mb-4 shadow-sm">
+              <MessageCircle size={24} className="text-gray-300" />
+            </div>
+            <p className="text-base font-semibold text-gray-700">
+              {inboxSummary.unclaimed > 0
+                ? `${inboxSummary.unclaimed} conversation${inboxSummary.unclaimed === 1 ? '' : 's'} waiting to be picked up`
+                : inboxSummary.open > 0
+                  ? 'Nothing waiting — pick a conversation to read'
+                  : 'Inbox clear'}
+            </p>
+            <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">
+              {inboxSummary.open > 0
+                ? <>{inboxSummary.open} open, {inboxSummary.ai} being handled by the AI.</>
+                : 'Nothing open right now. New messages appear here as they arrive.'}
+            </p>
+            {inboxSummary.unclaimed > 0 && (
+              <button
+                onClick={() => setStatusFilter('unclaimed')}
+                className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+              >
+                Show unclaimed →
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -1362,8 +1422,10 @@ const handleSend = async () => {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-4 md:px-6 lg:px-8 pt-3 lg:pt-4 pb-2 bg-white shrink-0">
+      {/* Header. No bg-white: every other page lets the app background show
+          through, so this one had a pale slab behind its title that appeared
+          nowhere else — and in dark mode `bg-white` isn't themed at all. */}
+      <div className="px-4 md:px-6 lg:px-8 pt-3 lg:pt-4 pb-2 shrink-0">
         <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Inbox</h1>
         <p className="text-xs lg:text-sm text-gray-500 mt-0.5">Manage customer conversations across all channels</p>
       </div>
