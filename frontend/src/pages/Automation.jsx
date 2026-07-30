@@ -52,7 +52,7 @@ export default function Automation({ embedded = false }) {
 
   const toggleRule = async (id, currentEnabled) => {
     const confirmed = await confirm({
-      title: currentEnabled ? 'Disable Rule?' : 'Enable Rule?',
+      title: currentEnabled ? 'Disable rule?' : 'Enable rule?',
       message: currentEnabled
         ? 'This automation rule will be skipped during evaluation.'
         : 'This automation rule will be active again.',
@@ -77,7 +77,7 @@ export default function Automation({ embedded = false }) {
 
   const deleteRule = async (id) => {
     const confirmed = await confirm({
-      title: 'Delete Rule?',
+      title: 'Delete rule?',
       message: 'This automation rule will be permanently deleted. This action cannot be undone.',
       confirmText: 'Delete',
       cancelText: 'Cancel',

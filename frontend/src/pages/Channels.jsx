@@ -301,7 +301,7 @@ export default function Channels({ embedded = false }) {
 
   const toggleChannel = async (id, currentEnabled) => {
     const confirmed = await confirm({
-      title: currentEnabled ? 'Disable Channel?' : 'Enable Channel?',
+      title: currentEnabled ? 'Disable channel?' : 'Enable channel?',
       message: currentEnabled
         ? 'This channel will stop receiving messages. You can re-enable it anytime.'
         : 'This channel will start receiving messages again.',

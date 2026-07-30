@@ -921,8 +921,8 @@ const handleSend = async (retryOf = null) => {
 
     if (activeConv.ai_enabled) {
       const confirmed = await confirm({
-        title: 'Cannot Assign - AI Enabled',
-        message: 'This conversation is currently being handled by AI. Please disable AI first before assigning to an agent.',
+        title: 'Turn the AI off and assign?',
+        message: 'The AI is handling this conversation. Assigning it to an agent means switching the AI off here first.',
         confirmText: 'Disable AI',
         cancelText: 'Cancel',
         isDangerous: false,
@@ -960,7 +960,7 @@ const handleSend = async (retryOf = null) => {
   const handleUnassign = async () => {
     if (!activeConv) return
     const confirmed = await confirm({
-      title: 'Remove Assignment?',
+      title: 'Remove assignment?',
       message: `Unassign this conversation from ${activeConv.assignee?.full_name || 'the current agent'}?`,
       confirmText: 'Unassign',
       isDangerous: false,
@@ -1582,7 +1582,7 @@ const handleSend = async (retryOf = null) => {
                         <button
                           onClick={async () => {
                             const confirmed = await confirm({
-                              title: 'Edit Message?',
+                              title: 'Edit message?',
                               message: 'This will unsend the original from Instagram and send the new version. The customer will see two notifications.',
                               confirmText: 'Edit & Send',
                               cancelText: 'Cancel',
@@ -1655,8 +1655,8 @@ const handleSend = async (retryOf = null) => {
                       onClick={() => {
                         if (aiActive) {
                           confirm({
-                            title: 'AI is Enabled',
-                            message: 'You cannot reply manually while AI is enabled for this conversation. Disable AI first.',
+                            title: 'Turn the AI off to reply?',
+                            message: 'The AI is answering this conversation. Replying by hand means switching it off here first.',
                             confirmText: 'Disable AI',
                             cancelText: 'Cancel',
                             isDangerous: false,
@@ -1694,7 +1694,7 @@ const handleSend = async (retryOf = null) => {
                         <button 
                           onClick={async () => {
                             const confirmed = await confirm({
-                              title: 'Delete Message?',
+                              title: 'Delete message?',
                               message: 'This will remove the message from the platform and unsend it from Instagram. Unsend only works within 24 hours of sending.',
                               confirmText: 'Delete',
                               cancelText: 'Cancel',

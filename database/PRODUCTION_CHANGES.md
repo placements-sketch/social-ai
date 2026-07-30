@@ -822,10 +822,6 @@ wrong.
 Handle matching is exact after stripping a leading `@`, so `shopzetu` does not
 match `shopzetu_test` — the dummy keeps its own identity.
 
-> **Side effect worth knowing.** Once the real shopzetu account is listed here,
-> the AI will never reply to anything posted from it. If you were using that
-> account to pose as a test customer, use a third account for that instead.
-
 **Verify after redeploy** — reply to a comment from the Instagram app, then:
 
 ```sql

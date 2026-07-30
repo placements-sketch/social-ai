@@ -97,7 +97,7 @@ export default function AISettings({ embedded = false }) {
 
   const handleReset = async () => {
     const confirmed = await confirm({
-      title: 'Reset All Settings?',
+      title: 'Reset all settings?',
       message: 'All AI settings will be reset to their default values. This action cannot be undone.',
       confirmText: 'Reset',
       cancelText: 'Cancel',
@@ -136,7 +136,7 @@ export default function AISettings({ embedded = false }) {
   const toggleRule = async (key) => {
     const newValue = !formData.response_rules[key]
     const confirmed = await confirm({
-      title: newValue ? 'Enable Rule?' : 'Disable Rule?',
+      title: newValue ? 'Enable rule?' : 'Disable rule?',
       message: `This response rule will be ${newValue ? 'enabled' : 'disabled'} for all conversations.`,
       confirmText: newValue ? 'Enable' : 'Disable',
       cancelText: 'Cancel',
