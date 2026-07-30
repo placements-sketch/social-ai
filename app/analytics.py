@@ -366,13 +366,16 @@ def summary():
         ).count()
 
         # ── AI eligibility: inbound on convs where AI was supposed to reply ─
-        # A message is "AI-eligible" iff, at the moment it arrived, all three
-        # gates were open: the global AI master switch (settings → ai.enabled),
-        # its channel (enabled=True, or no Channel row — fail open), and its
-        # conversation (ai_enabled=True). Anything the AI was switched off for
-        # is admin/agent-suppressed and can't be counted as an AI failure.
-        # Frozen snapshot, not a live join — see Message.ai_eligible, written
-        # by services._save_message.
+        # A message is "AI-eligible" iff, at the moment it arrived, all FOUR
+        # gates were open — mirroring services._ai_should_respond exactly:
+        #   1. the global AI master switch (settings → ai.enabled)
+        #   2. its channel (enabled=True, or no Channel row — fail open)
+        #   3. its conversation (ai_enabled=True)
+        #   4. on *_comment channels only: the text looks like a question,
+        #      because comments are public and the bot stays out of praise
+        # Anything the AI was switched off for is admin/agent-suppressed and
+        # can't be counted as an AI failure. Frozen snapshot, not a live join —
+        # see Message.ai_eligible, written by services._save_message.
         eligible_msg_q = _scope_filter(
             Message.query
               .filter(Message.created_at >= start_dt)
@@ -383,15 +386,17 @@ def summary():
         )
         eligible_inbound = eligible_msg_q.count()
 
-        eligible_ai_replies_q = _scope_filter(
+        # NOT filtered by eligibility — it's every AI reply in the window. The
+        # old name (eligible_ai_replies) implied otherwise. Only used for the
+        # message-level `unanswered` figure below, which nothing renders.
+        ai_replies_in_window = _scope_filter(
             Message.query
               .filter(Message.created_at >= start_dt)
               .filter(Message.created_at < end_dt)
               .filter(Message.direction == 'outbound')
               .filter(Message.sender == 'ai'),
             Message, user,
-        )
-        eligible_ai_replies = eligible_ai_replies_q.count()
+        ).count()
 
         # Real AI failures. NOT (eligible_inbound - ai_replies), which counted
         # normal coalescing — 3 messages answered by 1 reply scored 2
@@ -426,7 +431,7 @@ def summary():
         # Still worth tracking separately: inbound with no AI reply. Mostly
         # legitimate (coalesced bursts, skipped non-question comments), so it
         # is NOT a failure count.
-        unanswered = max(0, eligible_inbound - eligible_ai_replies)
+        unanswered = max(0, eligible_inbound - ai_replies_in_window)
         # RESPONSE rate at CONVERSATION level. Message-level (ai_replies /
         # inbound) is structurally depressed by coalescing: 3 customer messages
         # answered by 1 reply scored 33%, even though the customer was fully
