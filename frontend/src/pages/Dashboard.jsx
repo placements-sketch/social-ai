@@ -1062,6 +1062,17 @@ export default function Dashboard() {
               const delta = successRate - prevSuccess
               const relDelta = prevSuccess !== 0 ? (delta / prevSuccess) * 100 : null
 
+              // Below this many conversations a percentage is theatre: at 7
+              // handled, one conversation swings the rate 14 points and the
+              // trend reads "↑129%". Arithmetically right, practically
+              // meaningless — so show the fraction and drop the trend rather
+              // than implying precision the sample can't carry.
+              const SMALL_SAMPLE = 10
+              const thinSample = handled > 0 && handled < SMALL_SAMPLE
+              const prevHandled = kpis.previous?.ai_handled_total || 0
+              const showTrend = relDelta !== null && Math.abs(delta) >= 0.05
+                                && !thinSample && prevHandled >= SMALL_SAMPLE
+
               // Conversations the AI was on duty for and never answered, across
               // all channels. Summed from channel_performance, which covers
               // every channel including 'other', so it reconciles with the
@@ -1075,8 +1086,10 @@ export default function Dashboard() {
                     <div className="flex items-end justify-between mb-2">
                       <div>
                         <div className="flex items-baseline gap-2">
-                          <p className="text-3xl font-bold text-brand-500 leading-none">{successRate.toFixed(1)}%</p>
-                          {relDelta !== null && Math.abs(delta) >= 0.05 && (
+                          <p className="text-3xl font-bold text-brand-500 leading-none">
+                            {thinSample ? `${engaged}/${handled}` : `${successRate.toFixed(1)}%`}
+                          </p>
+                          {showTrend && (
                             <span className={clsx(
                               'text-[11px] font-semibold',
                               delta > 0 ? 'text-green-600' : 'text-red-600'
@@ -1087,20 +1100,31 @@ export default function Dashboard() {
                         </div>
                         <p className="text-xs text-gray-500 mt-1.5 font-medium">
                           Success rate
-                          {relDelta !== null && <span className="text-gray-400"> · vs {previousLabel}</span>}
+                          {showTrend && <span className="text-gray-400"> · vs {previousLabel}</span>}
+                          {thinSample && (
+                            <span className="text-gray-400"> · too few to trend</span>
+                          )}
                         </p>
                       </div>
                       <p className="text-[11px] text-gray-400 text-right leading-snug">
-                        {engaged} of {handled}<br/>convos AI was on for
+                        {thinSample ? `${successRate.toFixed(0)}% of` : `${engaged} of`} {thinSample ? '' : handled}<br/>convos AI was on for
                       </p>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${Math.min(successRate, 100)}%` }} />
                     </div>
+                    {/* Promoted out of grey footnote territory when it's most of
+                        the window. 3 of 4 customers getting nothing matters more
+                        than the success rate above it. */}
                     {neverAnswered > 0 && (
-                      <p className="text-[11px] text-gray-500 mt-2">
-                        <span className="font-bold text-red-600 tabular-nums">{neverAnswered}</span>
-                        {' '}never answered — nobody replied at all
+                      <p className={clsx(
+                        'text-[11px] mt-2',
+                        handled > 0 && neverAnswered / handled >= 0.25
+                          ? 'font-semibold text-red-600'
+                          : 'text-gray-500'
+                      )}>
+                        <span className="font-bold tabular-nums">{neverAnswered}</span>
+                        {handled > 0 && ` of ${handled}`} never answered — nobody replied at all
                       </p>
                     )}
                   </div>

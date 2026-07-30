@@ -393,17 +393,33 @@ def summary():
         )
         eligible_ai_replies = eligible_ai_replies_q.count()
 
-        # Real AI failures only: the generator threw and fell back to a mock
-        # reply. This used to be (eligible_inbound - ai_replies), which counted
+        # Real AI failures. NOT (eligible_inbound - ai_replies), which counted
         # normal coalescing — 3 messages answered by 1 reply scored 2
         # "failures" — so the number climbed even when nothing was wrong.
+        #
+        # All THREE ways the AI can fail a customer, matching exactly the set
+        # that disqualifies a conversation from the success rate:
+        #   - the generator threw and fell back to a canned mock reply
+        #   - a reply was written but the platform rejected the send
+        #   - the pipeline raised and nothing was sent at all
+        # Counting only generator failures made the card contradict itself: a
+        # store whose Instagram sends were all being refused showed "Failed 0"
+        # beside a success rate those very failures were suppressing.
+        #
         # Scoped like every other KPI on this card: an agent was seeing
         # company-wide failure counts sitting next to their own numbers.
         failed = _scope_filter(
             db.session.query(func.count(Log.id))
-              .filter(Log.source == 'ai.generator.failure')
               .filter(Log.created_at >= start_dt)
-              .filter(Log.created_at < end_dt),
+              .filter(Log.created_at < end_dt)
+              .filter(db.or_(
+                  Log.source == 'ai.generator.failure',
+                  db.and_(
+                      Log.source == 'services.no_reply_sent',
+                      text("logs.payload ->> 'reason' IN "
+                           "('dispatch_failed', 'pipeline_exception')"),
+                  ),
+              )),
             Log, user,
         ).scalar() or 0
 
