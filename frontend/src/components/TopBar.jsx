@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useToast } from './Toast'
 import {
-  Bell, RefreshCw, Menu, LogOut, User, MessageSquare,
+  Bell, Menu, LogOut, User, MessageSquare,
   AlertTriangle, CheckCircle, X, CheckCheck,
-  Radio, RefreshCw as Sync, Users as UsersIcon, Shield,
+  Radio, Users as UsersIcon, Shield,
   Zap, Bot, Trash2, UserPlus, UserCheck, Package,
   AlertOctagon, Settings as SettingsIcon, ShieldAlert,
   Sun, Moon,
@@ -40,7 +40,14 @@ function groupNotifsByDay(notifs) {
       continue
     }
     const created = parseBackendTime(n.created_at)
-    if (!created) return false
+    // `return false` here used to abandon the whole function on a single
+    // unparseable timestamp, handing the caller a boolean where it expected
+    // an array — one malformed row blanked the entire notifications list.
+    // Treat it the same as a missing date: file it under Older and carry on.
+    if (!created) {
+      groups.older.notifs.push(n)
+      continue
+    }
     if (created >= today) groups.today.notifs.push(n)
     else if (created >= yesterday) groups.yesterday.notifs.push(n)
     else if (created >= weekAgo) groups.week.notifs.push(n)
@@ -231,6 +238,10 @@ export default function TopBar({ onMenuClick }) {
     unreachable: { dot: 'bg-gray-400',  label: "Can't reach the server" },
   }
   const hStatus = HEALTH[health.status] || HEALTH.operational
+  // The API also gates the issue DETAIL, so this is defence in depth rather
+  // than the only check — an agent hitting /api/health directly gets an empty
+  // issues array regardless.
+  const canSeeHealth = user?.role === 'admin' || user?.role === 'supervisor'
 
   // Load notifications on mount + poll every 10 seconds
   const { showToast } = useToast()
@@ -303,7 +314,15 @@ export default function TopBar({ onMenuClick }) {
     }
 
     load()
-    const timer = setInterval(() => load(), 5000) // Poll every 5 seconds
+    // Was every 5 SECONDS. Between this, the conversation poll below, the
+    // sidebar badge and the Dashboard's own timers, a single open tab was
+    // making ~29 requests a minute — which is a real contributor to running
+    // the database connection pool dry. A notification bell does not need
+    // five-second latency; 30s is the usual standard. Hidden tabs poll not
+    // at all.
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') load()
+    }, 30000)
     return () => { clearInterval(timer) }
   }, [showToast])
 
@@ -376,7 +395,11 @@ export default function TopBar({ onMenuClick }) {
     }
 
     loadMessages()
-    const timer = setInterval(loadMessages, 10000)
+    // Also slowed and visibility-gated: this pulls 20 full conversation
+    // records each time, purely to spot an unread count going up.
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') loadMessages()
+    }, 30000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [showToast])
 
@@ -420,16 +443,24 @@ export default function TopBar({ onMenuClick }) {
           <Menu size={18} />
         </button>
 
-        <button
-          onClick={() => setShowHealth(s => !s)}
-          className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-gray-200/60 transition-colors"
-          title="System status — click for details"
-        >
-          <span className={clsx('w-1.5 h-1.5 rounded-full', hStatus.dot)} style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
-          <span className="hidden sm:block text-xs text-gray-400 font-normal tracking-wide">
-            {hStatus.label}
-          </span>
-        </button>
+        {/* Admin + supervisor only. An agent can't act on a failed Shopify
+            sync or a database connection error, so "System issues detected"
+            gave them alarm without agency — and the detail panel behind it
+            listed raw log text down to database hostnames. Their equivalent
+            is the Dashboard's "Needs Attention" panel, which is scoped to
+            work they own. Matches the gating on /api/alerts. */}
+        {canSeeHealth && (
+          <button
+            onClick={() => setShowHealth(s => !s)}
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-gray-200/60 transition-colors"
+            title="System status — click for details"
+          >
+            <span className={clsx('w-1.5 h-1.5 rounded-full', hStatus.dot)} style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
+            <span className="hidden sm:block text-xs text-gray-400 font-normal tracking-wide">
+              {hStatus.label}
+            </span>
+          </button>
+        )}
 
         {showHealth && (
           <ModalPortal>
@@ -486,14 +517,6 @@ export default function TopBar({ onMenuClick }) {
           aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
-
-        <button
-          onClick={() => window.location.reload()}
-          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors active:rotate-180 active:duration-300"
-          title="Refresh"
-        >
-          <RefreshCw size={16} />
         </button>
 
         {/* Notifications */}
