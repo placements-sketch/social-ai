@@ -366,18 +366,16 @@ data to look that way.
 
 ### Step 9 — Schedule the unclaimed-queue check
 
+Nothing to run by hand — this ships as a workflow file.
 
-No database change. A new cron endpoint alerts when a conversation sits in the
-human queue with nobody assigned. Point your scheduler at it every ~5 minutes,
-same auth as the other cron jobs:
+`.github/workflows/unclaimed-queue.yml` is **new**, added with this work. Once
+it's merged it runs itself every 15 minutes, and appears in the Actions tab as
+**Unclaimed Queue Check** if you want to trigger it manually.
 
-```
-POST /api/cron/check-unclaimed      header: X-Cron-Secret: <CRON_SECRET>
-```
-
-Threshold is `handoff.unclaimed_alert_minutes` in settings (default 15, or the
-`UNCLAIMED_ALERT_MINUTES` env var). It alerts **once per waiting spell**, not
-once per tick, so a short interval is safe.
+It alerts when a conversation sits in the human queue with nobody assigned.
+Threshold is `handoff.unclaimed_alert_minutes` (Settings → Handoff &
+assignment, default 15). It alerts **once per waiting spell**, not once per
+tick, so the 15-minute cadence won't spam anyone.
 
 To see the queue without waiting for an alert (supervisor/admin only):
 
@@ -385,49 +383,46 @@ To see the queue without waiting for an alert (supervisor/admin only):
 GET /api/conversations/unclaimed?threshold_minutes=0
 ```
 
-### Step 10 — Schedule the conversion attribution job
+### Step 10 — Conversion attribution — CORRECTION
 
+**This step originally told you to set up a scheduled call for
+`/api/cron/attribute`. That was wrong — it already exists.**
 
-**This is not SQL. It is a scheduled HTTP call you need to set up once,
-wherever you already schedule the product/order/customer syncs.**
+`.github/workflows/daily-sync.yml` has had it all along: a `0 1 * * *`
+schedule (04:00 EAT daily), a "Trigger attribution" step, and `attribute` in
+the manual dropdown. Nothing to create.
 
-Those three already run — `sync_jobs` has rows for them and the logs show
-`cron.products_sync.started` and friends. The attribution job is the same kind
-of thing, just never wired up:
-
-| What | Value |
-| --- | --- |
-| Method | `POST` |
-| URL | `https://<your-app-domain>/api/cron/attribute` |
-| Header | `X-Cron-Secret: <the CRON_SECRET env var>` |
-| Frequency | once a day is enough; hourly is fine |
-
-Add it next to your existing sync schedules (Railway cron, cron-job.org,
-GitHub Actions — whatever triggers the others today). Nothing else needs to
-change.
-
-**Why it matters.** The job scans recent Shopify orders, reads our UTM token
-out of each order's `landing_site`, and writes the `conversion_attributions`
-row linking that order back to the message that earned it. **Nothing else
-writes that table**, so with the job unscheduled the Conversion card can only
-ever show zero — however many customers actually bought.
-
-It has never run: `sync_jobs` has rows for `products_apply`, `orders_apply`
-and `customers_apply` but none for `attribute`, and there are no
-`cron.attribute.*` log entries at all.
-
-**Don't leave it paused for more than a week.** It only looks back
-`window_days = 7` (`app/cron_routes.py`), so an order not picked up within a
-week of its last update is never attributed — that data is lost, not delayed.
-
-Verify after the first run:
+What I got wrong, and why: I checked `sync_jobs` and the `cron.*` logs on the
+**local dev database**, found no `attribute` rows, and concluded the job had
+never run. Local dev isn't production. Run this against production to find out
+what actually happened there:
 
 ```sql
-SELECT count(*) AS rows,
-       min(order_date) AS oldest,
-       max(order_date) AS newest
+-- Has the attribution job ever run in production?
+SELECT kind, status, count(*), max(started_at) AS last_run
+FROM sync_jobs
+WHERE kind = 'attribute'
+GROUP BY 1, 2;
+
+-- And did it write anything?
+SELECT count(*) AS rows, min(order_date) AS oldest, max(order_date) AS newest
 FROM conversion_attributions;
 ```
+
+**One real gap, now fixed.** Selecting **all** in the manual dropdown ran
+products, customers and orders but *not* attribution — so a manual "run
+everything" quietly skipped the only job that writes conversion data. The
+workflow now includes it in `all`, after a pause so the orders sync lands
+first.
+
+**Still true regardless:** don't leave attribution paused for more than a
+week. It looks back `window_days = 7` (`app/cron_routes.py`), so an order not
+picked up within a week of its last update is never attributed — lost, not
+delayed.
+
+**Also note** the workflows post to `social-ai-backend-tult.onrender.com`, so
+the backend is on Render. Earlier notes in this file guessed Railway; ignore
+that.
 
 ### Step 11 — Not database changes
 

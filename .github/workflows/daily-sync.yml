@@ -153,8 +153,17 @@ jobs:
             exit 1
           fi
 
+      # Attribution reads orders, so on an 'all' run give the orders sync a
+      # moment to land first.
+      - name: Wait before attribution
+        if: steps.which.outputs.sync == 'all'
+        run: sleep 60
+
+      # Included in 'all' as well as its own schedule. It wasn't, so a manual
+      # "run all" quietly skipped the one job that writes conversion data —
+      # the Conversion card would stay at zero however often you ran it.
       - name: Trigger attribution
-        if: steps.which.outputs.sync == 'attribute'
+        if: steps.which.outputs.sync == 'attribute' || steps.which.outputs.sync == 'all'
         run: |
           response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
             "https://social-ai-backend-tult.onrender.com/api/cron/attribute" \
