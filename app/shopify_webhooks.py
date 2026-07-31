@@ -270,6 +270,7 @@ def _handle_inventory_update(data: dict):
     from app import db
     from app.models import InventoryMap, ProductCache
     from app.integrations.shopify import refresh_stock_for_products
+    from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
 
     iid = str(data.get('inventory_item_id') or '')
     if not iid:
@@ -290,16 +291,38 @@ def _handle_inventory_update(data: dict):
     row = ProductCache.query.filter_by(shopify_product_id=pid).first()
     if row is None:
         return
+
     row.stock_quantity = info.get('stock_quantity')
     row.inventory_tracked = info.get('inventory_tracked', row.inventory_tracked)
     if info.get('variants_detail'):
         row.variants_detail = info['variants_detail']
     row.cached_at = datetime.utcnow()
-    db.session.commit()
+
+    # Read the value BEFORE committing. commit() expires every attribute on the
+    # instance, so the next read re-SELECTs it — and if the product was deleted
+    # meanwhile that raises ObjectDeletedError. The log line below used to read
+    # row.stock_quantity after the commit, which is precisely the crash seen as
+    # "Instance '<ProductCache ...>' has been deleted, or its row is otherwise
+    # not present."
+    stock = row.stock_quantity
+
+    try:
+        db.session.commit()
+    except (ObjectDeletedError, StaleDataError):
+        # The product was deleted while we were away fetching its stock from
+        # Shopify — refresh_stock_for_products() is a network round trip, which
+        # is a wide window, and Shopify delivers webhooks concurrently so a
+        # products/delete can land in the middle of this one. Nothing to update
+        # and nothing wrong: the product is gone, which is the outcome we want.
+        db.session.rollback()
+        log_event("info", "shopify_webhook.inventory_product_gone",
+                  f"Product {pid} was deleted while its stock was being refreshed",
+                  payload={"product": pid, "inventory_item_id": iid})
+        return
 
     log_event("info", "shopify_webhook.inventory_updated",
-              f"Stock refreshed for product {pid}: {row.stock_quantity}",
-              payload={"product": pid, "stock": row.stock_quantity})
+              f"Stock refreshed for product {pid}: {stock}",
+              payload={"product": pid, "stock": stock})
 
 
 _HANDLERS = {

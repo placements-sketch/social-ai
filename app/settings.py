@@ -66,6 +66,14 @@ DEFAULTS = {
         # Inbound is still received, stored and displayed — agents reply by hand.
         "enabled": True,
     },
+    "conversations": {
+        # A customer replying soon after you resolved their chat almost always
+        # means the chat was resolved too early — same subject, same session.
+        # Weeks later it is a new enquiry. Within this many hours we re-open the
+        # resolved conversation instead of starting a fresh one. 0 disables it
+        # and every reply after resolve starts a new thread.
+        "reopen_resolved_within_hours": 24,
+    },
     "alerts": {
         # Per-source watermarks: {"integrations.meta.send": "2026-07-31T13:45:00"}.
         # A fault group is hidden while its newest occurrence is older than the

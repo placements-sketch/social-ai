@@ -1521,6 +1521,48 @@ def _save_message(user_id, channel, content, intent, direction,
             .order_by(Conversation.id.desc())
             .first()
         )
+
+        # Nothing open — but if we resolved this customer only moments ago, the
+        # resolve was premature rather than the start of a new enquiry. Re-open
+        # it instead of forking, so the agent sees one continuous thread rather
+        # than the same person appearing twice in the inbox.
+        #
+        # Beyond the window it still forks, deliberately: someone who bought a
+        # dress in July and returns for trousers in September is having two
+        # conversations, and appending to the closed one is worse than a fork —
+        # the message would sit in a thread still marked resolved, which every
+        # alert and queue filters out, so the customer would be invisible.
+        if conversation is None:
+            try:
+                from app.settings import get_section
+                window = int(get_section("conversations")
+                             .get("reopen_resolved_within_hours", 24))
+            except Exception:
+                window = 24
+            if window > 0:
+                from datetime import timedelta
+                cutoff = datetime.utcnow() - timedelta(hours=window)
+                recent = (Conversation.query
+                          .filter_by(user_id=user.id, channel=channel,
+                                     status='resolved')
+                          .filter(Conversation.resolved_at.isnot(None))
+                          .filter(Conversation.resolved_at >= cutoff)
+                          .order_by(Conversation.resolved_at.desc())
+                          .first())
+                if recent is not None:
+                    recent.status = 'active'
+                    # The resolution stamps have to go with the status. Leaving
+                    # them set produced a conversation that was active but still
+                    # carried resolved_at, and the per-agent "resolved in window"
+                    # metric counts that column.
+                    recent.resolved_at = None
+                    recent.resolved_by = None
+                    conversation = recent
+                    log_event("info", "services.conversation_reopened",
+                              "Customer replied soon after resolve — re-opened "
+                              "rather than starting a new conversation",
+                              conversation_id=recent.id)
+
         if not conversation:
             conversation = Conversation(user_id=user.id, channel=channel)
             db.session.add(conversation)

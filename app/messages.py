@@ -21,6 +21,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app import db
 from app.models import AuthUser, Conversation, Message, User
+from app.utils.logger import log_event
 from app.auth import log_audit
 
 messages_bp = Blueprint('messages', __name__, url_prefix='/api')
@@ -377,7 +378,30 @@ def get_conversation(conversation_id):
     if not _agent_can_access_conversation(current_user, conv):
         return jsonify({'error': 'Forbidden'}), 403
 
-    return jsonify({'conversation': conv.to_dict(include_messages=True)}), 200
+    # Everything else this customer has talked to us about, so a returning
+    # customer never reads as a stranger. Conversations fork once a thread has
+    # been resolved and enough time has passed, which is correct — but without
+    # this the agent has no way to see the relationship behind the fork.
+    payload = conv.to_dict(include_messages=True)
+    try:
+        earlier = (Conversation.query
+                   .filter(Conversation.user_id == conv.user_id,
+                           Conversation.id != conv.id)
+                   .order_by(Conversation.last_message_at.desc().nullslast())
+                   .limit(10).all())
+        payload['earlier_conversations'] = [{
+            'id': c.id,
+            'channel': c.channel,
+            'status': c.status,
+            'last_message_at': c.last_message_at.isoformat() if c.last_message_at else None,
+            'last_message': (c.last_message or '')[:80],
+            'message_count': Message.query.filter_by(conversation_id=c.id).count(),
+        } for c in earlier if _agent_can_access_conversation(current_user, c)]
+    except Exception as e:
+        log_event("warn", "messages.earlier_conversations_failed", str(e))
+        payload['earlier_conversations'] = []
+
+    return jsonify({'conversation': payload}), 200
 
 
 @messages_bp.route('/conversations/<int:conversation_id>/messages', methods=['GET'])
@@ -550,7 +574,6 @@ def send_reply(conversation_id):
                 # the except below never fires. Without this the agent sees a
                 # sent-looking message the customer never received.
                 delivered = False
-                from app.utils.logger import log_event
                 log_event("error", "messages.send_reply.not_delivered",
                           f"Manual reply for conv {conv.id} was NOT delivered to the channel",
                           payload={"conversation_id": conv.id, "channel": conv.channel},

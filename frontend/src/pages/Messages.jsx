@@ -2113,6 +2113,45 @@ function ContextContent({ conv }) {
         )}
       </Card>
 
+      {/* Everything else this customer has talked to us about.
+          Threads fork once a resolved conversation is old enough — correct,
+          but without this a returning customer reads as a stranger. */}
+      {(conv.earlier_conversations || []).length > 0 && (
+        <Card title="Earlier conversations" icon={<Clock size={11} className="text-gray-400" />}>
+          <ul className="space-y-2">
+            {conv.earlier_conversations.slice(0, 5).map(ec => (
+              <li key={ec.id}>
+                <a
+                  href={`/messages?conversation=${ec.id}`}
+                  className="block rounded-lg border border-gray-200 px-2.5 py-2 hover:border-gray-300 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold text-gray-500 capitalize truncate">
+                      {(ec.channel || '').replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-[10px] text-gray-400 shrink-0">
+                      {ec.last_message_at ? formatDayLabel(ec.last_message_at) : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-700 truncate mt-0.5">
+                    {ec.last_message || 'No messages'}
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {ec.message_count} message{ec.message_count === 1 ? '' : 's'}
+                    {ec.status === 'resolved' ? ' · resolved' : ''}
+                  </p>
+                </a>
+              </li>
+            ))}
+          </ul>
+          {conv.earlier_conversations.length > 5 && (
+            <p className="text-[10px] text-gray-400">
+              +{conv.earlier_conversations.length - 5} more
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* 3 — Ownership */}
       <Card title="Who is handling it" icon={<UserCheck size={11} className="text-gray-400" />}>
         <div className="flex items-center justify-between gap-2">
