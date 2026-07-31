@@ -1330,6 +1330,59 @@ def _product_card_for_url(product_url: str | None) -> dict | None:
         log_event("warn", "services.product_card_lookup_failed", str(e)[:200])
     return None
 
+def _account_for(user_id: str, channel: str) -> str | None:
+    """
+    The business account id that owns this customer's conversation — stamped
+    from the webhook's entry[].id when the message arrived.
+
+    None when unknown (older rows predating the column), in which case the
+    credential lookup falls back to the single active connection, preserving
+    the previous single-account behaviour.
+    """
+    try:
+        from app.models import User, Conversation
+        u = User.query.filter_by(external_id=user_id, channel=channel).first()
+        if not u:
+            return None
+        conv = (Conversation.query
+                .filter_by(user_id=u.id, channel=channel)
+                .order_by(Conversation.updated_at.desc())
+                .first())
+        return conv.business_account_id if conv else None
+    except Exception:
+        return None
+
+
+def stamp_conversation_account(user_id: str, channel: str, account_id: str | None) -> None:
+    """
+    Record which of our accounts received a message, so replies later go back
+    out from the same one. Idempotent and best-effort — never raises into the
+    webhook path.
+    """
+    if not account_id:
+        return
+    try:
+        from app import db
+        from app.models import User, Conversation
+        u = User.query.filter_by(external_id=user_id, channel=channel).first()
+        if not u:
+            return
+        conv = (Conversation.query
+                .filter_by(user_id=u.id, channel=channel)
+                .order_by(Conversation.updated_at.desc())
+                .first())
+        if conv and conv.business_account_id != str(account_id):
+            conv.business_account_id = str(account_id)
+            db.session.commit()
+    except Exception as e:
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+        log_event("warn", "services.stamp_account_failed", str(e))
+
+
 def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | None = None, **kwargs) -> str | None:
     """
     Send the reply back to the customer through the right channel API.
@@ -1355,9 +1408,14 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | N
 
     if channel == "instagram_dm":
         from app.integrations.meta import send_instagram_reply, send_instagram_card
+        # Which of OUR accounts the customer messaged decides which credentials
+        # to reply with. Sending from the wrong account fails outright — the
+        # token can only message people who messaged THAT account.
+        account_id = _account_for(user_id, channel)
         # Text reply first (Claude's natural wording), then a product card
         # beneath it. Card is best-effort — no cached image → text-only.
-        resp = send_instagram_reply(recipient_id=user_id, text=reply)
+        resp = send_instagram_reply(recipient_id=user_id, text=reply,
+                                    account_id=account_id)
         msg_id = (resp or {}).get("message_id")
         card = _product_card_for_url(product_url)
         if card:

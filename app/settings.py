@@ -66,6 +66,16 @@ DEFAULTS = {
         # Inbound is still received, stored and displayed — agents reply by hand.
         "enabled": True,
     },
+    "alerts": {
+        # Per-source watermarks: {"integrations.meta.send": "2026-07-31T13:45:00"}.
+        # A fault group is hidden while its newest occurrence is older than the
+        # watermark for that source. Deliberately NOT a list of dismissed ids —
+        # a watermark is bounded (one entry per source, ~13 of them) and it means
+        # a FRESH failure of an already-acknowledged source alerts again, which
+        # is the behaviour you want: you acknowledged what you had seen, not the
+        # problem forever.
+        "acknowledged": {},
+    },
 }
 
 def _merge(base: dict, override: dict) -> dict:

@@ -218,6 +218,41 @@ export default function TopBar({ onMenuClick }) {
     }
   })()
   const [showHealth, setShowHealth] = useState(false)
+  const [clearingAlerts, setClearingAlerts] = useState(false)
+
+  // Acknowledge faults so they stop occupying the panel.
+  //
+  // Marks, never deletes — the log rows stay in the database and stay
+  // searchable on the Logs page. Clearing records "somebody has seen this" per
+  // source, so the SAME failure happening again is newer than the mark and
+  // reappears on its own. That is the behaviour you want from a health panel:
+  // you acknowledged what you had seen, not the problem forever.
+  const clearAlerts = async (sources) => {
+    setClearingAlerts(true)
+    try {
+      const authHeader = {
+        Authorization: `Bearer ${localStorage.getItem('authToken')}`,
+        'Content-Type': 'application/json',
+      }
+      const res = await fetch(`${API_BASE}/alerts/dismiss`, {
+        method: 'POST',
+        headers: authHeader,
+        body: JSON.stringify(sources ? { sources } : { all: true }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Could not clear')
+      }
+      // Re-read rather than mutating locally: the server decides what is still
+      // outstanding, and clearing one noisy source usually reveals others.
+      const fresh = await fetch(`${API_BASE}/health`, { headers: authHeader })
+      if (fresh.ok) setHealth(await fresh.json())
+    } catch (err) {
+      showToast({ title: 'Could not clear alerts', body: err.message, severity: 'warning' })
+    } finally {
+      setClearingAlerts(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -491,9 +526,21 @@ export default function TopBar({ onMenuClick }) {
                     {health.errors || 0} errors · {health.warnings || 0} warnings · {health.failed_jobs || 0} failed jobs (last hour)
                   </p>
                 </div>
-                <button onClick={() => setShowHealth(false)} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
-                  <X size={16} />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {canSeeHealth && (health.issues || []).length > 0 && (
+                    <button
+                      onClick={() => clearAlerts(null)}
+                      disabled={clearingAlerts}
+                      title="Mark everything here as seen. Nothing is deleted — a repeat failure comes back."
+                      className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300 disabled:opacity-50"
+                    >
+                      {clearingAlerts ? 'Clearing…' : 'Clear all'}
+                    </button>
+                  )}
+                  <button onClick={() => setShowHealth(false)} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
               <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
                 {!(health.issues || []).length ? (
@@ -503,7 +550,7 @@ export default function TopBar({ onMenuClick }) {
                   </div>
                 ) : (
                   health.issues.map((iss, i) => (
-                    <div key={i} className="px-4 py-2.5 flex items-start gap-2.5">
+                    <div key={i} className="px-4 py-2.5 flex items-start gap-2.5 group">
                       <span className={clsx('w-1.5 h-1.5 rounded-full mt-1.5 shrink-0',
                         iss.level === 'error' || iss.level === 'critical' ? 'bg-red-500' : 'bg-amber-500')} />
                       <div className="min-w-0 flex-1">
@@ -515,6 +562,17 @@ export default function TopBar({ onMenuClick }) {
                           </p>
                         )}
                       </div>
+                      {canSeeHealth && (
+                        <button
+                          onClick={() => clearAlerts([iss.source])}
+                          disabled={clearingAlerts}
+                          title={`Mark ${iss.source} as seen`}
+                          aria-label={`Clear ${iss.source}`}
+                          className="p-1 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-50"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
                     </div>
                   ))
                 )}

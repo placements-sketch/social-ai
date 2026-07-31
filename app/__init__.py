@@ -114,6 +114,7 @@ def create_app():
         from app.notifications import notifications_bp
         from app.store_info_routes import store_info_bp
         from app.auth_meta import auth_meta_bp
+        from app.auth_instagram import auth_ig_bp
         from app.cron_routes import cron_bp
         from app.health import health_bp
         from app.settings import settings_bp
@@ -135,6 +136,7 @@ def create_app():
         app.register_blueprint(notifications_bp)
         app.register_blueprint(store_info_bp)
         app.register_blueprint(auth_meta_bp)
+        app.register_blueprint(auth_ig_bp)
         app.register_blueprint(cron_bp)
         app.register_blueprint(health_bp)
         app.register_blueprint(settings_bp)

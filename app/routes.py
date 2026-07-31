@@ -344,7 +344,7 @@ def instagram_webhook():
                         image_urls.append(u)
                 mid = msg.get("mid")
                 if sender_id and (text or image_urls):
-                    events.append((sender_id, text or "", mid, image_urls, shared_post_id))
+                    events.append((sender_id, text or "", mid, image_urls, shared_post_id, entry.get("id")))
 
             # Shape 2: changes[] with field=messages
             for change in (entry.get("changes") or []):
@@ -399,7 +399,7 @@ def instagram_webhook():
                         image_urls.append(u)
                 mid = msg.get("mid")
                 if sender_id and (text or image_urls):
-                    events.append((sender_id, text or "", mid, image_urls, shared_post_id))
+                    events.append((sender_id, text or "", mid, image_urls, shared_post_id, entry.get("id")))
 
             # Shape 3: changes[] with field=comments  →  IG comment events
             for change in (entry.get("changes") or []):
@@ -461,7 +461,7 @@ def instagram_webhook():
             for sender_id, _sender_events in _grouped.items():
                 if len(_sender_events) > 1:
                     from app.services import _save_message
-                    for (_sid, _txt, _mid, _imgs, _post) in _sender_events[:-1]:
+                    for (_sid, _txt, _mid, _imgs, _post, _acct) in _sender_events[:-1]:
                         try:
                             _save_message(
                                 user_id=sender_id, channel=dm_channel,
@@ -471,7 +471,7 @@ def instagram_webhook():
                             )
                         except Exception:
                             pass
-                _sid, message_text, mid, image_urls, shared_post_id = _sender_events[-1]
+                _sid, message_text, mid, image_urls, shared_post_id, account_id = _sender_events[-1]
                 try:
                     process_inbound(
                         message=message_text,
@@ -481,6 +481,15 @@ def instagram_webhook():
                         media_id=shared_post_id,   # our post, if they forwarded one
                         image_urls=image_urls,
                     )
+                    # Remember WHICH of our accounts this arrived on, so the
+                    # reply goes back out from the same one. Without it a
+                    # second connected account would be answered with the
+                    # wrong credentials — a guaranteed 403.
+                    try:
+                        from app.services import stamp_conversation_account
+                        stamp_conversation_account(sender_id, dm_channel, account_id)
+                    except Exception:
+                        pass
                     # DM webhooks carry only the numeric IGSID, so resolve the
                     # username via the Graph API and cache it — once per customer.
                     # Instagram only: a Messenger PSID is not an IGSID and the

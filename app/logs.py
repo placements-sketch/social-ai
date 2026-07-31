@@ -29,7 +29,7 @@ from flask_jwt_extended import jwt_required
 
 from app import db
 from app.models import AuthUser, AuditLog, Log
-from app.auth import current_user_id
+from app.auth import current_user_id, log_audit
 
 logs_bp = Blueprint('logs', __name__, url_prefix='/api')
 
@@ -363,6 +363,69 @@ ALERT_WINDOW_HOURS = 24 * 7
 AGENT_WAITING_MINUTES = 10
 
 
+@logs_bp.route('/alerts/dismiss', methods=['POST'])
+@jwt_required()
+def dismiss_alerts():
+    """
+    Acknowledge fault alerts so they stop occupying the panel.
+
+    Marks, never deletes. The rows stay in the log table and stay searchable on
+    the Logs page — this only records "somebody has seen this", per source, as
+    a timestamp. A later failure from the same source is newer than the
+    watermark and reappears on its own.
+
+    Only faults can be acknowledged. The other two alert kinds — conversations
+    awaiting a reply, and the unclaimed queue — are live state, not history.
+    Dismissing those would hide a customer who is still waiting, so they clear
+    only by the work actually being done.
+
+    Restricted to supervisors and admins: a fault is system-wide, so one person
+    acknowledging it hides it for everyone.
+    """
+    user, err = _require_user()
+    if err:
+        return err
+    if user.role not in {'admin', 'supervisor'}:
+        return jsonify({'error': 'Only supervisors and admins can clear alerts'}), 403
+
+    from app.settings import get_settings, _row
+    from app.models import Log as _Log
+
+    data = request.get_json(silent=True) or {}
+    sources = data.get('sources')
+    clear_all = bool(data.get('all'))
+
+    if not clear_all and not sources:
+        return jsonify({'error': "Pass 'sources': [...] or 'all': true"}), 400
+
+    if clear_all:
+        # Everything currently faulting inside the alert window.
+        cutoff = datetime.utcnow() - timedelta(hours=ALERT_WINDOW_HOURS)
+        sources = [r[0] for r in db.session.query(_Log.source)
+                   .filter(_Log.level.in_(FAULT_LEVELS))
+                   .filter(_Log.created_at >= cutoff)
+                   .distinct().all()]
+
+    now = datetime.utcnow().isoformat()
+    row = _row()
+    data_blob = dict(row.data or {})
+    alerts_cfg = dict(data_blob.get('alerts') or {})
+    acked = dict(alerts_cfg.get('acknowledged') or {})
+    for src in sources:
+        if src:
+            acked[str(src)] = now
+    alerts_cfg['acknowledged'] = acked
+    data_blob['alerts'] = alerts_cfg
+    row.data = data_blob
+    row.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    log_audit(user.id, 'dismiss_alerts', resource_type='alerts',
+              changes={'sources': list(sources)[:20], 'count': len(sources)})
+
+    return jsonify({'dismissed': len(sources), 'sources': list(sources)}), 200
+
+
 @logs_bp.route('/alerts', methods=['GET'])
 @jwt_required()
 def alerts():
@@ -483,7 +546,24 @@ def alerts():
                         .all()):
                 newest_msg.setdefault(row.source, row)
 
+        # Acknowledged sources drop out until they fail again. Nothing is
+        # deleted — the log rows are the audit trail, and a panel that clears
+        # itself by destroying evidence is worse than a noisy panel.
+        acked = {}
+        try:
+            from app.settings import get_section
+            acked = get_section("alerts").get("acknowledged") or {}
+        except Exception:
+            pass
+
         for g in groups:
+            ack_at = acked.get(g.source)
+            if ack_at:
+                try:
+                    if g.newest <= datetime.fromisoformat(ack_at):
+                        continue
+                except (TypeError, ValueError):
+                    pass
             row = newest_msg.get(g.source)
             level = 'error' if (g.level or '').lower() == 'error' else 'warning'
             out.append({

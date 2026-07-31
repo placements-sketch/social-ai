@@ -173,6 +173,11 @@ class Conversation(db.Model):
     id         = db.Column(db.Integer, primary_key=True)
     user_id    = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     channel    = db.Column(db.String(32), nullable=False)
+    # Which of OUR accounts received this — the IG business account id or Page
+    # id from the webhook's entry[].id. Without it a reply can only be sent
+    # from whatever the single global token happens to be, which is wrong the
+    # moment a second account is connected.
+    business_account_id = db.Column(db.String(64), nullable=True, index=True)
     status     = db.Column(db.String(32), default="active", nullable=False)
     ai_enabled = db.Column(db.Boolean, default=True, nullable=False)
     last_message     = db.Column(db.Text, nullable=True)
@@ -746,15 +751,30 @@ class MetaConnection(db.Model):
     # Which auth user inside our app connected this — supports multi-tenant later.
     auth_user_id             = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
     # Facebook Page identity
-    page_id                  = db.Column(db.String(64), unique=True, nullable=False)
+    # Nullable: an Instagram-Login connection authorises the IG account
+    # directly and has no Facebook Page behind it. Postgres allows repeated
+    # NULLs under a UNIQUE index, so several such rows coexist fine.
+    page_id                  = db.Column(db.String(64), unique=True, nullable=True)
     page_name                = db.Column(db.String(256), nullable=True)
-    page_access_token        = db.Column(db.Text, nullable=False)
+    page_access_token        = db.Column(db.Text, nullable=True)
     # Instagram Business Account connected to that Page
     ig_business_account_id   = db.Column(db.String(64), nullable=True)
     ig_username              = db.Column(db.String(256), nullable=True)
     # Long-lived user token (60-day expiry; used to refresh page tokens if needed)
     user_access_token        = db.Column(db.Text, nullable=True)
     token_expires_at         = db.Column(db.DateTime, nullable=True)
+    # ── Instagram API with Instagram Login ──────────────────────────────────
+    # A second, independent credential for the same account. Facebook Login
+    # gives a Page token that cannot message a customer without Advanced
+    # Access; the Instagram Login token can. Stored per connection so several
+    # accounts stay live at once — replies go out from whichever account the
+    # customer actually messaged.
+    #
+    # Unlike page tokens these EXPIRE (60 days) and must be refreshed while
+    # still valid — see refresh_ig_login_tokens().
+    ig_login_user_id         = db.Column(db.String(64), nullable=True)
+    ig_login_token           = db.Column(db.Text, nullable=True)
+    ig_login_expires_at      = db.Column(db.DateTime, nullable=True)
     # Permissions granted in this connection
     scopes                   = db.Column(db.JSON, nullable=True)
     # Lifecycle

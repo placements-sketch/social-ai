@@ -28,20 +28,45 @@ def health():
     ERROR_LEVELS = ('error', 'critical')
     WARN_LEVELS = ('warning', 'warn')
 
-    errors = Log.query.filter(
-        Log.level.in_(ERROR_LEVELS), Log.created_at >= cutoff).count()
-    warnings = Log.query.filter(
-        Log.level.in_(WARN_LEVELS), Log.created_at >= cutoff).count()
+    # Acknowledged sources, shared with /api/alerts so "clear" clears both
+    # surfaces. A source stays hidden only while its newest occurrence is older
+    # than the moment it was acknowledged — a fresh failure comes straight back.
+    # Nothing is deleted: the rows remain in the log table and on the Logs page.
+    acked = {}
+    try:
+        from app.settings import get_section
+        acked = get_section("alerts").get("acknowledged") or {}
+    except Exception:
+        pass
+
+    def _is_acked(row_source, row_at):
+        stamp = acked.get(row_source)
+        if not stamp or row_at is None:
+            return False
+        try:
+            return row_at <= datetime.fromisoformat(stamp)
+        except (TypeError, ValueError):
+            return False
+
+    def _live(q):
+        return [r for r in q if not _is_acked(r.source, r.created_at)]
+
+    errors = len(_live(Log.query.filter(
+        Log.level.in_(ERROR_LEVELS), Log.created_at >= cutoff).all()))
+    warnings = len(_live(Log.query.filter(
+        Log.level.in_(WARN_LEVELS), Log.created_at >= cutoff).all()))
     failed = SyncJob.query.filter(
         SyncJob.status == 'failed', SyncJob.finished_at >= cutoff).all()
 
     # The actual issues, not just counts — a bare "System issues detected"
     # tells nobody what to go and fix.
-    recent = (Log.query
-              .filter(Log.level.in_(ERROR_LEVELS + WARN_LEVELS))
-              .filter(Log.created_at >= cutoff)
-              .order_by(Log.created_at.desc())
-              .limit(8).all())
+    # Over-fetch, then drop acknowledged rows, so clearing one noisy source
+    # reveals the eight next-most-recent problems instead of leaving gaps.
+    recent = _live(Log.query
+                   .filter(Log.level.in_(ERROR_LEVELS + WARN_LEVELS))
+                   .filter(Log.created_at >= cutoff)
+                   .order_by(Log.created_at.desc())
+                   .limit(120).all())[:8]
 
     issues = [{
         'level':   l.level,

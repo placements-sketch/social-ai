@@ -5,6 +5,7 @@ import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { parseBackendTime } from '../utils/time'
 import { getMetaOAuthUrl, listMetaConnections } from '../api/auth_meta'
+import InstagramConnections from '../components/InstagramConnections'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -400,6 +401,11 @@ export default function Channels({ embedded = false }) {
           </span>
         </div>
       </div>
+
+      {/* Which Instagram accounts we hold credentials for. Separate from the
+          channel toggles below: those switch the AI on and off, this is what
+          the platform can actually authenticate as. */}
+      <InstagramConnections />
 
       {/* ── Meta Connections (OAuth-issued tokens) ────────────────── */}
       <div className="card overflow-hidden">

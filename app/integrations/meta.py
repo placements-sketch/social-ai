@@ -15,7 +15,11 @@ agent can manually resend.
 """
 
 import os
+from datetime import datetime, timedelta
+
 import requests
+from sqlalchemy import or_ as db_or
+
 from app.utils.logger import log_event
 
 GRAPH_API_VERSION = "v25.0"
@@ -36,40 +40,63 @@ IG_LOGIN_GRAPH = "https://graph.instagram.com"
 IG_LOGIN_API_VERSION = "v23.0"
 
 
-def _ig_login_credentials():
+def _connection_for(account_id: str | None):
     """
-    Returns (ig_user_id, ig_user_token) for the Instagram Login surface, or
-    (None, None) when it isn't configured — in which case callers fall back to
-    the Facebook Login page token.
+    The MetaConnection that owns `account_id` — an IG business account id or a
+    Page id, whichever the webhook reported as the recipient.
+
+    Falls back to the most recent active connection when the id is unknown or
+    absent, which keeps single-account setups working unchanged. Returns None
+    if the DB is unreachable, so callers drop through to env vars.
     """
+    try:
+        from app.models import MetaConnection
+        q = MetaConnection.query.filter_by(is_active=True)
+        if account_id:
+            match = q.filter(
+                db_or(MetaConnection.ig_business_account_id == str(account_id),
+                      MetaConnection.page_id == str(account_id))
+            ).first()
+            if match:
+                return match
+        return q.order_by(MetaConnection.connected_at.desc()).first()
+    except Exception as e:
+        log_event("warn", "integrations.meta.connection_lookup_failed", str(e))
+        return None
+
+
+def _ig_login_credentials(account_id: str | None = None):
+    """
+    Returns (ig_user_id, ig_user_token) for the Instagram Login surface of the
+    account that received the message, or (None, None) when not configured —
+    in which case callers fall back to the Facebook Login page token.
+
+    Per-connection first so several accounts can be live at once; the env vars
+    remain as a single-account fallback.
+    """
+    conn = _connection_for(account_id)
+    if conn is not None and conn.ig_login_token:
+        return (conn.ig_login_user_id or "me"), conn.ig_login_token
+
     token = os.getenv("IG_LOGIN_USER_TOKEN")
     if not token:
         return None, None
     return (os.getenv("IG_LOGIN_USER_ID") or "me"), token
 
 
-def _get_meta_credentials():
+def _get_meta_credentials(account_id: str | None = None):
     """
-    Returns (page_id, page_access_token) — preferring an active MetaConnection
-    row in the DB (issued via OAuth), falling back to the legacy env vars
-    (FB_PAGE_ID + FB_ACCESS_TOKEN) so existing setups keep working.
+    Returns (page_id, page_access_token) for the account that received the
+    message — preferring its MetaConnection row (issued via OAuth), falling
+    back to the legacy env vars (FB_PAGE_ID + FB_ACCESS_TOKEN) so existing
+    setups keep working.
 
     Both can be None if neither source has them. Callers must handle that.
     """
     # 1. Try DB (the OAuth-issued token, what App Review needs us to use)
-    try:
-        from app import db
-        from app.models import MetaConnection
-        conn = (MetaConnection.query
-                .filter_by(is_active=True)
-                .order_by(MetaConnection.connected_at.desc())
-                .first())
-        if conn and conn.page_id and conn.page_access_token:
-            return conn.page_id, conn.page_access_token
-    except Exception as e:
-        # DB unavailable, table missing, no Flask app context, etc.
-        # Don't crash — fall through to env vars.
-        log_event("warn", "integrations.meta.creds_db_lookup_failed", str(e))
+    conn = _connection_for(account_id)
+    if conn is not None and conn.page_id and conn.page_access_token:
+        return conn.page_id, conn.page_access_token
 
     # 2. Fall back to env vars (legacy Explorer-token setup)
     return os.getenv("FB_PAGE_ID"), os.getenv("FB_ACCESS_TOKEN")
@@ -170,7 +197,7 @@ def _send_url():
 # ─────────────────────────────────────────────
 # Instagram DM — implemented
 # ─────────────────────────────────────────────
-def fetch_instagram_username(igsid: str) -> dict | None:
+def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict | None:
     """
     Look up an Instagram user's profile (name / username / avatar) by their
     IGSID via the Graph API. Returns the profile dict, or None on failure.
@@ -178,12 +205,12 @@ def fetch_instagram_username(igsid: str) -> dict | None:
     """
     # Prefer Instagram Login — the Facebook-Login page token 403s on any
     # customer without a role on the app.
-    _ig_id, ig_token = _ig_login_credentials()
+    _ig_id, ig_token = _ig_login_credentials(account_id)
     if ig_token:
         url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{igsid}"
         token = ig_token
     else:
-        _, token = _get_meta_credentials()
+        _, token = _get_meta_credentials(account_id)
         url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{igsid}"
     if not token or not igsid:
         return None
@@ -203,7 +230,8 @@ def fetch_instagram_username(igsid: str) -> dict | None:
                   f"Username lookup exception: {e}", payload={"igsid": igsid})
         return None
 
-def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
+def send_instagram_reply(recipient_id: str, text: str,
+                         account_id: str | None = None) -> dict | None:
     """
     Send a DM reply on Instagram via Meta Graph API.
 
@@ -219,13 +247,14 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
     # users holding a role on the app until App Review grants Advanced Access,
     # so for real customers it is the difference between a delivered reply and
     # a 403.
-    ig_user_id, ig_token = _ig_login_credentials()
+    ig_user_id, ig_token = _ig_login_credentials(account_id)
     if ig_token:
         token = ig_token
         url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{ig_user_id}/messages"
     else:
-        _, token = _get_meta_credentials()
-        url = _send_url()
+        page_id, token = _get_meta_credentials(account_id)
+        url = (f"https://graph.facebook.com/{GRAPH_API_VERSION}/{page_id}/messages"
+               if page_id else None)
 
     if not token or not url:
         log_event("error", "integrations.meta.send",
@@ -571,3 +600,81 @@ def fetch_instagram_media(media_id: str) -> dict | None:
         log_event("warning", "integrations.meta.media_fetch",
                   f"Media fetch exception: {e}", payload={"media_id": media_id})
         return None
+
+# ─────────────────────────────────────────────
+# Instagram Login token refresh
+# ─────────────────────────────────────────────
+# Page tokens never expire; Instagram Login user tokens last 60 days and can
+# only be refreshed WHILE STILL VALID. Let one lapse and the only way back is
+# re-running the OAuth flow by hand, which means an outage until someone
+# notices. Run this from cron well inside the window.
+IG_REFRESH_WHEN_DAYS_LEFT = int(os.getenv("IG_REFRESH_WHEN_DAYS_LEFT", "14"))
+
+
+def refresh_ig_login_tokens(force: bool = False) -> dict:
+    """
+    Refresh Instagram Login tokens that are nearing expiry.
+
+    Returns a summary dict. Never raises — a failure here must not take down
+    whatever scheduled job called it.
+    """
+    summary = {"checked": 0, "refreshed": 0, "skipped": 0, "failed": 0, "details": []}
+    try:
+        from app import db
+        from app.models import MetaConnection
+        conns = (MetaConnection.query
+                 .filter(MetaConnection.is_active.is_(True))
+                 .filter(MetaConnection.ig_login_token.isnot(None))
+                 .all())
+    except Exception as e:
+        log_event("error", "integrations.meta.ig_refresh_lookup_failed", str(e))
+        summary["failed"] = 1
+        return summary
+
+    cutoff = datetime.utcnow() + timedelta(days=IG_REFRESH_WHEN_DAYS_LEFT)
+    for conn in conns:
+        summary["checked"] += 1
+        label = conn.ig_username or conn.ig_login_user_id or conn.page_id
+
+        if not force and conn.ig_login_expires_at and conn.ig_login_expires_at > cutoff:
+            summary["skipped"] += 1
+            continue
+
+        try:
+            r = requests.get(f"{IG_LOGIN_GRAPH}/refresh_access_token", params={
+                "grant_type": "ig_refresh_token",
+                "access_token": conn.ig_login_token,
+            }, timeout=15)
+            body = r.json() if r.content else {}
+        except requests.RequestException as e:
+            summary["failed"] += 1
+            summary["details"].append(f"{label}: network error {e}")
+            log_event("error", "integrations.meta.ig_refresh_failed", f"{label}: {e}")
+            continue
+
+        new_token = body.get("access_token")
+        if r.status_code >= 400 or not new_token:
+            summary["failed"] += 1
+            summary["details"].append(f"{label}: HTTP {r.status_code} {str(body)[:150]}")
+            log_event("error", "integrations.meta.ig_refresh_failed",
+                      f"{label}: HTTP {r.status_code} {str(body)[:200]}")
+            continue
+
+        conn.ig_login_token = new_token
+        expires_in = body.get("expires_in")
+        if expires_in:
+            conn.ig_login_expires_at = datetime.utcnow() + timedelta(seconds=int(expires_in))
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            summary["failed"] += 1
+            summary["details"].append(f"{label}: commit failed {e}")
+            continue
+
+        summary["refreshed"] += 1
+        summary["details"].append(f"{label}: refreshed, expires {conn.ig_login_expires_at}")
+        log_event("info", "integrations.meta.ig_refresh",
+                  f"{label}: token refreshed, expires {conn.ig_login_expires_at}")
+
+    return summary

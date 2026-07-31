@@ -1154,3 +1154,23 @@ def cron_auto_resolve():
               f"Auto-resolved {len(ids)} conversation(s) idle for {days}+ days",
               payload={'days': days, 'count': len(ids), 'conversation_ids': ids[:50]})
     return jsonify({'ok': True, 'resolved': len(ids), 'days': days}), 200
+
+
+@cron_bp.route('/refresh-ig-tokens', methods=['POST'])
+@require_cron_secret
+def cron_refresh_ig_tokens():
+    """
+    Refresh Instagram Login user tokens before they lapse.
+
+    These last 60 days and can only be refreshed WHILE STILL VALID — miss the
+    window and the only way back is re-running the OAuth flow by hand, with
+    Instagram DMs down until someone notices. Page tokens never expire, so
+    nothing else in this app has needed a job like this.
+
+    Safe to run daily; it skips anything not near expiry unless ?force=1.
+    """
+    from app.integrations.meta import refresh_ig_login_tokens
+    force = request.args.get('force') in ('1', 'true', 'yes')
+    summary = refresh_ig_login_tokens(force=force)
+    status = 200 if summary.get('failed', 0) == 0 else 207
+    return jsonify(summary), status
