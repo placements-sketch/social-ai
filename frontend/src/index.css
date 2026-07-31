@@ -447,12 +447,22 @@ body::before {
 
 .dark .card,
 .dark .stat-card,
-/* Dialog surfaces.
+.dark .glass {
+  background-color: var(--glass-bg);
+  border-color: var(--glass-border);
+  /* Inset top highlight = the lit edge that sells the material. */
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 10px 34px rgba(0, 0, 0, 0.45);
+}
+
+/* Dialog surfaces. Declared AFTER the rule above so it overrides it, and kept
+   as its own standalone selector — an earlier edit spliced this block into the
+   middle of that three-selector list, which silently handed .card and
+   .stat-card a white background in dark mode across the whole app.
    .glass is 66% opaque in light mode and 55% in dark. Over a plain page that
-   reads as material; over the conversation list — which is the only place a
-   confirmation ever appears — the text behind it shows through and the message
-   becomes hard to read. A dialog is a decision point, so legibility wins: keep
-   the blur and the lit edge, drop the transparency. */
+   reads as material; over the conversation list — the only place a confirmation
+   appears — the text behind shows through and the message becomes hard to read.
+   A dialog is a decision point, so legibility wins: keep the blur and the lit
+   edge, drop the transparency. */
 .glass-modal {
   background-color: rgba(255, 255, 255, 0.97);
   border-color: rgba(0, 0, 0, 0.08);
@@ -460,13 +470,6 @@ body::before {
 .dark .glass-modal {
   background-color: rgba(24, 24, 24, 0.97);
   border-color: rgba(255, 255, 255, 0.12);
-}
-
-.dark .glass {
-  background-color: var(--glass-bg);
-  border-color: var(--glass-border);
-  /* Inset top highlight = the lit edge that sells the material. */
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 10px 34px rgba(0, 0, 0, 0.45);
 }
 
 .card:hover,
