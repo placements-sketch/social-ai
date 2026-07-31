@@ -884,7 +884,7 @@ const handleSend = async (retryOf = null) => {
 
       // Canonical: sendReply(id, content, sender='human')
       // -> { message, conversation }
-      const data = await sendReply(activeConv.id, outgoing, 'human')
+      const data = await sendReply(activeConv.id, outgoing, 'human', ctx?.id ?? null)
       setActiveConv(c => ({
         ...c,
         ...data.conversation,
@@ -1591,6 +1591,16 @@ const handleSend = async (retryOf = null) => {
                             if (!confirmed) return
                             try {
                               const result = await editMessage(msg.id, editText)
+                              // The original is unsent before the replacement
+                              // is sent. If the send failed the customer now
+                              // has neither, and only this flag says so.
+                              if (result?.delivered === false) {
+                                showToast(
+                                  'The original was removed from Instagram but the new version did NOT send. '
+                                  + 'The customer currently sees nothing — send it again.',
+                                  'warning'
+                                )
+                              }
                               setActiveConv(c => ({
                                 ...c,
                                 messages: (c.messages || []).map(m =>

@@ -257,8 +257,22 @@ def instagram_webhook():
     # receipts and echoes look identical to a lost DM from the access log.
     current_app.logger.info(f"[IG webhook] payload: {data}")
 
+    # Both the `instagram` and `page` webhook objects are registered against
+    # THIS callback URL, and Facebook Messenger events use the same
+    # entry[].messaging[] shape Instagram DMs do. Without branching on
+    # `object`, every Messenger DM to the Page was stored as an Instagram DM —
+    # wrong channel, wrong icon, and it polluted per-channel analytics.
+    #
+    # Tells, if you ever need to identify one by hand: object=page, recipient
+    # is the Page id, and the mid starts with "m_" (Instagram mids are base64
+    # beginning "aWdfZAG").
+    obj = (data.get("object") or "instagram").lower()
+    is_page = obj == "page"
+    dm_channel = "facebook_dm" if is_page else "instagram_dm"
+    comment_channel = "facebook_comment" if is_page else "instagram_comment"
+
     events = []          # DM events
-    comment_events = []  # IG comment events
+    comment_events = []  # comment events
 
     try:
         for entry in (data.get("entry") or []):
@@ -450,7 +464,7 @@ def instagram_webhook():
                     for (_sid, _txt, _mid, _imgs, _post) in _sender_events[:-1]:
                         try:
                             _save_message(
-                                user_id=sender_id, channel="instagram_dm",
+                                user_id=sender_id, channel=dm_channel,
                                 content=((_txt or "").strip() or "[Sent a photo]"),
                                 intent=None, direction="inbound",
                                 external_id=_mid, image_urls=_imgs,
@@ -462,18 +476,20 @@ def instagram_webhook():
                     process_inbound(
                         message=message_text,
                         user_id=sender_id,
-                        channel="instagram_dm",
+                        channel=dm_channel,
                         external_id=mid,
                         media_id=shared_post_id,   # our post, if they forwarded one
                         image_urls=image_urls,
                     )
                     # DM webhooks carry only the numeric IGSID, so resolve the
                     # username via the Graph API and cache it — once per customer.
+                    # Instagram only: a Messenger PSID is not an IGSID and the
+                    # lookup would just fail.
                     try:
                         from app import db
                         from app.models import User
-                        user_row = User.query.filter_by(
-                            external_id=sender_id, channel="instagram_dm").first()
+                        user_row = None if is_page else User.query.filter_by(
+                            external_id=sender_id, channel=dm_channel).first()
                         if user_row and (not user_row.name or user_row.name == sender_id):
                             from app.integrations.meta import fetch_instagram_username
                             profile = fetch_instagram_username(sender_id)
@@ -496,7 +512,7 @@ def instagram_webhook():
                     process_message(
                         message=comment_text,
                         user_id=sender_id,
-                        channel="instagram_comment",
+                        channel=comment_channel,
                         external_id=comment_id,
                         media_id=media_id,
                         parent_id=parent_id,
@@ -509,7 +525,7 @@ def instagram_webhook():
                             from app import db
                             from app.models import User
                             user_row = User.query.filter_by(
-                                external_id=sender_id, channel="instagram_comment"
+                                external_id=sender_id, channel=comment_channel
                             ).first()
                             if user_row and user_row.name != username:
                                 user_row.name = username

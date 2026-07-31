@@ -335,6 +335,16 @@ def ai_handover():
             c.ai_auto_paused_at = now
             if c.ai_disabled_at is None:
                 c.ai_disabled_at = now
+            # Also flip the status, or "queue them for agents" queues them where
+            # no agent can look. An agent's inbox is scoped to
+            #   assigned_to == me  OR  (assigned_to IS NULL AND status = 'human_override')
+            # so an unassigned conversation left at 'active' is visible only to
+            # supervisors and admins. It would sit in the Unclaimed chip — which
+            # is not role-scoped the same way — while every agent's inbox showed
+            # nothing. This mirrors what the per-conversation AI toggle already
+            # does when a human takes over.
+            if c.status == 'active':
+                c.status = 'human_override'
         db.session.commit()
         log_event("info", "settings.ai_queued_for_humans",
                   f"Global AI switch off — {len(rows)} conversations queued for agents")
@@ -349,6 +359,10 @@ def ai_handover():
             c.ai_enabled = True
             c.ai_auto_paused_at = None
             c.ai_disabled_at = None
+            # Undo the status flip too, so a restored conversation is back to
+            # plain AI-handled rather than looking half-escalated forever.
+            if c.status == 'human_override':
+                c.status = 'active'
         db.session.commit()
         log_event("info", "settings.ai_restored_from_queue",
                   f"Global AI switch on — {len(rows)} conversations handed back to the AI")

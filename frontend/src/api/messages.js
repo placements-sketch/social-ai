@@ -100,12 +100,15 @@ export function getConversation(id) {
  * @param {'human'|'ai'|'system'} [sender='human']
  * @returns {Promise<{message:Object, conversation:Object}>}
  */
-export function sendReply(id, content, sender = 'human') {
+export function sendReply(id, content, sender = 'human', replyToMessageId = null) {
   return handle(
     fetch(`${API_BASE}/conversations/${id}/messages`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ content, sender }),
+      // reply_to_message_id makes the platform thread the reply under the
+      // comment the agent actually picked. Without it the server fell back to
+      // the newest inbound comment.
+      body: JSON.stringify({ content, sender, reply_to_message_id: replyToMessageId }),
     })
   )
 }

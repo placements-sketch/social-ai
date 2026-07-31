@@ -431,6 +431,8 @@ def send_reply(conversation_id):
 
     data = request.get_json(silent=True) or {}
     content = (data.get('content') or '').strip()
+    # Which inbound message this is a reply to, when the agent picked one.
+    reply_to_message_id = data.get('reply_to_message_id')
     if not content:
         return jsonify({'error': 'Message content is required'}), 400
 
@@ -505,12 +507,34 @@ def send_reply(conversation_id):
             # message in this conversation — that's the comment we're replying to.
             comment_ext_id = None
             if conv.channel.endswith("_comment"):
-                last_inbound = (Message.query
-                    .filter_by(conversation_id=conv.id, direction='inbound')
-                    .order_by(Message.created_at.desc())
-                    .first())
-                if last_inbound:
-                    comment_ext_id = last_inbound.external_id
+                # Thread under the comment the agent chose, when they chose
+                # one. The UI has a "reply to" affordance that sets a specific
+                # message, but its id was never sent to the server — only the
+                # quoted text got prepended to the body. So picking the first
+                # of three comments still posted the reply under the newest
+                # one, and the quote was the only hint of what was meant.
+                picked = None
+                if reply_to_message_id:
+                    picked = (Message.query
+                              .filter_by(id=reply_to_message_id,
+                                         conversation_id=conv.id,
+                                         direction='inbound')
+                              .first())
+                if picked and picked.external_id:
+                    comment_ext_id = picked.external_id
+                else:
+                    # id as tiebreaker: comments arriving in the same burst
+                    # share a created_at to the microsecond, and ordering by
+                    # timestamp alone then returns an arbitrary row — measured
+                    # returning the OLDEST of three. A reply threading under a
+                    # random comment is worse than one threading under the
+                    # newest.
+                    last_inbound = (Message.query
+                        .filter_by(conversation_id=conv.id, direction='inbound')
+                        .order_by(Message.created_at.desc(), Message.id.desc())
+                        .first())
+                    if last_inbound:
+                        comment_ext_id = last_inbound.external_id
 
             new_ext_id = _dispatch_reply(
                 channel=conv.channel,
@@ -775,7 +799,7 @@ def delete_message(message_id):
     if conv:
         latest = (Message.query
                   .filter_by(conversation_id=conv.id)
-                  .order_by(Message.created_at.desc())
+                  .order_by(Message.created_at.desc(), Message.id.desc())
                   .first())
         if latest and latest.id != msg.id:
             conv.last_message = latest.content[:200] if latest.content else ''
@@ -815,6 +839,7 @@ def edit_message(message_id):
 
     data = request.get_json(silent=True) or {}
     new_content = (data.get('content') or '').strip()
+    reply_to_message_id = data.get('reply_to_message_id')
     if not new_content:
         return jsonify({'error': 'New content required'}), 400
 
@@ -866,19 +891,50 @@ def edit_message(message_id):
 
     db.session.commit()
 
-    # Step 4: Send the new content to IG
+    # Step 4: Send the new content to IG.
+    #
+    # Note the order this endpoint is forced into: the original is unsent from
+    # Instagram and deleted from our database BEFORE the replacement goes out.
+    # If the send then fails, the customer is left with nothing at all — the
+    # original is gone from their thread and the new text never arrived. That
+    # used to return 200 with the new message, so the agent saw a successful
+    # edit and the customer saw a message disappear. `delivered` is what tells
+    # the UI to say so.
+    delivered = False
     if customer:
         try:
             # For comment replies, we need the comment_id of the latest INBOUND
             # message in this conversation — that's the comment we're replying to.
             comment_ext_id = None
             if conv.channel.endswith("_comment"):
-                last_inbound = (Message.query
-                    .filter_by(conversation_id=conv.id, direction='inbound')
-                    .order_by(Message.created_at.desc())
-                    .first())
-                if last_inbound:
-                    comment_ext_id = last_inbound.external_id
+                # Thread under the comment the agent chose, when they chose
+                # one. The UI has a "reply to" affordance that sets a specific
+                # message, but its id was never sent to the server — only the
+                # quoted text got prepended to the body. So picking the first
+                # of three comments still posted the reply under the newest
+                # one, and the quote was the only hint of what was meant.
+                picked = None
+                if reply_to_message_id:
+                    picked = (Message.query
+                              .filter_by(id=reply_to_message_id,
+                                         conversation_id=conv.id,
+                                         direction='inbound')
+                              .first())
+                if picked and picked.external_id:
+                    comment_ext_id = picked.external_id
+                else:
+                    # id as tiebreaker: comments arriving in the same burst
+                    # share a created_at to the microsecond, and ordering by
+                    # timestamp alone then returns an arbitrary row — measured
+                    # returning the OLDEST of three. A reply threading under a
+                    # random comment is worse than one threading under the
+                    # newest.
+                    last_inbound = (Message.query
+                        .filter_by(conversation_id=conv.id, direction='inbound')
+                        .order_by(Message.created_at.desc(), Message.id.desc())
+                        .first())
+                    if last_inbound:
+                        comment_ext_id = last_inbound.external_id
             new_ext_id = _dispatch_reply(
                 channel=conv.channel,
                 user_id=customer.external_id,
@@ -887,6 +943,7 @@ def edit_message(message_id):
             )
             if new_ext_id:
                 new_msg.external_id = new_ext_id
+                delivered = True
                 db.session.commit()
         except Exception as e:
             from app.utils.logger import log_event
@@ -905,6 +962,7 @@ def edit_message(message_id):
     return jsonify({
         'message': new_msg.to_dict(),
         'ig_unsent': ig_unsent,
+        'delivered': delivered,
         'conversation': conv.to_dict(include_messages=False),
     }), 200
 
