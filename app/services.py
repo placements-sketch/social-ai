@@ -272,7 +272,14 @@ def _our_account_identifiers() -> tuple[set[str], set[str]]:
     try:
         from app.models import MetaConnection
         for conn in MetaConnection.query.filter_by(is_active=True).all():
-            for value in (conn.ig_business_account_id, conn.page_id):
+            # ig_login_user_id is the account's numeric id under Instagram
+            # Login, which authorises the IG account directly and leaves
+            # page_id and often ig_business_account_id null. Omitting it meant
+            # an Instagram-Login connection was recognised only by handle, so a
+            # webhook carrying just the numeric sender slipped through as if a
+            # customer had written it.
+            for value in (conn.ig_business_account_id, conn.page_id,
+                          conn.ig_login_user_id):
                 if value:
                     ids.add(str(value).strip())
             if conn.ig_username:
