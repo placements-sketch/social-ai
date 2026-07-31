@@ -20,6 +20,33 @@ from app.utils.logger import log_event
 
 GRAPH_API_VERSION = "v25.0"
 
+# ─────────────────────────────────────────────
+# Instagram API with Instagram Login
+# ─────────────────────────────────────────────
+# A second, separate surface. Facebook Login talks to graph.facebook.com with a
+# PAGE token; Instagram Login talks to graph.instagram.com with an IG USER
+# token, and only the latter can message a customer who holds no role on the
+# app. Without it every reply to a real customer dies with:
+#   (#200) App does not have Advanced Access to instagram_manage_messages
+#          permission and recipient user does not have role on app
+#
+# The token is issued by the Instagram business login OAuth flow and lasts 60
+# days — unlike page tokens, it MUST be refreshed. See IG_LOGIN_USER_TOKEN.
+IG_LOGIN_GRAPH = "https://graph.instagram.com"
+IG_LOGIN_API_VERSION = "v23.0"
+
+
+def _ig_login_credentials():
+    """
+    Returns (ig_user_id, ig_user_token) for the Instagram Login surface, or
+    (None, None) when it isn't configured — in which case callers fall back to
+    the Facebook Login page token.
+    """
+    token = os.getenv("IG_LOGIN_USER_TOKEN")
+    if not token:
+        return None, None
+    return (os.getenv("IG_LOGIN_USER_ID") or "me"), token
+
 
 def _get_meta_credentials():
     """
@@ -149,10 +176,17 @@ def fetch_instagram_username(igsid: str) -> dict | None:
     IGSID via the Graph API. Returns the profile dict, or None on failure.
     Works for users who've messaged the business (messaging context).
     """
-    _, token = _get_meta_credentials()
+    # Prefer Instagram Login — the Facebook-Login page token 403s on any
+    # customer without a role on the app.
+    _ig_id, ig_token = _ig_login_credentials()
+    if ig_token:
+        url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{igsid}"
+        token = ig_token
+    else:
+        _, token = _get_meta_credentials()
+        url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{igsid}"
     if not token or not igsid:
         return None
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{igsid}"
     try:
         r = requests.get(url, params={
             "fields": "name,username,profile_pic",
@@ -181,11 +215,21 @@ def send_instagram_reply(recipient_id: str, text: str) -> dict | None:
     Returns:
         Meta's response dict on success, or None on failure.
     """
-    _, token = _get_meta_credentials()
-    url = _send_url()
+    # Instagram Login first. The Facebook-Login page token can only message
+    # users holding a role on the app until App Review grants Advanced Access,
+    # so for real customers it is the difference between a delivered reply and
+    # a 403.
+    ig_user_id, ig_token = _ig_login_credentials()
+    if ig_token:
+        token = ig_token
+        url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{ig_user_id}/messages"
+    else:
+        _, token = _get_meta_credentials()
+        url = _send_url()
+
     if not token or not url:
         log_event("error", "integrations.meta.send",
-                  "FB_ACCESS_TOKEN or FB_PAGE_ID not set — cannot send reply",
+                  "No Instagram credentials configured — cannot send reply",
                   payload={"recipient_id": recipient_id})
         return None
 
