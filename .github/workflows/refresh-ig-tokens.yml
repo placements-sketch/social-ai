@@ -1,0 +1,58 @@
+name: Refresh Instagram Tokens
+
+# Instagram Login user tokens last 60 days and can ONLY be refreshed while
+# still valid. Miss the window and there is no API path back — someone has to
+# redo the OAuth flow by hand, with Instagram DMs down until they notice.
+#
+# Nothing else in this app needs a job like this: Facebook Page tokens never
+# expire. This exists solely because the Instagram Login surface is what can
+# message customers who hold no role on the app.
+#
+# The endpoint only touches connections within 14 days of expiry, so running
+# daily is cheap and gives ~14 chances to recover from a transient failure
+# before anything actually lapses.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # daily 06:00 EAT (03:00 UTC) — clear of the sync jobs
+  workflow_dispatch:      # manual run from the GitHub UI
+    inputs:
+      force:
+        description: 'Refresh every token regardless of expiry'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Refresh Instagram Login tokens
+        run: |
+          url="https://social-ai-backend-tult.onrender.com/api/cron/refresh-ig-tokens"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            url="$url?force=1"
+          fi
+
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "$url" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d: -f2)
+          body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+          echo "Status: $status"
+          echo "Body: $body"
+
+          # 207 = some connections refreshed, some failed. Surfaced as a
+          # failure on purpose: a token that stops refreshing has a finite
+          # number of days before Instagram messaging simply stops.
+          if [ "$status" = "207" ]; then
+            echo "::error::One or more Instagram tokens failed to refresh — see body above"
+            exit 1
+          fi
+          if [ "$status" != "200" ]; then
+            echo "::error::Refresh endpoint returned $status"
+            exit 1
+          fi
