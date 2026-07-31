@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required
 
+from app import db
 from app.models import Log, SyncJob
 
 health_bp = Blueprint('health', __name__, url_prefix='/api')
@@ -39,34 +40,43 @@ def health():
     except Exception:
         pass
 
-    def _is_acked(row_source, row_at):
-        stamp = acked.get(row_source)
-        if not stamp or row_at is None:
-            return False
-        try:
-            return row_at <= datetime.fromisoformat(stamp)
-        except (TypeError, ValueError):
-            return False
+    def _exclude_acked(q):
+        """
+        Drop acknowledged rows IN SQL, before any LIMIT is applied.
 
-    def _live(q):
-        return [r for r in q if not _is_acked(r.source, r.created_at)]
+        Filtering them in Python after `.limit(...)` looked equivalent and was
+        not. One source failing in a loop — a repeating 403, say — fills the
+        entire limit window on its own, so acknowledging that source left
+        Python with nothing to return and the panel went blank, while other
+        sources still had live rows just outside the window. Clearing one alert
+        appeared to clear every alert. The count queries were unaffected
+        because they carry no limit, so only the list lied, which made it look
+        as though the data itself had gone.
+        """
+        for src, stamp in acked.items():
+            try:
+                ts = datetime.fromisoformat(stamp)
+            except (TypeError, ValueError):
+                continue
+            q = q.filter(db.not_(db.and_(Log.source == src, Log.created_at <= ts)))
+        return q
 
-    errors = len(_live(Log.query.filter(
-        Log.level.in_(ERROR_LEVELS), Log.created_at >= cutoff).all()))
-    warnings = len(_live(Log.query.filter(
-        Log.level.in_(WARN_LEVELS), Log.created_at >= cutoff).all()))
+    errors = _exclude_acked(Log.query.filter(
+        Log.level.in_(ERROR_LEVELS), Log.created_at >= cutoff)).count()
+    warnings = _exclude_acked(Log.query.filter(
+        Log.level.in_(WARN_LEVELS), Log.created_at >= cutoff)).count()
     failed = SyncJob.query.filter(
         SyncJob.status == 'failed', SyncJob.finished_at >= cutoff).all()
 
     # The actual issues, not just counts — a bare "System issues detected"
     # tells nobody what to go and fix.
-    # Over-fetch, then drop acknowledged rows, so clearing one noisy source
-    # reveals the eight next-most-recent problems instead of leaving gaps.
-    recent = _live(Log.query
-                   .filter(Log.level.in_(ERROR_LEVELS + WARN_LEVELS))
-                   .filter(Log.created_at >= cutoff)
-                   .order_by(Log.created_at.desc())
-                   .limit(120).all())[:8]
+    # Acknowledged rows are excluded by the database, so these 8 really are the
+    # 8 most recent LIVE problems.
+    recent = (_exclude_acked(Log.query
+                             .filter(Log.level.in_(ERROR_LEVELS + WARN_LEVELS))
+                             .filter(Log.created_at >= cutoff))
+              .order_by(Log.created_at.desc())
+              .limit(8).all())
 
     issues = [{
         'level':   l.level,
