@@ -48,9 +48,14 @@ html, body, #root {
   --toggle-on:   #c7ea46;
   --toggle-off:  #333333;
 
-  --glass-bg:     rgba(22, 22, 22, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.09);
-  --glass-hi:     rgba(255, 255, 255, 0.05);
+  /* Dark grey, not near-black: at 22,22,22 the cards read as holes cut in the
+     page rather than panes sitting on it. Lifting the base to ~44 and letting
+     the blur do the darkening gives a surface with material to it. Alpha stays
+     moderate so the ambient lime behind still refracts through. */
+  --glass-bg:     rgba(44, 45, 48, 0.58);
+  /* Edges are a suggestion, not a frame. */
+  --glass-border: rgba(255, 255, 255, 0.055);
+  --glass-hi:     rgba(255, 255, 255, 0.045);
 }
 
 /* ── Motion tokens ──────────────────────────────────────────────────────────
@@ -436,8 +441,11 @@ body::before {
 .stat-card,
 .glass {
   background-color: rgba(255, 255, 255, 0.66);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  /* Mid-heavy. 20px only softened what was behind; 28 with a little more
+     saturation actually diffuses it, which is what reads as glass rather than
+     as a tinted rectangle. */
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
   border: 1px solid rgba(255, 255, 255, 0.55);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.05);
   transition: transform var(--dur) var(--ease-out),
@@ -450,8 +458,19 @@ body::before {
 .dark .glass {
   background-color: var(--glass-bg);
   border-color: var(--glass-border);
-  /* Inset top highlight = the lit edge that sells the material. */
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 10px 34px rgba(0, 0, 0, 0.45);
+  /* Inset top highlight = the lit edge that sells the material. Kept faint:
+     with a thinner border the highlight is what separates the pane from the
+     page, so it does the work the border used to. */
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 12px 40px rgba(0, 0, 0, 0.38);
+}
+
+/* True hairlines where the screen can draw them. On a 2x display a 1px border
+   is two physical pixels and reads heavier than intended; 0.5px halves it.
+   Ignored on 1x screens, which cannot draw below a pixel anyway. */
+@media (min-resolution: 2dppx) {
+  .dark .card,
+  .dark .stat-card,
+  .dark .glass { border-width: 0.5px; }
 }
 
 /* Dialog surfaces. Declared AFTER the rule above so it overrides it, and kept
@@ -614,7 +633,7 @@ button:not(:disabled):active,
 /* Darken the glass a touch so cards sit under their content rather than
    competing with it. */
 .dark {
-  --glass-bg: rgba(16, 16, 16, 0.62);
+  --glass-bg: rgba(40, 41, 45, 0.60);
 }
 
 /* ── Make the lime pop ───────────────────────────────────────────────────────
