@@ -14,6 +14,7 @@ import time
 from app.utils.logger import log_event
 
 import os
+import re
 USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 
 LOW_STOCK_THRESHOLD = 3
@@ -144,6 +145,27 @@ def _load_ai_settings():
         log_event("warn", "ai.generator.settings_load_failed",
                   f"Could not load AI settings, using defaults: {e}")
         return None
+
+# Words that mean a reply is putting a specific product forward, as opposed to
+# answering about delivery, sizing or an order. Deliberately conservative: a
+# false positive attributes a sale to a recommendation that never happened,
+# which is worse than missing one.
+# Matched on WORD BOUNDARIES, not as substrings. Plain `in` matching made
+# "Delivery to Mombasa takes 2-3 days" look like a product recommendation,
+# because "ta-KES-" contains "kes" — which would have attributed delivery
+# answers to sales and quietly corrupted the very metric this exists to build.
+_RECOMMEND_MARKERS = (
+    r'ksh', r'kes', r'price[ds]?', r'costs?', r'available in', r'in stock',
+    r'we have', r'check it out', r'grab', r'order it', r'shop it',
+)
+_RECOMMEND_RE = re.compile(
+    r'\b(?:' + '|'.join(_RECOMMEND_MARKERS) + r')\b', re.IGNORECASE)
+
+
+def _reply_recommends_a_product(reply_text: str) -> bool:
+    """True when the reply looks like it is offering a specific product."""
+    return bool(_RECOMMEND_RE.search(reply_text or ''))
+
 
 def generate_reply(message: str, intents: list[str], context_data: dict, channel: str,
                    history: list[dict] | None = None, image_urls: list | None = None) -> dict:
@@ -550,6 +572,31 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 # Stash for return so services.py can save on the message
                 context_data['_first_product_url'] = first_product_url
 
+                # TELL THE MODEL TO USE THE LINK.
+                #
+                # Every product line above carries "| URL: https://…", and the
+                # code downstream greps the finished reply for that URL to
+                # record which product was recommended. But nothing ever
+                # instructed the model to include it. The only mentions of
+                # links in this whole prompt were prohibitions — "MUST NOT
+                # include a product link", "do NOT link any other product" —
+                # so a URL appeared in a reply only by chance.
+                #
+                # That is why messages.product_url has zero rows and
+                # conversion_attributions is empty: the first link in the
+                # attribution chain was never asked to exist. Without it we
+                # cannot say which recommendations led to sales, which is the
+                # one number that proves the assistant earns its keep.
+                if first_product_url:
+                    context_lines.append(
+                        "\nWHEN YOU RECOMMEND ONE OF THE PRODUCTS ABOVE: paste its URL "
+                        "exactly as written, on its own line at the end of your reply. "
+                        "Copy it character for character — the tracking parameters on it "
+                        "are how we know the sale came from you. Never shorten it, never "
+                        "rewrite it, and never invent a link for a product not listed here. "
+                        "If you are not recommending a specific product, do not include a URL."
+                    )
+
             if out_of_stock_products:
                 context_lines.append(
                     f"OUT OF STOCK (do NOT recommend these as a purchase option; "
@@ -835,9 +882,28 @@ Customer's detected intents: {intents_str}
         product_url = None
         if reply_text:
             import re
-            match = re.search(r'https://www\.shopzetu\.com/products/[^\s<>\)"]+', reply_text)
+            # Domain comes from the same constant that BUILDS the links, rather
+            # than a second hardcoded copy. The two could drift — and if they
+            # ever did, extraction would silently return nothing and
+            # attribution would go quiet without a single error.
+            from app.utm import STOREFRONT_DOMAIN
+            pattern = re.escape(STOREFRONT_DOMAIN.rstrip('/')) + r'/products/[^\s<>\)"\']+'
+            match = re.search(pattern, reply_text)
             if match:
                 product_url = match.group(0)
+
+        # Fallback. The model recommended something but did not paste the link —
+        # it paraphrased, or dropped it. We still know which product was put in
+        # front of the customer, so record that rather than losing the
+        # attribution entirely.
+        #
+        # This fallback was designed: `_first_product_url` has been stashed
+        # since the UTM work went in, with a comment calling it a "post-hoc
+        # attribution fallback". It was set and never read by anything.
+        if not product_url and reply_text:
+            candidate = (context_data or {}).get('_first_product_url')
+            if candidate and _reply_recommends_a_product(reply_text):
+                product_url = candidate
 
         return {
             'reply':       reply_text,
