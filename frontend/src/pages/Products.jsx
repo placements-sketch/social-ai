@@ -14,27 +14,57 @@ function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
   const animatedOutOfStock = useCountAnimation(status?.out_of_stock_count || 0, 2000)
   const animatedUntracked = useCountAnimation(status?.untracked_count || 0, 2000)
 
+  const total = status?.product_count || 0
+  const outOfStock = status?.out_of_stock_count || 0
+  const untracked = status?.untracked_count || 0
+  const pctOut = total ? (outOfStock / total) * 100 : 0
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    /* Three cards, not four.
+       The old strip was Total / In Stock / Out of Stock / Untracked. On this
+       catalogue that reads 7,713 / 7,701 / 12 / 0 — "In Stock" is 99.8% of the
+       total and therefore restates it, and "Untracked" has been zero since the
+       page was built. Two of the four cards could not tell you anything.
+
+       What is left is what changes and what you can act on: how big the
+       catalogue is, what the assistant cannot sell right now, and whether the
+       data behind it is fresh enough to trust. */
+    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
       <div className="card p-4">
-        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Products</p>
-        <p className="text-3xl font-bold text-gray-900 mt-1">{animatedTotal}</p>
-        <p className="text-xs text-gray-500 mt-2">
-          {lastSynced ? `Last synced ${formatTimeAgo(lastSynced)}` : 'Never synced'}
+        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">In the catalogue</p>
+        <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums">{animatedTotal}</p>
+        <p className="text-xs text-gray-400 mt-1">
+          products the assistant can recommend
         </p>
       </div>
+
       <div className="card p-4">
-        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">In Stock</p>
-        <p className="text-3xl font-bold text-green-600 mt-1">{animatedInStock}</p>
+        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Cannot be sold</p>
+        <p className={clsx('text-2xl font-bold mt-2 tabular-nums',
+          outOfStock > 0 ? 'text-amber-600' : 'text-gray-900')}>
+          {animatedOutOfStock}
+        </p>
+        <p className="text-xs text-gray-400 mt-1">
+          {outOfStock === 0
+            ? 'everything in stock'
+            : `out of stock · ${pctOut < 0.1 ? '<0.1' : pctOut.toFixed(1)}% of the catalogue`}
+          {untracked > 0 && ` · ${untracked} untracked`}
+        </p>
       </div>
-      <div className="card p-4">
-        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Out of Stock</p>
-        <p className="text-3xl font-bold text-red-600 mt-1">{animatedOutOfStock}</p>
-      </div>
-      <div className="card p-4">
-        <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Untracked</p>
-        <p className="text-3xl font-bold text-gray-500 mt-1">{animatedUntracked}</p>
-        <p className="text-xs text-gray-400 mt-2">Not tracked in Shopify</p>
+
+      <div className="card p-4 col-span-2 lg:col-span-1">
+        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Catalogue freshness</p>
+        <p className={clsx('text-2xl font-bold mt-2',
+          status?.stale ? 'text-amber-600' : 'text-gray-900')}>
+          {lastSynced ? formatTimeAgo(lastSynced) : 'Never'}
+        </p>
+        <p className="text-xs text-gray-400 mt-1">
+          {!lastSynced
+            ? 'the assistant is answering from nothing'
+            : status?.stale
+              ? `stale — prices and stock may be wrong in replies`
+              : 'prices and stock are current'}
+        </p>
       </div>
     </div>
   )
@@ -58,10 +88,18 @@ export default function Products() {
   // Sync UI
   const [showSyncDiff, setShowSyncDiff] = useState(false)
 
+  // Settle the typing before asking the server. This fired on every keystroke,
+  // and it fired fetchStatus() with it — four catalogue-wide COUNT queries
+  // over 7,713 rows — even though none of those counts depend on the search
+  // box at all.
+  const [searchInput, setSearchInput] = useState('')
   useEffect(() => {
-    fetchProducts()
-    fetchStatus()
-  }, [page, search])
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1) }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  useEffect(() => { fetchProducts() }, [page, search])
+  useEffect(() => { fetchStatus() }, [])
 
   const fetchProducts = async () => {
     setLoading(true)
@@ -274,19 +312,28 @@ export default function Products() {
       {/* Status cards */}
       <ProductKPIs status={status} products={products} lastSynced={lastSynced} formatTimeAgo={formatTimeAgo} />
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-3 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search products..."
-          value={search}
-          onChange={e => {
-            setSearch(e.target.value)
-            setPage(1)
-          }}
-          className="input w-full pl-10"
-        />
+      {/* Search.
+          Now covers name, tags, variants and description — the same fields the
+          assistant searches. It was name-only, so the two disagreed sharply
+          ("cotton": 184 here against 438 for the assistant) and you could not
+          use this page to reproduce a recommendation you were questioning. */}
+      <div>
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-3 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search name, tags, variants or description…"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            className="input w-full pl-10"
+          />
+        </div>
+        {search && (
+          <p className="text-[11px] text-gray-400 mt-1.5">
+            {total.toLocaleString()} match{total === 1 ? '' : 'es'} for “{search}” —
+            the same fields the assistant searches when picking what to recommend.
+          </p>
+        )}
       </div>
 
       {/* Table */}

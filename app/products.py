@@ -160,7 +160,20 @@ def list_products():
     query = ProductCache.query
     if search:
         like = f"%{search.strip()}%"
-        query = query.filter(ProductCache.name.ilike(like))
+        # Match what the ASSISTANT matches on, not just the product name.
+        #
+        # _cache_search_products() in integrations/shopify.py searches name,
+        # variants, tags and description. This page searched name alone, so the
+        # two disagreed badly — "cotton" returns 184 products here and 438 to
+        # the assistant, "red" 916 against 1,568. That gap matters because this
+        # page is where you come to work out why the AI recommended something
+        # odd, and with a narrower search you cannot reproduce what it saw.
+        query = query.filter(db.or_(
+            ProductCache.name.ilike(like),
+            db.cast(ProductCache.tags, db.String).ilike(like),
+            db.cast(ProductCache.variants, db.String).ilike(like),
+            ProductCache.description.ilike(like),
+        ))
 
     total = query.count()
     rows = (
@@ -235,6 +248,10 @@ def sync_check():
     
     Response: 202 Accepted with {job_id, status}
     """
+    current_user = AuthUser.query.get(current_user_id())
+    if not current_user or current_user.role not in {'admin', 'supervisor'}:
+        return jsonify({'error': 'Only supervisors and admins can sync the catalogue'}), 403
+
     from app.sync_jobs import start_background_job
 
     current_user = AuthUser.query.get(current_user_id())
@@ -297,6 +314,13 @@ def sync_products():
     Starts a background sync: fetch Shopify catalog, upsert cached rows,
     delete cached rows no longer in Shopify. Returns a job ID immediately.
     The frontend polls /products/sync/status for completion.
+
+    AUTHORISATION. This carried only @jwt_required(), so any logged-in user —
+    including an agent — could start a full catalogue sync against Shopify's
+    API. The sidebar hides this page from agents, but that is the UI only; the
+    endpoint was reachable directly. A sync walks the entire catalogue, deletes
+    cached rows that have disappeared, and consumes Shopify rate limit, so it
+    is not something an agent should be able to set off.
 
     Response: 202 Accepted with {job_id, status}
     """
