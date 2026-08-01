@@ -14,10 +14,32 @@ const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
   { to: '/messages',   icon: MessageSquare,   label: 'Inbox',  roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
 
-  { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
-    children: [
-      { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
-    ] },
+  // Customer Profiling — PARKED 2026-08-01, hidden from the nav on purpose.
+  //
+  // The routes and pages are untouched; /customers and /customers/config still
+  // work if you type them. Only the way in is removed, so nobody wanders into
+  // a page whose scope is still an open question.
+  //
+  // Why: it profiles 161,639 Shopify customers, 38 of whom have ever messaged
+  // us, and there is no key that joins the two — our users are keyed on
+  // Instagram handle or phone, Shopify customers on email. It duplicates a job
+  // the Shopify admin already does with authoritative data.
+  //
+  // The data-integrity fixes made while auditing it are NOT parked and are
+  // live: customers_cache.total_orders / total_spent now come from Shopify
+  // alone (three rival writers removed), so every per-customer figure matches
+  // the Shopify admin exactly.
+  //
+  // Still open when this is picked up: whether the headline should mirror
+  // Shopify's customer "Total spent" (KES 757.6M) or Analytics "Total sales"
+  // (KES 520.55M) — both are Shopify's own numbers answering different
+  // questions — and whether reading the latter verbatim is worth the
+  // read_reports scope plus a GraphQL client.
+  //
+  // { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
+  //   children: [
+  //     { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
+  //   ] },
   { to: '/products',  icon: Package,   label: 'Products',  roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics', roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
