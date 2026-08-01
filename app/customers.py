@@ -385,6 +385,12 @@ def customers_overview():
             'total_customers': total,
             'new_this_month': int(new_this_month),
             'repeat_customers': int(repeat),
+            # The honest denominator. 'total_customers' counts every Shopify
+            # record, and on this store 125k of 161k have never ordered — so a
+            # rate expressed over it understates by ~4x. The page leads with
+            # buyers and keeps the record count as context.
+            'buyers': int(buyers),
+            'never_bought': int((total or 0) - buyers),
             'retention_rate': round(retention_rate, 4),
             'total_revenue': total_revenue,
             'avg_aov': round(avg_aov),

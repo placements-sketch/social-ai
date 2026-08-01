@@ -34,7 +34,7 @@ function formatKES(n) {
 }
 
 // ─── KPI card with gradient corner + animated count ─────────────
-function KpiCard({ icon: Icon, label, value, sub, accent }) {
+function KpiCard({ icon: Icon, label, value, sub, tone }) {
   const numeric = typeof value === 'number'
     ? value
     : parseFloat(String(value).replace(/[^0-9.-]/g, '')) || 0
@@ -44,16 +44,25 @@ function KpiCard({ icon: Icon, label, value, sub, accent }) {
     : String(value).replace(/[\d,.]+/, (numeric < 100 ? animated.toFixed(0) : Math.round(animated).toLocaleString()))
 
   return (
-    <div className="relative card p-4 overflow-hidden group hover:shadow-md transition-shadow">
-      <div className={clsx('absolute -right-6 -top-6 w-20 h-20 rounded-full opacity-10 bg-gradient-to-br', accent)} />
-      <div className="relative">
-        <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center mb-3 bg-gradient-to-br', accent)}>
-          <Icon size={16} className="text-white" />
-        </div>
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
-        <p className="text-xl font-bold text-gray-900 mt-1 truncate">{formatted}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
+    <div className="card p-4 group">
+      {/* The old card carried a gradient blob bleeding off the corner and a
+          second gradient behind the icon. Two decorative gradients per card,
+          four cards, on a surface that is already doing the work — it read as
+          busy and dated it more than anything else on the page. The icon keeps
+          the colour; the card keeps the glass. */}
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest leading-relaxed">
+          {label}
+        </p>
+        <span className={clsx(
+          'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors',
+          tone || 'bg-gray-100 text-gray-500'
+        )}>
+          <Icon size={14} />
+        </span>
       </div>
+      <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums truncate">{formatted}</p>
+      {sub && <p className="text-xs text-gray-400 mt-1 leading-snug">{sub}</p>}
     </div>
   )
 }
@@ -323,33 +332,44 @@ export default function Customers() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {overview ? (
           <>
+            {/* Four cards, four separate facts.
+                Two of the old four stated the same one: "Retention Rate 46.5%"
+                sat beside "Repeat Buyers 16,996 of 161,639 total". 16,996 IS
+                the numerator of that 46.5% — but its own card divided it by
+                every record instead of by buyers, implying 10.5%. Two adjacent
+                cards, two different rates, one underlying fact.
+
+                "Total Customers" has the same trouble: of 161,639 records,
+                125,055 have never ordered. Leading with the bigger number
+                makes every rate on the page look worse than it is, so the
+                headline is buyers and the record count is the context. */}
             <KpiCard
-              icon={Users}
-              label="Total Customers"
-              value={overview.kpis.total_customers}
-              sub={`${formatKES(overview.kpis.new_this_month)} new in last 30 days`}
-              accent="from-blue-400 to-blue-600"
+              icon={ShoppingBag}
+              label="Customers who bought"
+              value={overview.kpis.buyers ?? 0}
+              sub={`${formatKES(overview.kpis.total_customers)} records in Shopify · ${formatKES(overview.kpis.never_bought ?? 0)} never ordered`}
+              tone="bg-brand-50 text-brand-700"
             />
             <KpiCard
               icon={TrendingUp}
-              label="Total Revenue (ex. VAT)"
+              label="Revenue (ex. VAT)"
               value={`KES ${formatKES(overview.kpis.total_revenue)}`}
-              sub={`KES ${formatKES(overview.kpis.avg_aov)} avg order`}
-              accent="from-brand-400 to-brand-600"
+              sub={`KES ${formatKES(overview.kpis.avg_aov)} average order · all time`}
+              tone="bg-blue-50 text-blue-600"
             />
             <KpiCard
               icon={Repeat}
-              label="Retention Rate"
+              label="Came back for more"
               value={`${Math.round((overview.kpis.retention_rate || 0) * 100)}%`}
-              sub={`${formatKES(overview.kpis.repeat_customers)} repeat buyers`}
-              accent="from-amber-400 to-amber-600"
+              sub={`${formatKES(overview.kpis.repeat_customers)} of ${formatKES(overview.kpis.buyers ?? 0)} buyers ordered twice or more`}
+              tone="bg-amber-50 text-amber-600"
             />
             <KpiCard
-              icon={ShoppingBag}
-              label="Repeat Buyers"
-              value={overview.kpis.repeat_customers}
-              sub={`of ${formatKES(overview.kpis.total_customers)} total`}
-              accent="from-violet-400 to-violet-600"
+              icon={Users}
+              label="New in last 30 days"
+              value={overview.kpis.new_this_month}
+              sub="Shopify accounts created, whether or not they ordered"
+              tone="bg-violet-50 text-violet-600"
             />
           </>
         ) : (

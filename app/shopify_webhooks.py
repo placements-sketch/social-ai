@@ -180,22 +180,31 @@ def _handle_order(data: dict):
               f"Order cached from webhook: {row.order_number or oid}",
               payload={"id": oid, "customer": cid})
 
-    # Recompute ONLY this customer's aggregates from their orders in cache.
+    # Refresh ONLY this customer's order DATES from cache.
+    #
+    # This used to recompute total_orders and total_spent here too, which made
+    # it the third writer of those two columns — and the most aggressive, since
+    # it fires on every orders/create and orders/updated rather than nightly.
+    # It summed OrderCache.total with no financial_status filter, so a voided
+    # or refunded order still pushed a customer's lifetime spend up, seconds
+    # after Shopify had told us the correct net figure.
+    #
+    # Those two columns now come from Shopify alone, via the customers/create
+    # and customers/update webhooks and the customer sync. Shopify emits a
+    # customer update when an order changes a customer's totals, so the figures
+    # still refresh promptly — they just refresh with Shopify's arithmetic
+    # instead of ours.
     if cid:
         cust = CustomerCache.query.filter_by(shopify_customer_id=cid).first()
         if cust is not None:
-            count, total_spent, last_date, first_date = (
+            last_date, first_date = (
                 db.session.query(
-                    func.count(OrderCache.id),
-                    func.coalesce(func.sum(OrderCache.total), 0),
                     func.max(OrderCache.order_date),
                     func.min(OrderCache.order_date),
                 )
                 .filter(OrderCache.shopify_customer_id == cid)
                 .first()
             )
-            cust.total_orders     = count or 0
-            cust.total_spent      = Decimal(str(total_spent or 0))
             cust.last_order_date  = last_date
             cust.first_order_date = first_date
             try:

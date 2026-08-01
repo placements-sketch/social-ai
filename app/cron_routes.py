@@ -686,10 +686,27 @@ def cron_sync_orders():
             vip_threshold = _vip_threshold()
 
             from sqlalchemy import func as sqla_func
+            # Dates only. total_orders and total_spent are Shopify's to state.
+            #
+            # This query used to sum OrderCache.total and count its rows, then
+            # write both over the figures the customer sync had just taken from
+            # Shopify. Two writers, same two columns, and whichever job finished
+            # last decided what the page showed — so the numbers never
+            # reconciled with Shopify and would not have stayed reconciled even
+            # if the arithmetic had been right.
+            #
+            # And it was not right. There was no financial_status filter, so
+            # every order counted at full value: 19,769 voided orders worth
+            # KES 107.5M, 1,337 fully refunded, 2,819 partially refunded
+            # counted gross, and 356 unpaid. Shopify reports paid, net of
+            # refunds. Currencies were added together too — 130,122 KES orders
+            # and one USD order, summed as if they were the same unit.
+            #
+            # first/last order date stay here because Shopify's customer
+            # payload carries last_order but not the first, and dates are not
+            # money — no netting rule applies to them.
             agg_q = db.session.query(
                 OrderCache.shopify_customer_id,
-                sqla_func.count(OrderCache.id),
-                sqla_func.coalesce(sqla_func.sum(OrderCache.total), 0),
                 sqla_func.max(OrderCache.order_date),
                 sqla_func.min(OrderCache.order_date),
             ).filter(OrderCache.shopify_customer_id.isnot(None))
@@ -700,8 +717,8 @@ def cron_sync_orders():
                 cust_q = cust_q.filter(CustomerCache.shopify_customer_id.in_(affected_customer_ids))
 
             customer_aggs = dict(
-                (cid, (count, total_spent, last_date, first_date))
-                for cid, count, total_spent, last_date, first_date in
+                (cid, (last_date, first_date))
+                for cid, last_date, first_date in
                 agg_q.group_by(OrderCache.shopify_customer_id).all()
             )
 
@@ -714,16 +731,20 @@ def cron_sync_orders():
                 for customer in batch:
                     agg = customer_aggs.get(customer.shopify_customer_id)
                     if agg:
-                        count, total_spent, last_date, first_date = agg
-                        customer.total_orders     = count
-                        customer.total_spent      = Decimal(str(total_spent))
+                        last_date, first_date = agg
                         customer.last_order_date  = last_date
                         customer.first_order_date = first_date
                     else:
-                        customer.total_orders     = 0
-                        customer.total_spent      = Decimal('0')
+                        # No orders in our cache. That is NOT a statement that
+                        # the customer has never ordered — our cache can lag or
+                        # be partial — so total_orders/total_spent are left
+                        # exactly as Shopify reported them. Zeroing them here is
+                        # what used to make long-standing customers appear brand
+                        # new the morning after a partial sync.
                         customer.last_order_date  = None
                         customer.first_order_date = None
+                    # Segment still derives from the (now Shopify-sourced)
+                    # totals, so it moves with the figures on screen.
                     customer.segment = compute_segment(customer, vip_threshold)
                     customers_updated += 1
                 db.session.commit()

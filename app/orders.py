@@ -167,13 +167,14 @@ def sync_orders():
         # ── Step 4: recompute customer aggregates from real order data ──
         update_progress("Recomputing customer aggregates...")
 
+        # Dates only — see the note in cron_routes.py. total_orders and
+        # total_spent belong to Shopify; summing our order cache in parallel is
+        # what made this page disagree with the Shopify admin.
         customer_aggs = dict(
-            (cid, (count, total_spent, last_date, first_date))
-            for cid, count, total_spent, last_date, first_date in
+            (cid, (last_date, first_date))
+            for cid, last_date, first_date in
             db.session.query(
                 OrderCache.shopify_customer_id,
-                func.count(OrderCache.id),
-                func.coalesce(func.sum(OrderCache.total), 0),
                 func.max(OrderCache.order_date),
                 func.min(OrderCache.order_date),
             )
@@ -199,14 +200,12 @@ def sync_orders():
             for customer in batch:
                 agg = customer_aggs.get(customer.shopify_customer_id)
                 if agg:
-                    count, total_spent, last_date, first_date = agg
-                    customer.total_orders = count
-                    customer.total_spent = Decimal(str(total_spent))
+                    last_date, first_date = agg
                     customer.last_order_date = last_date
                     customer.first_order_date = first_date
                 else:
-                    customer.total_orders = 0
-                    customer.total_spent = Decimal('0')
+                    # Absent from our order cache does not mean "never ordered".
+                    # Shopify's totals are left untouched.
                     customer.last_order_date = None
                     customer.first_order_date = None
                 customer.segment = compute_segment(customer, vip_threshold)
