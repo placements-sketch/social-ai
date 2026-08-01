@@ -316,14 +316,47 @@ export default function Dashboard() {
   // today starts at local midnight, week at the start of the week, month on
   // the 1st. They used to be rolling 1/7/30-day windows, so "This month" on
   // the 3rd mostly showed last month.
-  const PERIOD_LABELS = { today: 'Today', week: 'This week', month: 'This month' }
-  const PREVIOUS_LABELS = { today: 'yesterday', week: 'last week', month: 'last month' }
-  const PERIOD_OPTIONS = [
-    { key: 'today',  label: 'Today',      icon: Clock },
-    { key: 'week',   label: 'This week',  icon: Calendar },
-    { key: 'month',  label: 'This month', icon: ChartTrendingUp },
-    { key: 'custom', label: 'Custom',     icon: CalendarRange },
+  // Two families of range, deliberately both offered.
+  //
+  //   CALENDAR ("This month", "Last week") answers "how are we doing this
+  //   month" — it resets on the 1st, which is what a monthly target means.
+  //   Resolved server-side in the shop's timezone, because a dashboard opened
+  //   from another country must still mean the shop's month.
+  //
+  //   ROLLING ("Last 30 days") answers "how are we doing lately" — a constant
+  //   window that never collapses to nothing because a month ticked over.
+  //   That collapse is what made this page look broken on 1 August.
+  //
+  // Rolling ranges go to the API as ?days=N, calendar ones as ?period=key.
+  const PERIOD_GROUPS = [
+    { title: 'Day', options: [
+      { key: 'today',      label: 'Today' },
+      { key: 'yesterday',  label: 'Yesterday' },
+    ]},
+    { title: 'Week', options: [
+      { key: 'week',       label: 'This week' },
+      { key: 'last_week',  label: 'Last week' },
+      { key: 'd7',         label: 'Last 7 days',  days: 7 },
+    ]},
+    { title: 'Month', options: [
+      { key: 'month',      label: 'This month' },
+      { key: 'last_month', label: 'Last month' },
+      { key: 'd30',        label: 'Last 30 days', days: 30 },
+      { key: 'd90',        label: 'Last 90 days', days: 90 },
+    ]},
   ]
+  const PERIOD_OPTIONS = PERIOD_GROUPS.flatMap(g => g.options)
+  const PERIOD_LABELS = Object.fromEntries(PERIOD_OPTIONS.map(o => [o.key, o.label]))
+  const ROLLING_DAYS = Object.fromEntries(
+    PERIOD_OPTIONS.filter(o => o.days).map(o => [o.key, o.days]))
+
+  // What each range is measured against, so the trend arrows can name it.
+  const PREVIOUS_LABELS = {
+    today: 'yesterday',  yesterday: 'the day before',
+    week: 'last week',   last_week: 'the week before',
+    month: 'last month', last_month: 'the month before',
+    d7: 'the previous 7 days', d30: 'the previous 30 days', d90: 'the previous 90 days',
+  }
 
   const todayISO = new Date().toISOString().split('T')[0]
   const customReady = Boolean(customStart && customEnd && customStart <= customEnd)
@@ -338,7 +371,9 @@ export default function Dashboard() {
       setLoadingAnalytics(true)
       try {
         const data = await getAnalyticsSummary(
-          period === 'custom' ? { start: customStart, end: customEnd } : { period }
+          period === 'custom' ? { start: customStart, end: customEnd }
+            : ROLLING_DAYS[period] ? { days: ROLLING_DAYS[period] }
+            : { period }
         )
         setAnalyticsData(data)
         setRangeError(null)
@@ -695,56 +730,69 @@ export default function Dashboard() {
         
         {/* Period filters + Export */}
         <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
-          {/* Desktop: Button group */}
-          <div className="hidden sm:flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
-            {PERIOD_OPTIONS.map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                onClick={() => setPeriod(key)}
-                className={clsx(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
-                  period === key
-                    ? 'bg-black text-white shadow-md'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                )}
-              >
-                <Icon size={14} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Mobile: Dropdown */}
-          <div className="sm:hidden relative">
-            <button onClick={() => setPeriodOpen(o => !o)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 transition-colors shadow-sm">
-              <Clock size={14} />
-              <span>{periodLabel}</span>
-              <ChevronDown size={14} className={clsx('transition-transform', periodOpen && 'rotate-180')} />
+          {/* One dropdown at every size. The old desktop button row could
+              only hold three ranges before wrapping, which is why rolling
+              windows never existed here. Custom stays a separate button —
+              it opens pickers rather than selecting a value. */}
+          <div className="relative">
+            <button
+              onClick={() => setPeriodOpen(o => !o)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-gray-200 shadow-sm text-xs font-semibold text-gray-800 hover:border-gray-300 transition-colors"
+              aria-haspopup="listbox"
+              aria-expanded={periodOpen}
+            >
+              <Clock size={14} className="text-gray-400" />
+              <span className="whitespace-nowrap">{periodLabel}</span>
+              <ChevronDown size={14} className={clsx('text-gray-400 transition-transform', periodOpen && 'rotate-180')} />
             </button>
             {periodOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setPeriodOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                  {PERIOD_OPTIONS.map(({ key, label, icon: Icon }) => (
-                    <button
-                      key={key}
-                      onClick={() => { setPeriod(key); setPeriodOpen(false) }}
-                  className={clsx(
-                    'w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center gap-2 transition-colors',
-                    'first:rounded-t-lg last:rounded-b-lg',
-                    period === key
-                      ? 'bg-black text-white'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  )}
-                >
-                  <Icon size={13} />
-                  {label}
-                </button>
-              ))}
+                <div role="listbox" className="absolute right-0 sm:left-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-2xl border border-gray-200 z-20 overflow-hidden py-1">
+                  {PERIOD_GROUPS.map((group, gi) => (
+                    <div key={group.title} className={clsx(gi > 0 && 'border-t border-gray-100 mt-1 pt-1')}>
+                      <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                        {group.title}
+                      </p>
+                      {group.options.map(({ key, label, days }) => (
+                        <button
+                          key={key}
+                          role="option"
+                          aria-selected={period === key}
+                          onClick={() => { setPeriod(key); setPeriodOpen(false) }}
+                          className={clsx(
+                            'w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between gap-2 transition-colors',
+                            period === key ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50'
+                          )}
+                        >
+                          <span>{label}</span>
+                          {/* Names the family, so "This month" vs "Last 30
+                              days" isn't left to guesswork. */}
+                          <span className={clsx('text-[9px] font-bold uppercase tracking-wide',
+                            period === key ? 'text-white/50' : 'text-gray-300')}>
+                            {days ? 'rolling' : 'calendar'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               </>
             )}
           </div>
+
+          <button
+            onClick={() => setPeriod('custom')}
+            className={clsx(
+              'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors shrink-0',
+              period === 'custom'
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'bg-white text-gray-700 border-gray-200 shadow-sm hover:border-gray-300'
+            )}
+          >
+            <CalendarRange size={14} />
+            <span>Custom</span>
+          </button>
 
           {/* Export dropdown */}
           <div className="relative">
@@ -829,6 +877,39 @@ export default function Dashboard() {
         <p className="-mb-2 text-xs text-gray-400">
           Figures below cover <span className="font-semibold text-gray-500">your conversations</span> only
         </p>
+      )}
+
+      {/* A freshly-started period reads as a broken dashboard.
+          On the 1st of a month "This month" is a few hours old, so every card
+          is 0 and every trend is "→ 0" — including the comparison, because the
+          previous window is elapsed-matched (the same few hours of last month).
+          That is correct, and it looks exactly like an outage. Say which it is,
+          and offer the filter that does have data. */}
+      {!loadingAnalytics && analyticsData && (analyticsData?.kpis?.inbound_total ?? 0) === 0 && period !== 'custom' && (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-start gap-3">
+          <Info size={15} className="text-gray-400 shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold text-gray-800">
+              No activity in {(PERIOD_LABELS[period] || 'this period').toLowerCase()}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+              {ROLLING_DAYS[period]
+                ? 'Nothing arrived in this window. Earlier activity is still there.'
+                : 'Calendar periods restart — this one covers from its first day to now, so early in a period it can be empty while earlier activity is untouched.'}
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {/* Offer rolling windows here on purpose. They are the ones that
+                  cannot collapse to nothing just because a period ticked over,
+                  which is the situation this notice exists for. */}
+              {['d7', 'd30'].filter(k => k !== period).map(k => (
+                <button key={k} onClick={() => setPeriod(k)}
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white">
+                  Show {PERIOD_LABELS[k].toLowerCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Stat cards */}

@@ -65,7 +65,23 @@ def _require_user():
     return user, None
 
 
-CALENDAR_PERIODS = ('today', 'week', 'month')
+# Two kinds of calendar period.
+#
+# OPEN periods run from their start to right now and are therefore usually
+# partial — "this month" on the 1st is a few hours. Their comparison window is
+# truncated to the same elapsed time so a part-period is never measured against
+# a whole one.
+#
+# CLOSED periods are finished: yesterday, last week, last month. They have a
+# fixed end, and their comparison IS a whole matching period, because both
+# sides are complete.
+#
+# All of them resolve in the business timezone. That is why they live here and
+# not in the browser — a dashboard opened from another country must still mean
+# the shop's yesterday, not the viewer's.
+OPEN_PERIODS = ('today', 'week', 'month')
+CLOSED_PERIODS = ('yesterday', 'last_week', 'last_month')
+CALENDAR_PERIODS = OPEN_PERIODS + CLOSED_PERIODS
 
 # All fields are naive UTC, matching how every timestamp in the DB is written
 # (datetime.utcnow()). `dates` is the list of LOCAL calendar dates the window
@@ -160,24 +176,52 @@ def _resolve_window():
 
     period = (request.args.get('period') or '').strip().lower()
     if period in CALENDAR_PERIODS:
+        # Start of the current week, needed by both week periods.
+        week_offset = (now_local.weekday() + 1) % 7 if week_starts_on_sunday() \
+                      else now_local.weekday()
+        this_week_start = today_local - timedelta(days=week_offset)
+        this_month_start = today_local.replace(day=1)
+
+        # end_date is the EXCLUSIVE local day a closed period stops at; None
+        # means the period is still running and stops at "now".
+        end_date = None
+
         if period == 'today':
             start_date = today_local
             prev_start_date, prev_end_date = start_date - timedelta(days=1), start_date
+        elif period == 'yesterday':
+            start_date = today_local - timedelta(days=1)
+            end_date = today_local
+            prev_start_date, prev_end_date = start_date - timedelta(days=1), start_date
         elif period == 'week':
-            # weekday(): Mon=0 … Sun=6. For a Sunday start, Sunday must map to 0.
-            offset = (now_local.weekday() + 1) % 7 if week_starts_on_sunday() \
-                     else now_local.weekday()
-            start_date = today_local - timedelta(days=offset)
+            start_date = this_week_start
             prev_start_date, prev_end_date = start_date - timedelta(days=7), start_date
+        elif period == 'last_week':
+            start_date = this_week_start - timedelta(days=7)
+            end_date = this_week_start
+            prev_start_date, prev_end_date = start_date - timedelta(days=7), start_date
+        elif period == 'last_month':
+            # First of last month, through to the first of this one.
+            start_date = (this_month_start - timedelta(days=1)).replace(day=1)
+            end_date = this_month_start
+            prev_end_date = start_date
+            prev_start_date = (start_date - timedelta(days=1)).replace(day=1)
         else:  # month
-            start_date = today_local.replace(day=1)
+            start_date = this_month_start
             # Last day of the previous month, walked back to its 1st.
             prev_end_date = start_date
             prev_start_date = (start_date - timedelta(days=1)).replace(day=1)
 
         start = _local_midnight(start_date, tz)
-        days = (today_local - start_date).days + 1   # calendar days so far
         prev_start = _local_midnight(prev_start_date, tz)
+
+        if end_date is not None:
+            # Closed period: fixed end, and a whole matching window to compare
+            # against — both sides are complete, so no truncation.
+            end = _local_midnight(end_date, tz)
+            days = (end_date - start_date).days
+        else:
+            days = (today_local - start_date).days + 1   # calendar days so far
 
         # LIKE-FOR-LIKE comparison. The current window is nearly always
         # partial — "this week" on a Wednesday is 3 days, "this month" on the
@@ -188,8 +232,11 @@ def _resolve_window():
         # (5 vs 0 on 1 May). So: truncate the previous window to the same
         # elapsed duration, clamped to its own end so a long month compared
         # against a short one can't bleed past it.
-        elapsed = end - start
-        prev_end = min(prev_start + elapsed, _local_midnight(prev_end_date, tz))
+        if end_date is not None:
+            prev_end = _local_midnight(prev_end_date, tz)
+        else:
+            elapsed = end - start
+            prev_end = min(prev_start + elapsed, _local_midnight(prev_end_date, tz))
 
         return _Window(
             days=days,
