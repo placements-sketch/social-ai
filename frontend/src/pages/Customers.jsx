@@ -4,7 +4,7 @@ import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
   Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft,
   Download, RefreshCw, Loader2, AlertCircle, Package, UserPlus,
-  Award, Activity, Target,
+  Award, Activity, Target, Info,
 } from 'lucide-react'
 import {
   ResponsiveContainer, Tooltip, CartesianGrid,
@@ -329,6 +329,56 @@ export default function Customers() {
       )}
 
       {/* ─── KPI STRIP ──────────────────────────────────────── */}
+      {/* Every figure here is ALL TIME, and says so. It has to be: the source
+          is Shopify's per-customer lifetime totals, which carry no date
+          breakdown — there is no "spend in March" on a customer record. A date
+          filter would have to come from orders_cache instead, which answers a
+          different question (KES 629.5M paid orders vs Shopify's 757.6M
+          lifetime), so the two cannot share a row of cards without saying
+          which is which. Marked rather than mixed. */}
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">
+          All time
+        </p>
+        <p className="text-[11px] text-gray-400">
+          Lifetime totals as reported by Shopify
+        </p>
+      </div>
+
+      {/* Two Shopify numbers that look like they should match and never will.
+          Stating both here saves the next person the afternoon it took to work
+          out that "Total spent" and "Total sales" are different metrics. */}
+      {overview?.kpis?.net_sales_estimate != null && (
+        <details className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 group">
+          <summary className="text-[11px] text-gray-500 cursor-pointer list-none flex items-center gap-1.5">
+            <Info size={12} className="text-gray-400 shrink-0" />
+            <span>
+              Shopify Analytics will show a smaller figure — roughly
+              <span className="font-semibold text-gray-700"> KES {formatKES(overview.kpis.net_sales_estimate)}</span>.
+              Why?
+            </span>
+          </summary>
+          <div className="mt-2.5 pt-2.5 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed space-y-1.5">
+            <p>
+              Both are Shopify's own numbers; they answer different questions.
+            </p>
+            <p>
+              <span className="font-semibold text-gray-700">Revenue above</span> is the sum of
+              every customer's <em>Total spent</em> — gross, VAT included, with refunded
+              orders still counted. It is what you see on a customer's record in Shopify.
+            </p>
+            <p>
+              <span className="font-semibold text-gray-700">Total sales</span> in Shopify
+              Analytics excludes VAT, drops cancelled and unpaid orders, and subtracts
+              returns.
+            </p>
+            <p className="text-gray-400">
+              Our estimate of the second is within about 1% of Shopify's, the difference
+              being orders not yet in our cache and partial refunds we cannot see per order.
+            </p>
+          </div>
+        </details>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {overview ? (
           <>
@@ -350,11 +400,18 @@ export default function Customers() {
               sub={`${formatKES(overview.kpis.total_customers)} records in Shopify · ${formatKES(overview.kpis.never_bought ?? 0)} never ordered`}
               tone="bg-brand-50 text-brand-700"
             />
+            {/* Gross leads because that is the number in the Shopify admin.
+                Showing ex-VAT as the headline guaranteed a 104M discrepancy
+                against Shopify that no amount of correct arithmetic could
+                close. Ex-VAT is still here — it is the figure that matters for
+                margin — but marked as the estimate it is: a flat 16% off
+                everything, shipping included, because we have no per-order tax
+                for a lifetime customer total. */}
             <KpiCard
               icon={TrendingUp}
-              label="Revenue (ex. VAT)"
-              value={`KES ${formatKES(overview.kpis.total_revenue)}`}
-              sub={`KES ${formatKES(overview.kpis.avg_aov)} average order · all time`}
+              label="Revenue"
+              value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
+              sub={`KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} average order · ≈KES ${formatKES(overview.kpis.total_revenue)} excl. VAT`}
               tone="bg-blue-50 text-blue-600"
             />
             <KpiCard

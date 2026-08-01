@@ -27,6 +27,14 @@ const SEGMENT_META = {
 
 const ORDERS_PER_PAGE = 10
 
+// Counts, not currency. formatKES was being used for order counts and page
+// totals purely because it happened to add thousands separators — which meant
+// a reader (and the next editor) could not tell money from quantities, in a
+// file where the money definition has just changed underneath them.
+function formatCount(n) {
+  return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n || 0)
+}
+
 function formatKES(n) {
   return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n || 0)
 }
@@ -171,16 +179,61 @@ export default function CustomerDetail() {
       .map(([, v]) => v)
   }, [orders])
 
-  // LTV projection
+  // Lifetime value.
+  //
+  // What this used to do: divide total spend by days since the ACCOUNT was
+  // created, multiply by 365, and print the result in bold as "Projected
+  // Annual". A customer 30 days old who had spent KES 10,775 was shown a
+  // KES 131,096 annual projection — twelve times what they had actually spent.
+  // The 3-year figure was that number times three, with no churn assumption at
+  // all: a customer who never returns still projected three more years.
+  //
+  // Now: the rate is measured over the span the customer has actually been
+  // BUYING (first order to last), not since signup, and nothing is projected
+  // until there is enough history to mean anything — two orders and 90 days.
+  // Below that the card says what it is waiting for instead of inventing a
+  // number.
+  const LTV_MIN_ORDERS = 2
+  const LTV_MIN_DAYS = 90
+
   const ltvProjection = useMemo(() => {
-    if (!customer?.created_at || !customer.total_spent) return null
-    const ageMs = Date.now() - new Date(customer.created_at).getTime()
-    const ageDays = Math.max(1, ageMs / 86400000)
-    const dailySpend = customer.total_spent / ageDays
+    if (!customer?.total_spent) return null
+
+    const first = customer.first_order_date ? new Date(customer.first_order_date) : null
+    const last = customer.last_order_date ? new Date(customer.last_order_date) : null
+    const orders = customer.total_orders || 0
+
+    const ageDays = customer.created_at
+      ? Math.max(1, Math.floor((Date.now() - new Date(customer.created_at).getTime()) / 86400000))
+      : null
+
+    // Span of actual buying behaviour. One order has no span, however long ago
+    // the account was opened.
+    const spanDays = (first && last) ? Math.max(1, Math.round((last - first) / 86400000)) : 0
+
+    const enough = orders >= LTV_MIN_ORDERS && spanDays >= LTV_MIN_DAYS
+    if (!enough) {
+      return {
+        ageDays,
+        spanDays,
+        orders,
+        enough: false,
+        needMoreOrders: Math.max(0, LTV_MIN_ORDERS - orders),
+        needMoreDays: Math.max(0, LTV_MIN_DAYS - spanDays),
+      }
+    }
+
+    const perDay = customer.total_spent / spanDays
     return {
-      annual: dailySpend * 365,
-      threeYear: dailySpend * 365 * 3,
-      ageDays: Math.floor(ageDays),
+      ageDays,
+      spanDays,
+      orders,
+      enough: true,
+      annual: perDay * 365,
+      // A band, not a point. Straight-line extrapolation of two data points is
+      // a guess; presenting one exact figure dresses it up as a measurement.
+      annualLow: perDay * 365 * 0.7,
+      annualHigh: perDay * 365 * 1.3,
     }
   }, [customer])
 
@@ -369,8 +422,10 @@ export default function CustomerDetail() {
 
       {/* ─── KPI CARDS ──────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* The average order value used to appear here AND as its own card two
+            along. Same number, twice, on a four-card row. */}
         <KpiCard icon={TrendingUp} label="Lifetime Spend" value={`KES ${formatKES(customer.total_spent)}`}
-                 sub={`Avg KES ${formatKES(customer.aov)} per order`}
+                 sub={'Gross, as Shopify reports it'}
                  accent="from-brand-400 to-brand-600" />
         <KpiCard icon={ShoppingBag} label="Total Orders" value={customer.total_orders || 0}
                  sub={customer.first_order_date ? `First ${formatFullDate(customer.first_order_date)}` : 'No orders yet'}
@@ -457,18 +512,41 @@ export default function CustomerDetail() {
           </h2>
           {ltvProjection ? (
             <div className="space-y-4 relative">
+              {/* Measured. This one is a fact. */}
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">To Date</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Spent so far</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">KES {formatKES(customer.total_spent)}</p>
-                <p className="text-xs text-gray-400 mt-0.5">over {ltvProjection.ageDays.toLocaleString()} days</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  across {formatCount(ltvProjection.orders)} order{ltvProjection.orders === 1 ? '' : 's'}
+                  {ltvProjection.spanDays > 0 && ` over ${formatCount(ltvProjection.spanDays)} days`}
+                </p>
               </div>
+
+              {/* Estimated. This one is clearly marked as a guess. */}
               <div className="border-t border-gray-100 pt-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Projected Annual</p>
-                <p className="text-xl font-bold text-brand-600 mt-1">KES {formatKES(ltvProjection.annual)}</p>
-              </div>
-              <div className="border-t border-gray-100 pt-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">3-Year Outlook</p>
-                <p className="text-lg font-bold text-gray-700 mt-1">KES {formatKES(ltvProjection.threeYear)}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                  If they keep this up
+                </p>
+                {ltvProjection.enough ? (
+                  <>
+                    <p className="text-lg font-bold text-brand-600 mt-1">
+                      KES {formatKES(ltvProjection.annualLow)} – {formatKES(ltvProjection.annualHigh)}
+                      <span className="text-xs font-semibold text-gray-400"> / year</span>
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                      Estimated from their spend rate across {formatCount(ltvProjection.spanDays)} days
+                      of buying. A range, not a forecast — it assumes nothing about
+                      whether they come back.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                    Not enough history to estimate.
+                    {ltvProjection.needMoreOrders > 0
+                      ? ` Needs at least ${LTV_MIN_ORDERS} orders — this customer has ${ltvProjection.orders}.`
+                      : ` Needs ${LTV_MIN_DAYS} days between first and last order — so far ${formatCount(ltvProjection.spanDays)}.`}
+                  </p>
+                )}
               </div>
             </div>
           ) : (
@@ -487,7 +565,7 @@ export default function CustomerDetail() {
           </h2>
           {orders.length > 0 && (
             <span className="text-xs text-gray-500">
-              <span className="font-bold text-gray-900">{formatKES(orders.length)}</span> total
+              <span className="font-bold text-gray-900">{formatCount(orders.length)}</span> total
             </span>
           )}
         </div>
@@ -560,7 +638,7 @@ export default function CustomerDetail() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100 flex-wrap gap-3">
                 <p className="text-xs text-gray-500">
-                  Showing {(page - 1) * ORDERS_PER_PAGE + 1}–{Math.min(page * ORDERS_PER_PAGE, orders.length)} of {formatKES(orders.length)}
+                  Showing {(page - 1) * ORDERS_PER_PAGE + 1}–{Math.min(page * ORDERS_PER_PAGE, orders.length)} of {formatCount(orders.length)}
                 </p>
                 <div className="flex gap-1 items-center">
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}

@@ -142,6 +142,35 @@ def ex_vat(amount):
 # Serialization
 # ─────────────────────────────────────────────
 
+def _net_sales_estimate():
+    """
+    Approximate Shopify Analytics' "Total sales" from our order cache.
+
+    Paid orders only, less fully-refunded ones, ex-VAT, single currency. It is
+    an estimate: partially-refunded orders are counted at their full value
+    because orders_cache has no refund column, and the flat VAT divisor is the
+    same approximation used everywhere money is netted here.
+
+    Returns None if the cache is empty rather than a confident zero.
+    """
+    try:
+        from app.models import OrderCache
+        paid = db.session.query(func.coalesce(func.sum(OrderCache.total), 0)).filter(
+            OrderCache.currency == 'KES',
+            OrderCache.financial_status.in_(('paid', 'partially_paid')),
+        ).scalar()
+        refunded = db.session.query(func.coalesce(func.sum(OrderCache.total), 0)).filter(
+            OrderCache.currency == 'KES',
+            OrderCache.financial_status.in_(('refunded', 'partially_refunded')),
+        ).scalar()
+        if not paid:
+            return None
+        return ex_vat(float(paid) - float(refunded or 0))
+    except Exception as e:
+        log_event("warn", "customers.net_sales_estimate_failed", str(e))
+        return None
+
+
 def _serialize_customer(c, vip_threshold):
     last_order = c.last_order_date
     if last_order:
@@ -161,8 +190,16 @@ def _serialize_customer(c, vip_threshold):
         'accepts_marketing': c.accepts_marketing,
         'tags': c.tags or [],
         'total_orders': c.total_orders or 0,
-        'total_spent': ex_vat(c.total_spent),
-        'aov': (ex_vat(c.total_spent) / c.total_orders) if (c.total_orders or 0) > 0 else 0,
+        # GROSS, matching Shopify's "Total spent" for this customer and the
+        # headline on the overview. This returned ex_vat() until now, which
+        # meant a customer row and the customer's own detail page each showed a
+        # figure ~14% below what the Shopify admin shows for the same person —
+        # and the rows no longer summed to the total above them. Ex-VAT is
+        # still available as its own field for anywhere margin is the question.
+        'total_spent': float(c.total_spent or 0),
+        'total_spent_ex_vat': ex_vat(c.total_spent),
+        'aov': (float(c.total_spent or 0) / c.total_orders) if (c.total_orders or 0) > 0 else 0,
+        'aov_ex_vat': (ex_vat(c.total_spent) / c.total_orders) if (c.total_orders or 0) > 0 else 0,
         'last_order_date': last_order.isoformat() if last_order else None,
         'days_since_last_order': days_since,
         'first_order_date': c.first_order_date.isoformat() if c.first_order_date else None,
@@ -260,14 +297,32 @@ def customers_overview():
     month_ago = now - timedelta(days=30)
 
     # ── KPIs: each one is a single SQL aggregate, milliseconds each ──────
-    # ex_vat() already applies the ÷1.16. Do NOT divide again here.
-    total_revenue = ex_vat(
-        db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar()
+    #
+    # Both figures are returned deliberately.
+    #
+    # GROSS is what Shopify's admin shows under a customer's "Total spent" —
+    # the amount they actually paid, tax included. Leading with anything else
+    # guarantees this page disagrees with Shopify no matter how correct our
+    # arithmetic is, which is the complaint that started this audit: the page
+    # was showing KES 653.1M against Shopify's KES 757.6M, a 104M gap created
+    # entirely by us dividing.
+    #
+    # EX-VAT stays available because it is the figure that means something for
+    # margin. It is an ESTIMATE and labelled as one: it divides everything by
+    # 1.16, including shipping and any zero-rated line, because
+    # CustomerCache.total_spent is a lifetime aggregate and orders_cache has no
+    # tax column. The Dashboard can do better — ConversionAttribution stores
+    # Shopify's own order_tax, so it subtracts the real figure — but that data
+    # does not exist per customer.
+    gross_revenue = float(
+        db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar() or 0
     )
+    total_revenue = ex_vat(gross_revenue)
     total_orders = int(
         db.session.query(func.coalesce(func.sum(CustomerCache.total_orders), 0)).scalar() or 0
     )
     avg_aov = (total_revenue / total_orders) if total_orders else 0
+    avg_aov_gross = (gross_revenue / total_orders) if total_orders else 0
 
     new_this_month = (
         db.session.query(func.count(CustomerCache.id))
@@ -394,6 +449,23 @@ def customers_overview():
             'retention_rate': round(retention_rate, 4),
             'total_revenue': total_revenue,
             'avg_aov': round(avg_aov),
+            # What Shopify shows. The page leads with these.
+            'total_revenue_gross': gross_revenue,
+            'avg_aov_gross': round(avg_aov_gross),
+            'vat_rate': VAT_DIVISOR - 1,
+            # Net sales, computed the way Shopify Analytics computes "Total
+            # sales": paid orders only, less returns, excluding tax. Returned
+            # so the page can show it beside the lifetime figure and stop
+            # people rediscovering that the two disagree.
+            #
+            # They disagree because they answer different questions, and both
+            # are Shopify's own numbers. Lifetime spend is gross, tax included,
+            # with refunded orders counted in full — that is what the Shopify
+            # customer record shows. Total sales strips tax, drops cancelled
+            # and unpaid orders, and subtracts returns. On this dataset that is
+            # KES 757.6M against KES 516.1M, and Shopify's own dashboard says
+            # 520.55M — a 0.85% residual from orders we have not cached.
+            'net_sales_estimate': _net_sales_estimate(),
         },
         'segment_counts': segment_counts,
         'top_spenders': top_spenders_out,
