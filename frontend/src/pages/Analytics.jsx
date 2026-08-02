@@ -5,6 +5,7 @@ import {
 import {
   Users, Download, FileText, File, Bolt, MessageSquare, ArrowUpRight, UserCheck,
   TrendingUp, TrendingDown, Minus, Bot, ShoppingBag, AlertTriangle, Radio, Package, ExternalLink,
+  Calendar as CalendarIcon, ChevronDown,
 } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
@@ -18,11 +19,36 @@ const ACCENT = '#c7ea46'
 // Coordinated donut palette: accent → warm → taupe → grays. Not a rainbow.
 const DONUT = ['#c7ea46', '#d6f278', '#c99a86', '#8a8a93', '#a1a1aa', '#c4c4cc', '#d4d4d8']
 
-const DATE_RANGES = [
-  { label: '7 days', days: 7 },
-  { label: '30 days', days: 30 },
-  { label: '90 days', days: 90 },
+// The same ranges the Dashboard offers, in the same order and wording.
+//
+// This page used to offer 7 / 30 / 90 days only — rolling windows — while the
+// Dashboard offers calendar periods as well. Both pages show inbound,
+// escalations and response time, so a supervisor comparing "This month" there
+// against "30 days" here was comparing two different windows and had no way to
+// tell. Same metric, same product, two vocabularies.
+//
+// Calendar entries go to the API as ?period=, rolling ones as ?days=.
+const PERIOD_GROUPS = [
+  { title: 'Day', options: [
+    { key: 'today',      label: 'Today' },
+    { key: 'yesterday',  label: 'Yesterday' },
+  ]},
+  { title: 'Week', options: [
+    { key: 'week',       label: 'This week' },
+    { key: 'last_week',  label: 'Last week' },
+    { key: 'd7',         label: 'Last 7 days',  days: 7 },
+  ]},
+  { title: 'Month', options: [
+    { key: 'month',      label: 'This month' },
+    { key: 'last_month', label: 'Last month' },
+    { key: 'd30',        label: 'Last 30 days', days: 30 },
+    { key: 'd90',        label: 'Last 90 days', days: 90 },
+  ]},
 ]
+const PERIOD_OPTIONS = PERIOD_GROUPS.flatMap(g => g.options)
+const PERIOD_LABELS = Object.fromEntries(PERIOD_OPTIONS.map(o => [o.key, o.label]))
+const ROLLING_DAYS = Object.fromEntries(
+  PERIOD_OPTIONS.filter(o => o.days).map(o => [o.key, o.days]))
 
 const SHADOW = '0 1px 2px rgba(16,24,40,0.04), 0 8px 24px -12px rgba(16,24,40,0.10)'
 
@@ -55,8 +81,14 @@ function Delta({ current, previous, isPct = false }) {
 function Panel({ title, right, children, className, bodyClass, lift }) {
   return (
     <div
-      className={clsx('bg-white border border-gray-200/70 rounded-2xl transition-all duration-200', lift && 'hover:-translate-y-0.5', className)}
-      style={{ boxShadow: SHADOW }}
+      /* `card` rather than a hand-rolled surface. Every panel here was
+         bg-white + border-gray-200/70 + an inline shadow, which bypassed the
+         shared glass system — and border-gray-200/70 has no dark-mode mapping
+         (border-gray-200 does; the /70 opacity variant is a different class),
+         so in dark mode this page kept light borders while the rest of the app
+         had moved on. Using `card` also means the tuning done to the glass
+         surfaces reaches here for free. */
+      className={clsx('card rounded-2xl transition-all duration-200', lift && 'hover:-translate-y-0.5', className)}
     >
       {(title || right) && (
         <div className="flex items-center justify-between px-5 pt-4 pb-3.5 border-b border-gray-100">
@@ -82,8 +114,8 @@ function StatTile({ icon: Icon, label, value, isPercent, isTime, current, previo
 
   return (
     <div
-      className="bg-white border border-gray-200/70 rounded-2xl p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-300"
-      style={{ boxShadow: SHADOW, animation: 'an-rise .5s ease both', animationDelay: `${delay}ms` }}
+      className="card rounded-2xl p-4 transition-all duration-200 hover:-translate-y-0.5"
+      style={{ animation: 'an-rise .5s ease both', animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center justify-between mb-3">
         <span className="w-8 h-8 rounded-[10px] bg-gray-100 flex items-center justify-center text-gray-500"><Icon size={16} /></span>
@@ -384,22 +416,28 @@ export default function Analytics() {
   const [agentData, setAgentData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [days, setDays] = useState(7)
+  // 'd7' keeps the old default (rolling 7 days) so nobody's saved habit changes.
+  const [period, setPeriod] = useState('d7')
+  const [periodOpen, setPeriodOpen] = useState(false)
+  const days = ROLLING_DAYS[period] || 7
   const [exportOpen, setExportOpen] = useState(false)
 
-  useEffect(() => { fetchAnalytics() }, [days])
+  useEffect(() => { fetchAnalytics() }, [period])
 
   const fetchAnalytics = async () => {
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`${API_BASE}/analytics/summary?days=${days}`, {
+      const qs = ROLLING_DAYS[period]
+        ? `days=${ROLLING_DAYS[period]}`
+        : `period=${period}`
+      const res = await fetch(`${API_BASE}/analytics/summary?${qs}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
       })
       if (!res.ok) throw new Error('Could not load analytics. Try again.')
       setData(await res.json())
       if (user?.role === 'supervisor' || user?.role === 'admin') {
         try {
-          const agentRes = await fetch(`${API_BASE}/analytics/agents?days=${days}`, {
+          const agentRes = await fetch(`${API_BASE}/analytics/agents?${qs}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
           })
           if (agentRes.ok) setAgentData(await agentRes.json())
@@ -409,9 +447,15 @@ export default function Analytics() {
   }
 
   if (loading) return <SkeletonAnalytics />
-  if (error) return <div className="bg-white border border-gray-200 rounded-2xl p-6 text-sm text-gray-700" style={{ boxShadow: SHADOW }}>{error}</div>
+  if (error) return <div className="card rounded-2xl p-6 text-sm text-gray-700">{error}</div>
   if (!data) return null
 
+  // `scope` is the server telling us what it narrowed the figures to —
+  // 'company' or 'agent'. It has been in the payload all along and the page
+  // never read it, re-deriving the same fact from the user's role instead.
+  // Trusting the server matters here: the role check is a second copy of a
+  // rule that lives in _scope_filter(), and a second copy is how two things
+  // drift apart. If scoping ever changes server-side, this follows it.
   const { kpis, weekly, intent_breakdown, channel_split, top_products, failure_breakdown, conversion } = data
   const prev = kpis.previous || {}
   const periodLabel = days === 1 ? 'today' : days === 7 ? 'last 7 days' : days === 30 ? 'last 30 days' : `last ${days} days`
@@ -423,8 +467,10 @@ export default function Analytics() {
   }
 
   const exportMeta = () => ({
-    periodLabel: DATE_RANGES.find((r) => r.days === days)?.label || `Last ${days} days`,
-    generatedAt: new Date().toLocaleString(), periodSlug: `${days}d`, dateSlug: new Date().toISOString().split('T')[0],
+    periodLabel: PERIOD_LABELS[period] || `Last ${days} days`,
+    generatedAt: new Date().toLocaleString(),
+    periodSlug: period,
+    dateSlug: new Date().toISOString().split('T')[0],
   })
   const reportData = () => ({ ...data, agents: agentData?.agents || [] })
   const exportToCSV = () => exportAnalyticsCSV(reportData(), exportMeta())
@@ -463,14 +509,46 @@ export default function Analytics() {
           <p className="text-sm text-gray-500 mt-0.5">{getSubtitle()}</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="inline-flex p-0.5 bg-gray-100 rounded-lg">
-            {DATE_RANGES.map((range) => (
-              <button key={range.days} onClick={() => setDays(range.days)}
-                className={clsx('text-xs font-semibold px-3 py-1.5 rounded-md transition-all',
-                  days === range.days ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800')}>
-                {range.label}
-              </button>
-            ))}
+          <div className="relative">
+            <button
+              onClick={() => setPeriodOpen((o) => !o)}
+              aria-haspopup="listbox"
+              aria-expanded={periodOpen}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl card text-xs font-semibold text-gray-800 hover:opacity-90 transition-opacity"
+            >
+              <CalendarIcon size={14} className="text-gray-400" />
+              <span className="whitespace-nowrap">{PERIOD_LABELS[period]}</span>
+              <ChevronDown size={14} className={clsx('text-gray-400 transition-transform', periodOpen && 'rotate-180')} />
+            </button>
+            {periodOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPeriodOpen(false)} />
+                <div role="listbox" className="absolute right-0 top-full mt-1.5 w-52 card rounded-xl shadow-2xl z-20 overflow-hidden py-1">
+                  {PERIOD_GROUPS.map((group, gi) => (
+                    <div key={group.title} className={clsx(gi > 0 && 'border-t border-gray-100 mt-1 pt-1')}>
+                      <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide">{group.title}</p>
+                      {group.options.map(({ key, label, days: d }) => (
+                        <button
+                          key={key}
+                          role="option"
+                          aria-selected={period === key}
+                          onClick={() => { setPeriod(key); setPeriodOpen(false) }}
+                          className={clsx(
+                            'w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between gap-2 transition-colors',
+                            period === key ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50')}
+                        >
+                          <span>{label}</span>
+                          <span className={clsx('text-[9px] font-bold uppercase tracking-wide',
+                            period === key ? 'text-white/50' : 'text-gray-300')}>
+                            {d ? 'rolling' : 'calendar'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           <div className="relative">
             <button onClick={() => setExportOpen((o) => !o)}
@@ -489,6 +567,21 @@ export default function Analytics() {
           </div>
         </div>
       </div>
+
+      {/* Who these numbers cover.
+          The subtitle already said "your assigned conversations" for agents,
+          but a subtitle is easy to read past and the consequence is not
+          cosmetic: on this dataset an admin's "Inbound" counts 46
+          conversations and an agent's counts 4. Same page, same word, same
+          styling, an order of magnitude apart. Saying it beside the figures
+          costs one line and removes the ambiguity. */}
+      {data.scope === 'agent' && (
+        <p className="-mb-1 text-xs text-gray-400">
+          Every figure below covers{' '}
+          <span className="font-semibold text-gray-500">your assigned conversations only</span>
+          {' '}— not the whole business.
+        </p>
+      )}
 
       <HeroBand kpis={kpis} weekly={weekly} periodLabel={periodLabel} />
 
