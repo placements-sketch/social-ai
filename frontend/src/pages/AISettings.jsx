@@ -40,9 +40,38 @@ export default function AISettings({ embedded = false }) {
     response_rules: {},
   })
 
+  // A copy of what the server last gave us. Everything below compares against
+  // this to know whether there are unsaved edits — the page previously had no
+  // idea, so Save was always live and leaving with unsaved changes was silent.
+  const [saved, setSaved] = useState(null)
+
   useEffect(() => {
     fetchSettings()
   }, [])
+
+  const dirty = saved != null && JSON.stringify(saved) !== JSON.stringify(formData)
+
+  // Name the fields that differ, so the save bar can say what it will write
+  // rather than just that something changed.
+  const changedFields = (() => {
+    if (!saved) return []
+    const names = {
+      tone: 'brand tone', system_prompt: 'system prompt',
+      slider_formal: 'formality', slider_length: 'response length',
+      slider_sales: 'sales focus', response_rules: 'response rules',
+    }
+    return Object.keys(names).filter(
+      (k) => JSON.stringify(saved[k]) !== JSON.stringify(formData[k])
+    ).map((k) => names[k])
+  })()
+
+  // Leaving with unsaved edits should cost a confirmation, not a shrug.
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const fetchSettings = async () => {
     try {
@@ -52,14 +81,16 @@ export default function AISettings({ embedded = false }) {
       if (!res.ok) throw new Error('Failed to load settings')
       const data = await res.json()
       setSettings(data.settings)
-      setFormData({
+      const loaded = {
         tone: data.settings.tone,
         system_prompt: data.settings.system_prompt,
         slider_formal: data.settings.slider_formal,
         slider_length: data.settings.slider_length,
         slider_sales: data.settings.slider_sales,
         response_rules: data.settings.response_rules || {},
-      })
+      }
+      setFormData(loaded)
+      setSaved(loaded)
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -86,6 +117,10 @@ export default function AISettings({ embedded = false }) {
       }
       const data = await res.json()
       setSettings(data.settings)
+      // Re-baseline, or the save bar never goes away: the dirty check compares
+      // formData against the last saved snapshot, and a successful write makes
+      // formData the new truth.
+      setSaved(formData)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
@@ -179,23 +214,17 @@ export default function AISettings({ embedded = false }) {
           {!embedded && <h1 className="text-2xl font-bold text-gray-900">AI Settings</h1>}
           {!embedded && <p className="text-sm text-gray-500 mt-1">Customize your AI assistant's personality and behavior</p>}
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleReset}
-            disabled={saving}
-            className="btn-ghost flex items-center gap-2 text-xs"
-          >
-            <RotateCcw size={14} /> Reset
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="btn-primary flex items-center gap-2 text-xs"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Save
-          </button>
-        </div>
+        {/* Save has moved to a bar that appears when there is something to
+            save. It used to sit up here, so you edited four sections below it
+            and scrolled back to the top to commit — and Reset sat immediately
+            beside it at equal weight, one click from wiping the configuration.
+            Reset now lives at the foot of the page with the other irreversible
+            things. */}
+        {dirty && (
+          <span className="text-[11px] font-semibold text-amber-600 whitespace-nowrap">
+            Unsaved changes
+          </span>
+        )}
       </div>
 
       {/* Alert messages */}
@@ -238,15 +267,20 @@ export default function AISettings({ embedded = false }) {
       <div className="card p-5 space-y-4">
         <h2 className="text-sm font-bold text-gray-900">Personality Sliders</h2>
 
+        {/* A bare "50%" says nothing about what the assistant will actually do.
+            Each slider now reads back its own position in words. */}
         {[
-          { key: 'slider_formal', label: 'Formality', left: 'Casual', right: 'Formal' },
-          { key: 'slider_length', label: 'Response Length', left: 'Brief', right: 'Detailed' },
-          { key: 'slider_sales', label: 'Sales Focus', left: 'Neutral', right: 'Salesy' },
-        ].map(({ key, label, left, right }) => (
+          { key: 'slider_formal', label: 'Formality', left: 'Casual', right: 'Formal',
+            says: (v) => v < 33 ? 'Chatty and informal' : v > 66 ? 'Polished and professional' : 'Warm but businesslike' },
+          { key: 'slider_length', label: 'Response length', left: 'Brief', right: 'Detailed',
+            says: (v) => v < 33 ? 'Short, to the point' : v > 66 ? 'Full explanations' : 'A sentence or two' },
+          { key: 'slider_sales', label: 'Sales focus', left: 'Neutral', right: 'Salesy',
+            says: (v) => v < 33 ? 'Answers only, no pitching' : v > 66 ? 'Actively suggests products' : 'Mentions products when relevant' },
+        ].map(({ key, label, left, right, says }) => (
           <div key={key} className="space-y-2">
-            <div className="flex items-end justify-between">
+            <div className="flex items-end justify-between gap-3">
               <label className="text-xs font-semibold text-gray-900">{label}</label>
-              <span className="text-sm font-bold text-gray-900">{formData[key]}%</span>
+              <span className="text-[11px] text-gray-500 text-right">{says(formData[key])}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 w-10">{left}</span>
@@ -264,11 +298,24 @@ export default function AISettings({ embedded = false }) {
         ))}
       </div>
 
-      {/* System Prompt */}
-      <div className="card p-5 space-y-2">
-        <div>
-          <h2 className="text-sm font-bold text-gray-900">System Prompt</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Base instructions sent to Claude before each response</p>
+      {/* System Prompt.
+          This is the most powerful control in the product — it governs every
+          reply the assistant sends to every customer on every channel — and it
+          was presented as a plain textarea with a character count, visually
+          identical to the tone picker above it. The amber edge and the warning
+          are the only thing separating "make it a bit friendlier" from "change
+          what the business says to people". */}
+      <div className="card p-5 space-y-2 border-l-2 border-l-amber-400">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">System prompt</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              The standing instructions sent before every reply, on every channel.
+            </p>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 shrink-0">
+            Affects every reply
+          </span>
         </div>
         <textarea
           value={formData.system_prompt}
@@ -277,8 +324,13 @@ export default function AISettings({ embedded = false }) {
           className="input w-full resize-none font-mono text-xs leading-relaxed"
           placeholder="Enter system prompt..."
         />
-        <div className="flex justify-between text-xs text-gray-400">
-          <span>{formData.system_prompt.length} characters</span>
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <span className="text-gray-400">{formData.system_prompt.length} characters</span>
+          {formData.system_prompt.trim().length === 0 && (
+            <span className="text-amber-600 font-semibold">
+              Empty — the assistant will reply with no standing instructions
+            </span>
+          )}
         </div>
       </div>
 
@@ -305,6 +357,56 @@ export default function AISettings({ embedded = false }) {
           ))}
         </div>
       </div>
+
+      {/* Irreversible things live together, at the end, away from Save. */}
+      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-red-800">Reset to defaults</p>
+          <p className="text-[11px] text-red-700 mt-0.5 leading-relaxed">
+            Discards your tone, sliders, system prompt and response rules, and puts
+            the assistant back to how it shipped. There is no undo.
+          </p>
+        </div>
+        <button
+          onClick={handleReset}
+          disabled={saving}
+          className="shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+        >
+          <RotateCcw size={12} className="inline mr-1 -mt-px" /> Reset
+        </button>
+      </div>
+
+      {/* Save bar. Appears only when there is something to save, names what
+          changed, and stays in reach wherever you are on the page. */}
+      {dirty && (
+        <div className="sticky bottom-4 z-20">
+          <div className="card glass-modal rounded-xl px-4 py-3 flex items-center justify-between gap-4 shadow-2xl">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-gray-900">Unsaved changes</p>
+              <p className="text-[11px] text-gray-500 truncate">
+                {changedFields.length ? changedFields.join(', ') : 'settings'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setFormData(saved)}
+                disabled={saving}
+                className="text-[11px] font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 disabled:opacity-50"
+              >
+                Discard
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="btn-primary flex items-center gap-1.5 text-xs px-4 py-2 disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
