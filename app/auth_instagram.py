@@ -146,9 +146,29 @@ def callback():
 
     short_token = body.get('access_token')
     if not short_token:
-        log_event("error", "auth_ig.callback.exchange_failed", str(body)[:300])
-        return redirect(_frontend(return_to, connected='0',
-                                  error=str(body.get('error_message') or 'Token exchange failed')[:120]))
+        raw = str(body.get('error_message') or '')
+
+        # An expired or already-used authorisation code is the single most
+        # common way this fails, and it is not a fault — Instagram codes are
+        # one-shot and short-lived, so a refreshed callback, a back-button, or
+        # a browser prefetch burns the code before we get here. Meta's own
+        # wording ("This authorization code has expired") reads like something
+        # broke, which sends people looking for a bug that isn't there. Say
+        # what to do instead.
+        expired = 'expired' in raw.lower() or 'authorization code' in raw.lower()
+
+        log_event(
+            "warn" if expired else "error",
+            "auth_ig.callback.exchange_failed",
+            ("Authorisation code was already used or had expired — the user "
+             "needs to start the connection again" if expired else str(body)[:300]),
+            payload={"expired_code": expired, "response": str(body)[:200]},
+        )
+        return redirect(_frontend(
+            return_to, connected='0',
+            error=('That connection link had already been used — it is only valid once '
+                   'and for a few minutes. Click Connect again to start fresh.'
+                   if expired else (raw or 'Token exchange failed')[:120])))
     ig_user_id = str(body.get('user_id') or '')
 
     # 2. Short-lived → long-lived (60 days)
