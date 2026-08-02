@@ -627,7 +627,10 @@ def summary():
             'human_replies_total': human_repl,
             'failed_responses':    failed,
             'unanswered_inbound':  unanswered,
-            'avg_response_time_ms': int(avg_ms) if avg_ms is not None else None,
+            # round(), not int(). int() truncates toward zero, so every reported
+            # average response time was up to 1ms below the true value —
+            # a small but systematic downward bias on a headline metric.
+            'avg_response_time_ms': int(round(avg_ms)) if avg_ms is not None else None,
             'ai_response_rate':    round(response_rate, 4),   # renamed from ai_success_rate
             'ai_success_rate':     round(success_rate, 4),    # NEW — real success
             'ai_handled_total':    handled_total,             # denominator, for context

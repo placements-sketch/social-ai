@@ -23,6 +23,41 @@ from app.auth import log_audit, current_user_id
 automation_bp = Blueprint('automation', __name__, url_prefix='/api')
 
 
+
+# ── Authorisation ────────────────────────────────────────────────────────────
+# Every route in this file previously carried @jwt_required() and nothing else.
+# The sidebar shows this section to admins only, but that is the interface — the
+# endpoints were reachable by anyone with a valid token, including an agent.
+#
+# What that allowed, concretely: rewriting the system prompt that governs every
+# AI reply to every customer, changing the brand tone and personality, resetting
+# the whole configuration, and creating, editing, reordering, toggling or
+# deleting automation rules. The handlers even call notify_admins() afterwards —
+# the code expected only admins to reach them while permitting everybody.
+#
+# Defined once here rather than repeated per route, so a route added later
+# cannot quietly skip the check by being written without it.
+
+def _require_role(*roles):
+    """Return (user, None) when the caller holds one of `roles`, else (None, response)."""
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return None, (jsonify({'error': 'User not found'}), 404)
+    if user.role not in roles:
+        return None, (jsonify({'error': 'Forbidden'}), 403)
+    return user, None
+
+
+def _require_admin():
+    """Changing how the assistant behaves is an admin decision."""
+    return _require_role('admin')
+
+
+def _require_viewer():
+    """Reading the configuration. Supervisors oversee agents, so they may look."""
+    return _require_role('admin', 'supervisor')
+
+
 # Known trigger and action types. Unknown types are rejected so a typo
 # in the JSON doesn't silently produce a dead rule.
 VALID_TRIGGER_TYPES = {'keyword', 'intent', 'shopify_stock', 'always', 'channel'}
@@ -51,6 +86,9 @@ def _validate_config(config, valid_types, label):
 @jwt_required()
 def list_rules():
     """List all rules in execution order."""
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
     enabled_only = request.args.get('enabled_only', type=str)
     query = AutomationRule.query
     if enabled_only and enabled_only.lower() in ('1', 'true', 'yes'):
@@ -65,7 +103,17 @@ def list_rules():
 @automation_bp.route('/automation-rules/<int:rule_id>', methods=['GET'])
 @jwt_required()
 def get_rule(rule_id):
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
     rule = AutomationRule.query.get(rule_id)
+    # Captured before the delete, so the audit entry can rebuild it.
+    snapshot = {
+        c.name: (getattr(rule, c.name).isoformat()
+                 if hasattr(getattr(rule, c.name), 'isoformat')
+                 else getattr(rule, c.name))
+        for c in AutomationRule.__table__.columns
+    } if rule else None
     if not rule:
         return jsonify({'error': 'Rule not found'}), 404
     return jsonify({'rule': rule.to_dict()}), 200
@@ -88,6 +136,9 @@ def create_rule():
       "sort_order": 0                   optional, default = last
     }
     """
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -157,6 +208,9 @@ def create_rule():
 @jwt_required()
 def update_rule(rule_id):
     """Partial update."""
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -243,6 +297,9 @@ def update_rule(rule_id):
 @automation_bp.route('/automation-rules/<int:rule_id>', methods=['DELETE'])
 @jwt_required()
 def delete_rule(rule_id):
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -267,10 +324,21 @@ def delete_rule(rule_id):
 
     db.session.commit()
 
+    # Snapshot the WHOLE rule, not just its name.
+    #
+    # This recorded {'name': ...} only, which is enough to know something was
+    # deleted and useless for putting it back. A rule's value is its trigger,
+    # its action and their configs — the name is a label. Discovered the hard
+    # way: a rule was deleted during testing and the audit trail could say what
+    # it was called and nothing about what it did.
+    #
+    # An audit entry for a destructive action should be sufficient to
+    # reconstruct what was destroyed. Otherwise it records that history was
+    # lost without preserving any of it.
     log_audit(
         current_user.id, 'delete_automation_rule',
         resource_type='automation_rule', resource_id=str(rule_id),
-        changes={'name': name},
+        changes={'deleted_rule': snapshot},
     )
 
     return jsonify({'message': 'Rule deleted'}), 200
@@ -280,6 +348,9 @@ def delete_rule(rule_id):
 @jwt_required()
 def toggle_rule(rule_id):
     """Convenience: flip enabled without sending its current value."""
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -328,6 +399,9 @@ def reorder_rules():
     Validates that the array contains exactly the set of all existing rule
     IDs — no missing, no extras. Either everything updates or nothing does.
     """
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404

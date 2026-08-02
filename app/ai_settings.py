@@ -26,6 +26,41 @@ from app.notifications import notify_admins
 ai_settings_bp = Blueprint('ai_settings', __name__, url_prefix='/api')
 
 
+
+# ── Authorisation ────────────────────────────────────────────────────────────
+# Every route in this file previously carried @jwt_required() and nothing else.
+# The sidebar shows this section to admins only, but that is the interface — the
+# endpoints were reachable by anyone with a valid token, including an agent.
+#
+# What that allowed, concretely: rewriting the system prompt that governs every
+# AI reply to every customer, changing the brand tone and personality, resetting
+# the whole configuration, and creating, editing, reordering, toggling or
+# deleting automation rules. The handlers even call notify_admins() afterwards —
+# the code expected only admins to reach them while permitting everybody.
+#
+# Defined once here rather than repeated per route, so a route added later
+# cannot quietly skip the check by being written without it.
+
+def _require_role(*roles):
+    """Return (user, None) when the caller holds one of `roles`, else (None, response)."""
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return None, (jsonify({'error': 'User not found'}), 404)
+    if user.role not in roles:
+        return None, (jsonify({'error': 'Forbidden'}), 403)
+    return user, None
+
+
+def _require_admin():
+    """Changing how the assistant behaves is an admin decision."""
+    return _require_role('admin')
+
+
+def _require_viewer():
+    """Reading the configuration. Supervisors oversee agents, so they may look."""
+    return _require_role('admin', 'supervisor')
+
+
 # Canonical defaults. Used when auto-creating the row, and by the reset endpoint.
 VALID_TONES = {'friendly', 'luxury', 'gen_z', 'minimalist', 'bold_sales'}
 
@@ -68,6 +103,9 @@ def _get_or_create_settings() -> AISettings:
 @jwt_required()
 def get_settings():
     """Return the current AI settings (auto-creates if missing)."""
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
     settings = _get_or_create_settings()
     return jsonify({'settings': settings.to_dict()}), 200
 
@@ -89,6 +127,9 @@ def update_settings():
       "response_rules": { ... }
     }
     """
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
@@ -163,6 +204,9 @@ def update_settings():
 @jwt_required()
 def reset_settings():
     """Reset all AI settings to the canonical defaults."""
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     current_user = AuthUser.query.get(current_user_id())
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
