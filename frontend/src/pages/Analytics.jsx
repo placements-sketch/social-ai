@@ -333,7 +333,7 @@ function Funnel({ conversion }) {
             key={label}
             className={clsx('rounded-xl px-4 py-3 border',
               accent ? 'border-transparent' : 'border-gray-100 bg-white')}
-            style={accent ? { background: 'rgba(255,89,0,0.07)' } : undefined}
+            style={accent ? { background: 'rgba(199,234,70,0.09)' } : undefined}
           >
             <p
               className={clsx('text-xl font-bold tabular-nums leading-none truncate',
@@ -374,15 +374,23 @@ function HeroBand({ kpis, weekly, periodLabel }) {
   const up = diff >= 0
 
   return (
-    <div className="rounded-2xl px-6 py-5" style={{
-      border: '0.5px solid rgba(255,89,0,0.18)',
-      background: 'linear-gradient(135deg, #fff8f4 0%, #ffffff 62%)',
-      boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 12px 32px -14px rgba(255,89,0,0.18)',
-    }}>
+    /* `card` for the surface, with a lime wash laid over it.
+       This was a hardcoded cream-to-white gradient plus an orange border and
+       orange shadow, all inline — so none of it could respond to the theme and
+       in dark mode it stayed a white slab across the top of the page. The
+       orange was also stale: ACCENT moved to lime a while back and these
+       literals were missed, so the band still glowed the old colour. */
+    <div className="card rounded-2xl px-6 py-5 relative overflow-hidden">
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: 'linear-gradient(135deg, rgba(199,234,70,0.10) 0%, transparent 62%)' }}
+      />
+      <div className="relative">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: ACCENT, boxShadow: '0 0 0 3px rgba(255,89,0,0.15)' }} />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: ACCENT, boxShadow: '0 0 0 3px rgba(199,234,70,0.20)' }} />
             <Eyebrow>AI performance · {periodLabel}</Eyebrow>
           </div>
           <div className="flex items-baseline gap-3">
@@ -402,9 +410,10 @@ function HeroBand({ kpis, weekly, periodLabel }) {
           {series.map((v, i) => {
             const h = Math.max(6, Math.round((v / sMax) * 56))
             const isLast = i >= series.length - 2
-            return <div key={i} style={{ width: 13, height: h, borderRadius: 3, background: isLast ? ACCENT : `rgba(255,89,0,${0.22 + (i / series.length) * 0.5})`, transformOrigin: 'bottom', animation: 'an-grow .6s ease both', animationDelay: `${i * 40}ms` }} />
+            return <div key={i} style={{ width: 13, height: h, borderRadius: 3, background: isLast ? ACCENT : `rgba(199,234,70,${0.22 + (i / series.length) * 0.5})`, transformOrigin: 'bottom', animation: 'an-grow .6s ease both', animationDelay: `${i * 40}ms` }} />
           })}
         </div>
+      </div>
       </div>
     </div>
   )
