@@ -68,8 +68,12 @@ function Delta({ current, previous, isPct = false }) {
   const flat = Math.abs(diff) < (isPct ? 0.05 : 0.5)
   const up = diff > 0
   const Icon = flat ? Minus : up ? TrendingUp : TrendingDown
+  // Shown as % throughout, not "pts". A gap between two percentages is
+  // strictly measured in percentage points, but every figure on this page is
+  // read as a percentage and the mixed unit was confusing more than it was
+  // clarifying — asked for twice.
   const val = isPct
-    ? `${Math.abs(diff).toFixed(1)} pts`
+    ? `${Math.abs(diff).toFixed(1)}%`
     : `${up ? '↑' : diff < 0 ? '↓' : ''}${Math.abs(Math.round((diff / (prev || 1)) * 100))}%`
   return (
     <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold',
@@ -556,7 +560,7 @@ function HeroBand({ kpis, weekly, periodLabel }) {
             <div className="flex flex-col gap-1">
               <span className="text-[13px] text-gray-600 font-medium">success rate</span>
               <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold', up ? 'text-emerald-600' : 'text-gray-500')}>
-                {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{Math.abs(diff).toFixed(1)} pts
+                {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{Math.abs(diff).toFixed(1)}%
               </span>
             </div>
           </div>
