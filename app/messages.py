@@ -704,6 +704,24 @@ def toggle_ai(conversation_id):
     if 'ai_enabled' not in data:
         return jsonify({'error': 'ai_enabled (boolean) is required'}), 400
 
+    # Turning AI on for one conversation while the master switch is off used to
+    # succeed and do real damage. services.py refuses to generate a reply while
+    # the switch is off, but _bucket_filter files any ai_enabled conversation
+    # under "AI" — so the chat left both human queues, no AI reply was ever
+    # possible, and the customer sat waiting on nobody. Proven end to end:
+    # bucket went from ['human'] to ['ai'] with the switch off.
+    #
+    # Refused for every role, not just agents. This is not a permission
+    # question — the action cannot work for an admin either, and an admin who
+    # wants AI back has a switch that actually does something.
+    if bool(data['ai_enabled']) and not conv.ai_enabled and not _ai_globally_enabled():
+        return jsonify({
+            'error': 'Automated replies are switched off for the whole '
+                     'organisation, so AI cannot take this conversation. '
+                     'An admin can turn them back on in Settings.',
+            'reason': 'ai_globally_off',
+        }), 409
+
     # Someone has made a deliberate decision about this one conversation, so it
     # is no longer "whatever the global switch did to it". Clearing the mark
     # keeps a later global restore from overriding a person's explicit choice.

@@ -121,40 +121,88 @@ export default function Profile() {
     : null
 
   return (
-    <div className="space-y-5 w-full max-w-2xl mx-auto">
-      {/* Identity hero */}
-      <div className="card p-6 flex items-center gap-5">
-        <div className="w-16 h-16 rounded-2xl bg-brand-500 flex items-center justify-center text-white text-2xl font-bold shrink-0">
-          {initial}
+    // Two columns on desktop: identity on the left, the things you actually
+    // came to change on the right. It was three identical stacked cards in a
+    // narrow column before — every block the same weight, so nothing led.
+    <div className="w-full max-w-5xl mx-auto">
+      {/* ── Identity banner ────────────────────────────────────────────────
+          A tinted band with the avatar breaking its lower edge, so the page
+          opens with a piece of the brand instead of a fourth grey rectangle. */}
+      <div className="card rounded-3xl overflow-hidden mb-5">
+        <div className="relative h-28 sm:h-32" style={{
+          background: 'linear-gradient(115deg, #c7ea46 0%, #a9d12f 42%, #6f8f1c 100%)',
+        }}>
+          {/* Soft vignette so the avatar's ring has something to sit against. */}
+          <div className="absolute inset-0" style={{
+            background: 'radial-gradient(120% 140% at 82% -20%, rgba(255,255,255,0.42), transparent 58%)',
+          }} />
+          <span className="absolute top-4 right-5 text-[10px] font-bold uppercase tracking-[0.14em] text-black/45">
+            Shop Zetu
+          </span>
         </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-gray-900 truncate">{user?.full_name || 'Your profile'}</h1>
-            {user?.role && (
-              <span className="text-[10px] font-semibold bg-gray-900 text-white px-2 py-0.5 rounded-full capitalize">{user.role}</span>
-            )}
-          </div>
-          <p className="text-sm text-gray-500 mt-0.5 truncate">{user?.email}</p>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
+
+        <div className="px-5 sm:px-7 pb-6">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4 -mt-11 sm:-mt-12">
+            <div className="w-[88px] h-[88px] rounded-3xl bg-gray-900 text-white flex items-center justify-center text-3xl font-bold shrink-0 ring-4 ring-white dark:ring-[#0f0f0f] shadow-xl">
+              {initial}
+            </div>
+            <div className="min-w-0 flex-1 sm:pb-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl font-bold text-gray-900 truncate leading-tight">
+                  {user?.full_name || 'Your profile'}
+                </h1>
+                {user?.role && (
+                  <span className="text-[10px] font-bold uppercase tracking-wide bg-gray-900 text-white px-2 py-0.5 rounded-full">
+                    {user.role}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-500 truncate mt-0.5">{user?.email}</p>
+            </div>
+
             {/* Your own presence, so the dot on the Users page is explicable
                 rather than mysterious — this is what colleagues see of you. */}
-            <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
-              <PresenceDot status="online" size="sm" />
-              Online now
-            </span>
-            {memberSince && (
-              <span className="text-[11px] text-gray-400">· Member since {memberSince}</span>
-            )}
+            <div className="flex items-center gap-2 shrink-0 sm:pb-1.5">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 bg-gray-100 rounded-full pl-2 pr-2.5 py-1">
+                <PresenceDot status="online" size="sm" />
+                Online now
+              </span>
+            </div>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1.5">{ROLE_BLURB[user?.role] || ''}</p>
+
+          {/* At-a-glance facts. Previously these were a run-on line of muted
+              text; as labelled cells they can actually be read. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Member since</p>
+              <p className="text-sm font-semibold text-gray-900 mt-0.5 flex items-center gap-1.5">
+                <Calendar size={13} className="text-brand-500 shrink-0" />
+                {memberSince || '—'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 sm:col-span-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                What your role allows
+              </p>
+              <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                {ROLE_BLURB[user?.role] || '—'}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
       {/* Profile details */}
-      <div className="card p-5">
+      <div className="card rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-4">
-          <User size={15} className="text-brand-500" />
-          <h2 className="text-sm font-bold text-gray-900">Profile details</h2>
+          <span className="w-8 h-8 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+            <User size={15} />
+          </span>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900 leading-tight">Profile details</h2>
+            <p className="text-[11px] text-gray-400">Your name and sign-in email.</p>
+          </div>
         </div>
         <div className="space-y-4">
           <div>
@@ -175,13 +223,17 @@ export default function Profile() {
       </div>
 
       {/* Password */}
-      <div className="card p-5">
+      <div className="card rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Lock size={15} className="text-brand-500" />
-          <h2 className="text-sm font-bold text-gray-900">Password</h2>
-          <span className="ml-auto flex items-center gap-1 text-[10px] font-medium text-gray-400">
-            <ShieldCheck size={12} /> Requires current password
+          <span className="w-8 h-8 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+            <Lock size={15} />
           </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-gray-900 leading-tight">Password</h2>
+            <p className="text-[11px] text-gray-400 flex items-center gap-1">
+              <ShieldCheck size={11} className="shrink-0" /> Requires your current password
+            </p>
+          </div>
         </div>
         <div className="space-y-4">
           <div>
@@ -216,6 +268,7 @@ export default function Profile() {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

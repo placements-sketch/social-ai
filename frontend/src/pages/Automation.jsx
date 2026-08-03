@@ -343,7 +343,27 @@ export default function Automation({ embedded = false }) {
                     <div className="flex items-start gap-2 mb-2 sm:mb-2.5">
                       <Zap size={12} className={`${rule.enabled ? 'text-brand-500' : 'text-gray-400'} shrink-0 mt-0.5`} />
                       <span className="text-xs sm:text-sm font-bold text-gray-900 break-words">{rule.name}</span>
+                      {/* Enabled and runnable are different things. Several
+                          rules here are switched On but reference an action or
+                          trigger that no code executes, so they sat looking
+                          active while doing nothing. The server decides this —
+                          the UI just reports it. */}
+                      {rule.execution && !rule.execution.runnable && (
+                        <span title={rule.execution.reason}
+                              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+                          Never runs
+                        </span>
+                      )}
+                      {rule.execution?.no_op && (
+                        <span title={rule.execution.reason}
+                              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 border border-gray-200">
+                          No effect
+                        </span>
+                      )}
                     </div>
+                    {rule.execution && (!rule.execution.runnable || rule.execution.no_op) && (
+                      <p className="text-[11px] text-amber-700 mb-2 pl-5">{rule.execution.reason}</p>
+                    )}
 
                     <div className="space-y-1.5 sm:space-y-2">
                       <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2">

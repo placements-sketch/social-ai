@@ -9,7 +9,7 @@ import clsx from 'clsx'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
   assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
-  fetchInstagramMedia, getAppSettings, updateConversationStatus,
+  fetchInstagramMedia, updateConversationStatus,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -379,18 +379,10 @@ export default function Messages() {
   // every conversation behaves as AI-off regardless of its own flag, so the
   // manual reply bar must appear. Re-checked on a slow interval so flipping
   // the switch reaches open tabs without a reload.
+  // Set from the conversation-counts poll below, which every role can read.
+  // It used to be fetched from the admin-only settings endpoint here, so for
+  // agents it never became true.
   const [aiGloballyOff, setAiGloballyOff] = useState(false)
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const d = await getAppSettings()
-        setAiGloballyOff(d?.settings?.ai?.enabled === false)
-      } catch { /* leave as-is */ }
-    }
-    check()
-    const t = setInterval(check, 30000)
-    return () => clearInterval(t)
-  }, [])
 
   const showToast = (text, type = 'info') => {
     setToast({ text, type })
@@ -475,6 +467,14 @@ export default function Messages() {
             off: !!counts.ai_globally_off,
             queued: counts.ai_auto_paused || 0,
           })
+          // Same flag drives the per-conversation AI toggle. It used to come
+          // from GET /api/settings, which is admin-only — so for an agent that
+          // call 403'd, the catch left the flag false, and the toggle stayed
+          // live. An agent could switch AI on for a chat while the master
+          // switch was off, which filed it under "AI", removed it from every
+          // human queue, and guaranteed no reply. This endpoint already
+          // carries the flag and every role can read it.
+          setAiGloballyOff(!!counts.ai_globally_off)
         }
       } catch { /* chips fall back to counting the loaded page */ }
     }

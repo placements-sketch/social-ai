@@ -67,8 +67,14 @@ export default function Settings({ embedded = false }) {
 
   const activeTab = TABS.find(t => t.id === tab)
 
+  // When embedded, the wrapper already owns the page width. Keeping
+  // `max-w-7xl mx-auto` here too meant that on a wide screen the wrapper's
+  // title sat flush against the layout padding while this block was capped and
+  // re-centred — so the heading and the content it belongs to started at two
+  // different x positions. Channels and Meta Diagnostics already dropped it
+  // when embedded; Settings was the one that didn't.
   return (
-    <div className="space-y-6 w-full max-w-7xl mx-auto">
+    <div className={embedded ? 'space-y-6 w-full' : 'space-y-6 w-full max-w-7xl mx-auto'}>
       {/* Header */}
       {!embedded && (
         <div>

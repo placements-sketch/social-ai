@@ -67,6 +67,64 @@ VALID_ACTION_TYPES = {
 }
 
 
+# ── What is actually wired up ────────────────────────────────────────────────
+# Being a *valid* type and being a type that *does something* were two different
+# things, and only the first was checked. The list above rejects typos "so a typo
+# doesn't silently produce a dead rule" — but five of the seven accepted action
+# types had no executor anywhere, so well-formed rules sat in the UI marked
+# Enabled and never ran. Of the five rules in this database, three could not fire
+# through any code path at all.
+#
+# These two sets are the honest answer, kept next to the validator so they cannot
+# drift from it. A type here means: some code reads it and changes behaviour.
+#
+#   reply_template  -> services.py::_check_template_rule sends the canned reply
+#   human_escalate  }
+#   notify_agent    }- handoff.py::_match_automation_rule routes to a human
+#   ask_order_number}
+IMPLEMENTED_ACTION_TYPES = {
+    'reply_template', 'human_escalate', 'notify_agent', 'ask_order_number',
+}
+# `shopify_stock` needs product context that isn't loaded at the point rules are
+# evaluated — see the note in services.py::_check_template_rule.
+IMPLEMENTED_TRIGGER_TYPES = {'keyword', 'intent', 'always', 'channel'}
+
+# Actions accepted for backwards compatibility that intentionally do nothing:
+# a rule saying "reply normally" is describing the default, not an action.
+NO_OP_ACTION_TYPES = {'normal_reply'}
+
+
+def rule_execution_status(rule) -> dict:
+    """
+    Can this rule ever fire? Returned with every rule so the UI can say so
+    instead of showing a green Enabled pill on a rule that does nothing.
+    """
+    tc = rule.trigger_config or {}
+    ac = rule.action_config or {}
+    ttype, atype = tc.get('type'), ac.get('type')
+
+    if atype in NO_OP_ACTION_TYPES:
+        return {'runnable': True, 'no_op': True,
+                'reason': 'Describes the default behaviour — the assistant '
+                          'replies normally. Nothing extra happens.'}
+
+    if atype and atype not in IMPLEMENTED_ACTION_TYPES:
+        return {'runnable': False, 'no_op': False,
+                'reason': f'The action "{atype}" is not implemented yet, so this '
+                          f'rule never runs.'}
+
+    if ttype and ttype not in IMPLEMENTED_TRIGGER_TYPES:
+        return {'runnable': False, 'no_op': False,
+                'reason': f'The trigger "{ttype}" is not evaluated yet, so this '
+                          f'rule never runs.'}
+
+    if atype == 'reply_template' and not ac.get('template'):
+        return {'runnable': False, 'no_op': False,
+                'reason': 'A template reply with no template text.'}
+
+    return {'runnable': True, 'no_op': False, 'reason': None}
+
+
 def _validate_config(config, valid_types, label):
     """
     Accepts any JSON object; only the `type` field is checked. Returns
@@ -95,7 +153,9 @@ def list_rules():
         query = query.filter_by(enabled=True)
     rules = query.order_by(AutomationRule.sort_order.asc(), AutomationRule.id.asc()).all()
     return jsonify({
-        'rules': [r.to_dict() for r in rules],
+        # `execution` rides along with every rule so the list can show which
+        # ones actually do something. Enabled and runnable are not the same.
+        'rules': [{**r.to_dict(), 'execution': rule_execution_status(r)} for r in rules],
         'total': len(rules),
     }), 200
 
@@ -440,7 +500,9 @@ def reorder_rules():
 
     rules = AutomationRule.query.order_by(AutomationRule.sort_order.asc()).all()
     return jsonify({
-        'rules': [r.to_dict() for r in rules],
+        # `execution` rides along with every rule so the list can show which
+        # ones actually do something. Enabled and runnable are not the same.
+        'rules': [{**r.to_dict(), 'execution': rule_execution_status(r)} for r in rules],
         'total': len(rules),
     }), 200
 

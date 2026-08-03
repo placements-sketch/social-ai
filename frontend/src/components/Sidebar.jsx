@@ -49,10 +49,10 @@ const allNav = [
   // because it shares its route with the parent.
   { to: '/ai', icon: Bot, label: 'AI & Automation', roles: ['admin'], group: 'Admin' },
   { to: '/users',    icon: Users,    label: 'Users',    roles: ['admin'], group: 'Admin' },
-  { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin'], group: 'Admin',
-    children: [
-      { to: '/settings?tab=channels', label: 'Channels', roles: ['admin'] },
-    ] },
+  // No child link, for the same reason AI & Automation lost its one: Channels
+  // is a tab on this route, not a route of its own, so the child could never
+  // highlight correctly — it shares /settings with the parent.
+  { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin'], group: 'Admin' },
 
   // System Logs is admin-only — raw pipeline output nobody else can act on.
   // For supervisors and agents this renders as a plain link with no submenu.

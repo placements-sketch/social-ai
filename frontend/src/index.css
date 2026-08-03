@@ -665,10 +665,25 @@ button:not(:disabled):active,
 .dark .bg-white\/10 { background-color: rgba(255, 255, 255, 0.03); }
 .dark .bg-white\/5  { background-color: rgba(255, 255, 255, 0.02); }
 
-/* Darken the glass a touch so cards sit under their content rather than
-   competing with it. */
+/* Cards are matched to the sidebar, which is the darkest surface on screen and
+   the reference the whole UI is read against.
+
+   The sidebar is linear-gradient(180deg, #111111, #0d0d0d) — a neutral grey
+   averaging #0f0f0f. Cards are translucent, so the value here is not what you
+   see; it composites against --bg (#0a0a0a) at alpha 0.92:
+
+       0.92 x 18 + 0.08 x 10 = 17.4   ->  R
+       0.92 x 19 + 0.08 x 10 = 18.3   ->  G
+       0.92 x 22 + 0.08 x 10 = 21.0   ->  B      = #111215
+
+   which was both lighter than the sidebar and tinted blue (B six points above
+   R). Solving the same equation for a neutral #0f0f0f gives 15:
+
+       0.92 x 15 + 0.08 x 10 = 14.6   ->  #0f0f0f, neutral
+
+   Borders, blur and hover are untouched — only the fill moved. */
 .dark {
-  --glass-bg: rgba(18, 19, 22, 0.92);
+  --glass-bg: rgba(15, 15, 15, 0.92);
 }
 
 /* ── Make the lime pop ───────────────────────────────────────────────────────

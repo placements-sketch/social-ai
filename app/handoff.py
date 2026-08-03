@@ -231,12 +231,22 @@ def _match_automation_rule(text: str) -> AutomationRule | None:
     embedded somewhere in its text (matches existing seed format like
     'Message contains: "price", "how much", "bei"'). Crude but effective.
     """
+    # Escalating actions, named structurally. This used to be decided purely by
+    # substring-matching the free-text `action` column for "human"/"escalate" —
+    # so a rule escalated because of how somebody worded its DESCRIPTION, not
+    # because of what it was configured to do. Both live escalation rules were
+    # firing by that accident; rewording "Flag for human review" to "Send to an
+    # agent" would have silently switched them off.
+    ESCALATING_ACTIONS = {"human_escalate", "notify_agent", "ask_order_number"}
     escalation_terms = ("notify_agent", "escalate", "human", "flag for human")
 
     rules = AutomationRule.query.filter_by(enabled=True).all()
     for rule in rules:
+        atype = ((rule.action_config or {}).get("type") or "").lower()
         action_lc = (rule.action or "").lower()
-        if not any(t in action_lc for t in escalation_terms):
+        # Structured type first; the text match stays as a fallback so rules
+        # created before action_config existed keep working.
+        if atype not in ESCALATING_ACTIONS and not any(t in action_lc for t in escalation_terms):
             continue
 
         # Extract quoted keywords from the trigger field.
