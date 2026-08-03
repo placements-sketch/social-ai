@@ -709,25 +709,19 @@ button:not(:disabled):active,
        0.92 x 19 + 0.08 x 10 = 18.3   ->  G
        0.92 x 22 + 0.08 x 10 = 21.0   ->  B      = #111215
 
-   which was lighter than the sidebar. It was also cool — B six points above R —
-   and that cool cast is DELIBERATE, not a defect. Flattening it to a neutral
-   grey took the navy out of every card in the app, which was never the ask; the
-   ask was only to make them darker.
+   which was both lighter than the sidebar and slightly cool. Solving the same
+   equation for the sidebar's neutral #0f0f0f gives 15 on every channel:
 
-   So: darkness matched to the sidebar, hue kept. Same equation, solved to land
-   on the sidebar's brightness while preserving the blue lean:
+       0.92 x 15 + 0.08 x 10 = 14.6   ->  #0f0f0f
 
-       0.92 x 13 + 0.08 x 10 = 12.8   ->  R
-       0.92 x 15 + 0.08 x 10 = 14.6   ->  G
-       0.92 x 19 + 0.08 x 10 = 18.3   ->  B      = #0d0f12
+   Neutral on purpose: the brief was that cards should look like the sidebar,
+   and the sidebar is a flat grey. The navy in this app lives on the elements
+   that sit ON the cards — the gray-900 chips, buttons and badges — not in the
+   card surface itself. Keeping the surface neutral is what lets those read.
 
-   Mean channel ~15, the same as the sidebar's #0f0f0f, so it reads as equally
-   dark — but B sits 5 above R, so the navy is still visibly there.
-
-   To go warmer or cooler, move only B: 17 is subtle, 22 is the old strength.
    Borders, blur and hover are untouched — only the fill moves. */
 .dark {
-  --glass-bg: rgba(13, 15, 19, 0.92);
+  --glass-bg: rgba(15, 15, 15, 0.92);
 }
 
 /* ── Make the lime pop ───────────────────────────────────────────────────────
