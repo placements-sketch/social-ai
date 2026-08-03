@@ -375,11 +375,22 @@ class Channel(db.Model):
         has_messages = (stats.get('message_count', 0) or 0) > 0
         connected = bool(credentials_set) or has_messages
         
+        # Whether we can actually deliver a reply here. Facebook, WhatsApp and
+        # TikTok have stub dispatchers, so the toggle is refused for them — the
+        # UI reads this to show the control as unavailable rather than letting
+        # someone click it and get an error back.
+        try:
+            from app.services import SENDABLE_CHANNELS
+            can_send = self.channel in SENDABLE_CHANNELS
+        except Exception:
+            can_send = True
+
         return {
             'id': self.id,
             'channel': self.channel,
             'display_name': self.display_name,
             'enabled': self.enabled,
+            'can_send': can_send,
             'connected': connected,
             'credentials_set': bool(credentials_set),
             'webhook_url': webhook_url,

@@ -220,14 +220,21 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
           }
         </button>
 
-        {/* Toggle */}
+        {/* Toggle. Disabled outright for channels we cannot send on — the
+            server refuses those anyway, and offering a control that always
+            errors is worse than showing it as unavailable. */}
         <button
           onClick={() => onToggle(ch.id, ch.enabled)}
+          disabled={ch.can_send === false}
           className={clsx(
             'relative inline-flex w-10 h-5 rounded-full transition-colors duration-200 shrink-0',
-            ch.enabled ? 'bg-black' : 'bg-gray-200'
+            ch.can_send === false
+              ? 'bg-gray-200 opacity-50 cursor-not-allowed'
+              : (ch.enabled ? 'bg-black' : 'bg-gray-200')
           )}
-          title={ch.enabled ? 'Disable' : 'Enable'}
+          title={ch.can_send === false
+            ? `Sending on ${ch.display_name} isn't built yet, so it can't be switched on`
+            : (ch.enabled ? 'Disable' : 'Enable')}
         >
           <span
             className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-300"

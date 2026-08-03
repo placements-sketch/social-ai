@@ -54,6 +54,40 @@ SEGMENT_ACTIONS = {
 # ─────────────────────────────────────────────
 # RFM Segmentation
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Role guards
+# ─────────────────────────────────────────────
+# Every route here carried @jwt_required() and nothing else. The page was taken
+# out of the sidebar while it waits for a proper pass, but removing a link is
+# not removing access: any signed-in agent could request /api/customers and read
+# the whole customer list — names, emails and gross lifetime spend — or POST
+# /customers/sync to kick off a full Shopify sync.
+#
+# Reads are admin + supervisor, matching the nav entry this page had before it
+# was parked. Writes (a Shopify sync, an RFM recompute) are admin.
+# Same shape as app/channels.py and app/ai_settings.py — one rule, expressed
+# identically, so they cannot drift apart.
+
+def _require_role(*roles):
+    """Return (user, None) when the caller holds one of `roles`, else (None, response)."""
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return None, (jsonify({'error': 'User not found'}), 404)
+    if user.role not in roles:
+        return None, (jsonify({'error': 'Forbidden'}), 403)
+    return user, None
+
+
+def _require_admin():
+    """Syncing or recomputing rewrites the whole customer cache."""
+    return _require_role('admin')
+
+
+def _require_viewer():
+    """Reading customer records. Supervisors oversee the floor, so they may look."""
+    return _require_role('admin', 'supervisor')
+
+
 def _truncate(value, max_len):
     """Coerce to string and clip to max_len. None → None."""
     if value is None:
@@ -219,6 +253,10 @@ def _serialize_customer(c, vip_threshold):
 @customers_bp.route('/customers', methods=['GET'])
 @jwt_required()
 def list_customers():
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     page = max(1, request.args.get('page', default=1, type=int))
     per_page = min(MAX_PER_PAGE, max(1, request.args.get('per_page', default=DEFAULT_PER_PAGE, type=int)))
     search = request.args.get('search', type=str)
@@ -280,7 +318,13 @@ def customers_overview():
     All KPIs computed in SQL — no full-table loads. Top-N queries fetch
     only the 5 rows we display. Segment counts are computed in Python from
     a stream of small batches so peak memory stays bounded.
+
+    Admin + supervisor only — these are aggregate revenue figures.
     """
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     # ── Empty-state short-circuit ────────────────────────────────────────
     total = CustomerCache.query.count()
     if total == 0:
@@ -481,6 +525,10 @@ def customers_overview():
 @customers_bp.route('/customers/<int:customer_id>', methods=['GET'])
 @jwt_required()
 def get_customer(customer_id):
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     c = CustomerCache.query.get(customer_id)
     if not c:
         return jsonify({'error': 'Customer not found'}), 404
@@ -495,6 +543,10 @@ def customer_profile(customer_id):
     RFM tiles, customer-since, spend-over-time (by month), spend-by-brand,
     top items purchased, and the segment's suggested action.
     """
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     c = CustomerCache.query.get(customer_id)
     if not c:
         return jsonify({'error': 'Customer not found'}), 404
@@ -576,6 +628,10 @@ def customer_profile(customer_id):
 @jwt_required()
 def customer_orders(customer_id):
     """Order history from local orders_cache (synced separately via /api/orders/sync)."""
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     from app.models import OrderCache
 
     c = CustomerCache.query.get(customer_id)
@@ -623,9 +679,11 @@ def sync_customers():
     Returns 202 + job_id immediately. Frontend polls /api/customers/sync/status
     to see when it's done.
     """
-    current_user = AuthUser.query.get(current_user_id())
-    if current_user is None:
-        return jsonify({'error': 'User not found'}), 404
+    # Existence was checked here, but not role — so any signed-in agent could
+    # start a full Shopify customer sync.
+    current_user, _err = _require_admin()
+    if _err:
+        return _err
 
     # Capture the user ID as a plain int — safe to use inside the background
     # thread where the ORM object would be detached.
@@ -771,6 +829,10 @@ def sync_customers():
 @customers_bp.route('/customers/sync/status', methods=['GET'])
 @jwt_required()
 def customers_sync_status():
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     last = db.session.query(func.max(CustomerCache.cached_at)).scalar()
     count = CustomerCache.query.count()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
@@ -789,9 +851,11 @@ def customers_sync_status():
 @customers_bp.route('/customers/recompute-rfm', methods=['POST'])
 @jwt_required()
 def recompute_rfm_endpoint():
-    current_user = AuthUser.query.get(current_user_id())
-    if not current_user or current_user.role not in ('admin', 'supervisor'):
-        return jsonify({'error': 'Not authorized'}), 403
+    # Was admin+supervisor. This rewrites the RFM scores on every customer row,
+    # which is a write, and every other write in this file is admin.
+    _user, _err = _require_admin()
+    if _err:
+        return _err
     recompute_rfm()
     scored = db.session.query(func.count(CustomerCache.id)).filter(CustomerCache.rfm_r.isnot(None)).scalar()
     return jsonify({'scored': scored}), 200
@@ -835,6 +899,10 @@ def customer_trends():
       revenue_by_segment  — total spend grouped by segment (where money comes from)
       recency_buckets     — count of buyers by days-since-last-order buckets
     """
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
     # Revenue contribution by segment.
     seg_rows = db.session.execute(db.text("""
         SELECT segment, COALESCE(SUM(total_spent), 0) AS revenue, COUNT(*) AS customers

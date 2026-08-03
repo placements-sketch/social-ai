@@ -160,7 +160,9 @@ def _dashboard_url() -> str:
     deployment, so it is a sound second choice; if neither is set we drop the
     button entirely rather than render a dead one.
     """
-    for var in ('FRONTEND_URL', 'PUBLIC_BASE_URL', 'APP_BASE_URL'):
+    # FRONTEND_BASE_URL is the name this deployment actually uses — checking
+    # only FRONTEND_URL is why this fell through to the API host.
+    for var in ('FRONTEND_URL', 'FRONTEND_BASE_URL', 'APP_BASE_URL', 'PUBLIC_BASE_URL'):
         val = (os.getenv(var) or '').strip().rstrip('/')
         if val:
             return val

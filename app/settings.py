@@ -223,7 +223,21 @@ def test_discord():
 def read_settings():
     if not _require_admin():
         return jsonify({'error': 'Only admins can view settings'}), 403
-    return jsonify({'settings': get_settings()}), 200
+    cfg = discord_config()
+    return jsonify({
+        'settings': get_settings(),
+        # The webhook URL can come from the settings row OR from the
+        # DISCORD_WEBHOOK_URL environment variable, and discord_config()
+        # resolves both. The page was reading the stored blob directly, so a
+        # webhook configured by env showed as "not delivering" when alerts were
+        # in fact going out. The resolved answer is reported here instead of
+        # being re-derived — badly — in the UI.
+        'resolved': {
+            'discord_delivering': bool(cfg['url'] and cfg['enabled']),
+            'discord_url_source': ('settings' if (get_section('notifications').get('discord_webhook_url') or '').strip()
+                                   else ('env' if cfg['url'] else None)),
+        },
+    }), 200
 
 
 @settings_bp.route('/settings/timezones', methods=['GET'])

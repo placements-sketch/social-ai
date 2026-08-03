@@ -26,6 +26,9 @@ export default function Settings({ embedded = false }) {
   const [integrations, setIntegrations] = useState(null)
   const [intLoading, setIntLoading] = useState(true)
   const [intError, setIntError] = useState(null)
+  // Values the server resolves from settings + environment together, which the
+  // form fields alone cannot determine.
+  const [resolved, setResolved] = useState(null)
 
   useEffect(() => {
     const load = async () => {
@@ -35,6 +38,7 @@ export default function Settings({ embedded = false }) {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to load settings')
         setSettings(data.settings)
+        setResolved(data.resolved || null)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -139,7 +143,7 @@ export default function Settings({ embedded = false }) {
           ) : tab === 'delivery' ? (
             <DeliveryPanel settings={settings} setSettings={setSettings} />
           ) : tab === 'notifications' ? (
-            <NotificationsPanel settings={settings} setSettings={setSettings} />
+            <NotificationsPanel settings={settings} setSettings={setSettings} resolved={resolved} />
           ) : tab === 'danger' ? (
             <DangerPanel settings={settings} setSettings={setSettings} />
           ) : (
@@ -948,10 +952,14 @@ function Toggle({ on, onChange }) {
   )
 }
 
-function NotificationsPanel({ settings, setSettings }) {
+function NotificationsPanel({ settings, setSettings, resolved }) {
   const n = settings?.notifications || {}
   const [enabled, setEnabled] = useState(n.discord_enabled ?? true)
   const [url, setUrl] = useState(n.discord_webhook_url ?? '')
+  // Server-resolved: covers a webhook supplied by environment variable, which
+  // the form field cannot see.
+  const delivering = resolved?.discord_delivering ?? false
+  const fromEnv = resolved?.discord_url_source === 'env'
   const [severity, setSeverity] = useState(n.discord_min_severity ?? 'warning')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -989,15 +997,16 @@ function NotificationsPanel({ settings, setSettings }) {
 
   return (
     <div className="card rounded-2xl p-5 sm:p-6">
-      {/* Enabled with no webhook URL means alerts are switched on and going
-          nowhere — worth saying in the header rather than leaving you to spot
-          an empty field. */}
+      {/* Whether alerts are actually going out. The webhook URL can come from
+          this form OR from the DISCORD_WEBHOOK_URL environment variable, so
+          judging it on the form field alone reported "not delivering" while
+          alerts were in fact being sent. The server resolves both and says. */}
       <PanelHeader icon={Bell} title="Notifications"
         desc="Where operational alerts go when syncs fail or run long."
         aside={<HeaderStat
-                 label={enabled && url.trim() ? 'alerts on' : 'not delivering'}
-                 value={enabled && url.trim() ? severity : 'off'}
-                 tone={enabled && !url.trim() ? 'warn' : 'default'} />} />
+                 label={delivering ? 'alerts on' : 'not delivering'}
+                 value={delivering ? severity : 'off'}
+                 tone={enabled && !delivering ? 'warn' : 'default'} />} />
 
       <div className="flex items-center justify-between py-3 border-b border-gray-100 mb-4">
         <div className="min-w-0 pr-3">
@@ -1011,7 +1020,15 @@ function NotificationsPanel({ settings, setSettings }) {
         <div>
           <label className={labelCls}>Webhook URL</label>
           <input className={`${inputCls} font-mono text-xs`} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/…" />
-          <p className="text-[11px] text-gray-400 mt-1.5">Leave blank to use the server's env-configured webhook, if any.</p>
+          {/* An empty field with alerts working reads as broken unless we say
+              where the webhook is coming from. */}
+          {fromEnv ? (
+            <p className="text-[11px] text-emerald-600 mt-1.5 font-medium">
+              Using the server's environment-configured webhook. Alerts are being delivered — enter a URL here only to override it.
+            </p>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-1.5">Leave blank to use the server's env-configured webhook, if any.</p>
+          )}
         </div>
         <div>
           <label className={labelCls}>Alert level</label>

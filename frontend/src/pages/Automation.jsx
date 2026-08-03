@@ -419,7 +419,7 @@ export default function Automation({ embedded = false }) {
       {showModal && (
         <ModalPortal>
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 fade-in">
-            <div className="glass pop-in rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+            <div className="glass glass-modal pop-in rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
@@ -509,7 +509,7 @@ export default function Automation({ embedded = false }) {
       {showEditModal && (
         <ModalPortal>
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 fade-in">
-            <div className="glass pop-in rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
+            <div className="glass glass-modal pop-in rounded-2xl shadow-2xl max-w-sm w-screen mx-4 p-6 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
                   <h2 className="text-lg font-bold text-gray-900">Edit Rule</h2>

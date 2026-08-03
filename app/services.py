@@ -1476,6 +1476,17 @@ def stamp_conversation_account(user_id: str, channel: str, account_id: str | Non
         log_event("warn", "services.stamp_account_failed", str(e))
 
 
+# Channels _dispatch_reply can actually deliver on. Everything else below is a
+# stub that logs and returns None — the reply is stored, the customer never sees
+# it. That is the MVP scope: Instagram DMs and Instagram comments.
+#
+# Declared here, beside the implementation it describes, and imported by
+# app/channels.py so a channel we cannot answer on cannot be switched on. A
+# channel being enabled means inbound is accepted, and accepting messages we are
+# structurally unable to reply to is worse than not listening at all.
+SENDABLE_CHANNELS = frozenset({'instagram_dm', 'instagram_comment'})
+
+
 def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | None = None, **kwargs) -> str | None:
     """
     Send the reply back to the customer through the right channel API.

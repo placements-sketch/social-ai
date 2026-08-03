@@ -255,6 +255,21 @@ def update_channel(channel_id):
     changes = {}
 
     if 'enabled' in data:
+        # A channel we cannot send on must not be switchable on. Facebook,
+        # WhatsApp and TikTok all have stub dispatchers: inbound is accepted and
+        # stored, replies are logged and never delivered. Enabling one means
+        # customers message a channel nobody can answer — the AI silently
+        # produces nothing and an agent's reply comes back "not delivered".
+        from app.services import SENDABLE_CHANNELS
+        if bool(data['enabled']) and channel.channel not in SENDABLE_CHANNELS:
+            return jsonify({
+                'error': f'{channel.display_name} cannot be enabled — sending on '
+                         f'this channel is not implemented yet, so customers '
+                         f'would get no reply. Instagram DMs and Instagram '
+                         f'comments are the channels currently supported.',
+                'reason': 'channel_not_sendable',
+            }), 409
+
         channel.enabled = bool(data['enabled'])
         changes['enabled'] = channel.enabled
 

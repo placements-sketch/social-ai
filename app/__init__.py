@@ -73,10 +73,29 @@ def create_app():
 
     # Enable CORS for frontend
     import os
+    # CORS_ORIGINS is the explicit list. When it isn't set, fall back to the
+    # frontend URL this deployment already knows about rather than blocking
+    # every cross-origin request — an unset variable was silently making the
+    # API unreachable from the very frontend it exists to serve, and the only
+    # sign was one warning line at boot.
     _cors_raw = os.getenv("CORS_ORIGINS", "").strip()
+    _source = "CORS_ORIGINS"
     if not _cors_raw:
-        app.logger.warning("CORS_ORIGINS not set — cross-origin requests will be blocked. Set it to your frontend URL.")
-    cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+        _cors_raw = ",".join(
+            v for v in (os.getenv("FRONTEND_BASE_URL", ""), os.getenv("FRONTEND_URL", ""))
+            if v and v.strip()
+        )
+        _source = "FRONTEND_BASE_URL / FRONTEND_URL"
+
+    cors_origins = [o.strip().rstrip("/") for o in _cors_raw.split(",") if o.strip()]
+
+    if not cors_origins:
+        app.logger.error(
+            "No CORS origins resolved — the API will reject every browser request. "
+            "Set CORS_ORIGINS (comma-separated) or FRONTEND_BASE_URL."
+        )
+    else:
+        app.logger.info("CORS origins (%s): %s", _source, ", ".join(cors_origins))
     CORS(
         app,
         resources={r"/api/*": {"origins": cors_origins}},

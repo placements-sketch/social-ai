@@ -1085,3 +1085,53 @@ No trailing slash — one is stripped either way. The email deep-links to
 `<FRONTEND_URL>/activity`.
 
 Nothing breaks if you skip this; the button just points at the API host.
+
+---
+
+### Step 18 — Turn off the channels we cannot reply on
+
+**Run this SQL. Then re-check Step 17 — it is probably already satisfied.**
+
+The MVP is Instagram DMs and Instagram comments. Facebook Messenger, Facebook
+comments, WhatsApp and TikTok all have **stub senders**: inbound is accepted and
+stored, but `_dispatch_reply` logs "not implemented" and returns nothing. A
+customer messaging one of those gets no AI reply, and an agent's reply comes
+back marked *not delivered*.
+
+The code now refuses to enable them — `PATCH /api/channels/<id>` returns 409 and
+the toggle renders as unavailable — but that does not switch off a channel that
+is **already** enabled in the database. This does.
+
+```sql
+-- What is on right now.
+SELECT id, channel, display_name, enabled
+  FROM channels
+ ORDER BY id;
+
+-- Disable everything outside the MVP.
+UPDATE channels
+   SET enabled = false,
+       updated_at = now()
+ WHERE channel NOT IN ('instagram_dm', 'instagram_comment')
+   AND enabled = true
+RETURNING id, channel, display_name;
+
+-- Confirm: only the two Instagram rows should read true.
+SELECT channel, display_name, enabled
+  FROM channels
+ ORDER BY enabled DESC, id;
+```
+
+Safe to re-run — the `AND enabled = true` means a second run updates nothing.
+
+Nothing is deleted. Inbound history on those channels stays exactly where it is,
+and re-enabling is a one-line update once a real sender is built for them.
+
+**On Step 17 (`FRONTEND_URL`):** the urgent-email button now falls back through
+`FRONTEND_URL` → `FRONTEND_BASE_URL` → `APP_BASE_URL` → `PUBLIC_BASE_URL`.
+`FRONTEND_BASE_URL` is already set, so the button resolves correctly without
+adding anything. Setting `FRONTEND_URL` is now optional.
+
+**On CORS:** `CORS_ORIGINS` now falls back to `FRONTEND_BASE_URL` when unset, so
+an unset variable no longer blocks the frontend. The app logs which source it
+used at boot — check that line says what you expect after deploying.
