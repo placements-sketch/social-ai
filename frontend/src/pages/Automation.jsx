@@ -248,6 +248,11 @@ export default function Automation({ embedded = false }) {
     setDragOverId(null)
   }
 
+  // Position in the sequence that will actually be evaluated. Disabled rules
+  // are skipped at runtime, so they take no number.
+  const runOrder = {}
+  rules.filter(r => r.enabled).forEach((r, idx) => { runOrder[r.id] = idx + 1 })
+
   return (
     /* When embedded in the AI & Automation tabs the parent already provides
        the page title and the width constraint, so repeating them here stacked
@@ -275,6 +280,18 @@ export default function Automation({ embedded = false }) {
         </div>
       )}
 
+      {/* Moved above the list. It used to sit underneath, so you read five
+          rules without knowing that only the first matching one runs — which
+          is the single most important thing about this page. */}
+      <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+        <p className="text-xs text-gray-600 leading-relaxed">
+          <span className="font-bold text-gray-800">Only the first matching rule runs.</span>{' '}
+          They are checked top to bottom, after the message's intent is worked out and
+          before the AI writes anything. Drag to reorder. Disabled rules are skipped
+          entirely.
+        </p>
+      </div>
+
       {loading ? (
         <div className="space-y-4 sm:space-y-6">
           <SkeletonList count={4} />
@@ -291,21 +308,35 @@ export default function Automation({ embedded = false }) {
               onDrop={(e) => handleDrop(e, rule.id)}
               onDragEnd={handleDragEnd}
               className={clsx(
-                'card p-2 sm:p-4 transition-all cursor-grab active:cursor-grabbing',
+                'card p-2 sm:p-4 transition-all',
+                // Only the grip is grabbable. The whole card was cursor-grab,
+                // so hovering anywhere — including over Edit and Delete —
+                // suggested you were about to drag something.
                 draggedId === rule.id && 'opacity-40 scale-95',
-                dragOverId === rule.id && draggedId !== rule.id && 'border border-brand-400 bg-brand-50'
+                dragOverId === rule.id && draggedId !== rule.id && 'ring-1 ring-brand-400',
+                // A disabled rule should look disabled, not merely have a grey
+                // number. It never runs; the row should say so at a glance.
+                !rule.enabled && 'opacity-55'
               )}
             >
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-3">
                 <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0 w-full">
                   <div className="flex items-center gap-2 shrink-0 self-start sm:self-center mt-1 sm:mt-0">
-                    <GripVertical size={14} className="text-gray-400 hover:text-gray-600 hidden sm:block" />
+                    <GripVertical size={14} className="text-gray-400 hover:text-gray-600 hidden sm:block cursor-grab active:cursor-grabbing" />
                   </div>
+                  {/* Numbered by the order it will actually be CHECKED, not by
+                      its position in the list. With rule 2 disabled the old
+                      badges read 1,2,3,4 — implying four things run, when the
+                      second never fires. A disabled rule gets a dash instead of
+                      a number it does not own. */}
                   <div className={clsx(
                     'w-6 h-6 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center text-xs sm:text-sm font-bold shrink-0',
                     rule.enabled ? 'bg-brand-50 text-brand-600' : 'bg-gray-100 text-gray-400'
-                  )}>
-                    {i + 1}
+                  )}
+                  title={rule.enabled
+                    ? `Checked ${runOrder[rule.id]}${runOrder[rule.id] === 1 ? 'st' : runOrder[rule.id] === 2 ? 'nd' : runOrder[rule.id] === 3 ? 'rd' : 'th'}`
+                    : 'Disabled — never checked'}>
+                    {rule.enabled ? runOrder[rule.id] : '—'}
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -341,8 +372,14 @@ export default function Automation({ embedded = false }) {
                   >
                     <Trash2 size={13} />
                   </button>
+                  <span className={clsx('text-[10px] font-bold uppercase tracking-wide hidden sm:inline',
+                    rule.enabled ? 'text-gray-400' : 'text-gray-400')}>
+                    {rule.enabled ? 'On' : 'Off'}
+                  </span>
                   <button
                     onClick={() => toggleRule(rule.id, rule.enabled)}
+                    aria-label={rule.enabled ? `Disable ${rule.name}` : `Enable ${rule.name}`}
+                    title={rule.enabled ? 'Disable this rule' : 'Enable this rule'}
                     className={`relative inline-flex w-10 sm:w-11 h-5 sm:h-6 rounded-full transition-colors duration-200 shrink-0 ${rule.enabled ? 'bg-brand-500' : 'bg-gray-300'}`}
                   >
                     <span
@@ -357,13 +394,6 @@ export default function Automation({ embedded = false }) {
         </div>
       )}
 
-      <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 sm:p-4">
-        <p className="text-xs text-brand-700 leading-relaxed font-medium">
-          <strong>Rules run in order</strong> — the first matching rule wins.
-          Disabled rules are skipped entirely.
-          Rules are evaluated after intent detection and before the AI generates a reply.
-        </p>
-      </div>
 
       {/* New Rule Modal */}
       {showModal && (
