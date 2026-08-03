@@ -1,12 +1,22 @@
 import { useState } from 'react'
 import { User, Lock, Save, Eye, EyeOff, ShieldCheck, Calendar } from 'lucide-react'
+import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
+import PresenceDot from '../components/PresenceDot'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const authHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${localStorage.getItem('authToken')}`,
 })
+
+// What each role actually permits. The badge said "admin" and left the reader
+// to guess what that bought them.
+const ROLE_BLURB = {
+  admin: 'Full access — settings, users, the assistant\u2019s behaviour and every conversation.',
+  supervisor: 'Oversees agents — sees every conversation and can assign work.',
+  agent: 'Answers the conversations assigned to you, and can claim unclaimed ones.',
+}
 
 const strengthOf = (pw) => {
   if (!pw) return null
@@ -53,8 +63,11 @@ export default function Profile() {
     if (name.length < 2) return setProfileMsg({ type: 'error', text: 'Full name must be at least 2 characters.' })
     const mail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setProfileMsg({ type: 'error', text: 'Enter a valid email address.' })
+    // Not an error — nothing was wrong, there was simply nothing to do. It was
+    // shown in red beside a red validation message, which taught people to read
+    // "you made a mistake" when they had not.
     if (name === (user?.full_name || '') && mail === (user?.email || ''))
-      return setProfileMsg({ type: 'error', text: 'Nothing to update.' })
+      return setProfileMsg({ type: 'info', text: 'No changes to save.' })
     setSavingProfile(true)
     try {
       const res = await fetch(`${API_BASE}/auth/me`, {
@@ -95,10 +108,16 @@ export default function Profile() {
     }
   }
 
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
+  // `input` is the shared class. This was a private copy of it that hardcoded
+  // bg-white and border-gray-200, so it drifted from every other field in the
+  // product and had to be maintained separately.
+  const inputCls = 'input w-full text-sm'
   const labelCls = 'block text-xs font-semibold text-gray-600 mb-1.5'
   const Feedback = ({ msg }) => msg
-    ? <p className={`text-xs mt-1 ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>
+    ? <p className={clsx('text-xs mt-1',
+        msg.type === 'success' ? 'text-green-600'
+          : msg.type === 'info' ? 'text-gray-500'
+          : 'text-red-600')}>{msg.text}</p>
     : null
 
   return (
@@ -116,7 +135,18 @@ export default function Profile() {
             )}
           </div>
           <p className="text-sm text-gray-500 mt-0.5 truncate">{user?.email}</p>
-          {memberSince && <p className="text-xs text-gray-400 mt-1.5">Member since {memberSince}</p>}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {/* Your own presence, so the dot on the Users page is explicable
+                rather than mysterious — this is what colleagues see of you. */}
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+              <PresenceDot status="online" size="sm" />
+              Online now
+            </span>
+            {memberSince && (
+              <span className="text-[11px] text-gray-400">· Member since {memberSince}</span>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">{ROLE_BLURB[user?.role] || ''}</p>
         </div>
       </div>
 

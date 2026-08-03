@@ -309,6 +309,30 @@ def update_user(user_id):
         new_role = data['role'].lower()
         if new_role not in ['admin', 'agent', 'supervisor']:
             return jsonify({'error': 'Invalid role'}), 400
+
+        # LOCKOUT GUARDS.
+        #
+        # Nothing stopped an admin demoting themselves, or demoting the last
+        # remaining admin. Either leaves the platform with no one able to
+        # manage users, settings or the assistant's behaviour — and no way back
+        # in through the interface, because every route that could undo it is
+        # itself admin-only. Recovering means editing the database by hand.
+        #
+        # delete_user already refuses self-deletion. This is the same class of
+        # mistake through a different door, and it was open.
+        if user.role == 'admin' and new_role != 'admin':
+            if user.id == current_user.id:
+                return jsonify({'error': "You cannot change your own role. "
+                                         "Ask another admin to do it."}), 400
+            remaining = (AuthUser.query
+                         .filter(AuthUser.role == 'admin',
+                                 AuthUser.status == 'active',
+                                 AuthUser.id != user.id)
+                         .count())
+            if remaining == 0:
+                return jsonify({'error': "This is the only active admin. "
+                                         "Promote someone else first."}), 400
+
         user.role = new_role
         changes['role'] = user.role
 
@@ -316,6 +340,21 @@ def update_user(user_id):
         new_status = data['status'].lower()
         if new_status not in ['active', 'inactive', 'suspended']:
             return jsonify({'error': 'Invalid status'}), 400
+
+        # Deactivating is demotion by another name where lockout is concerned.
+        if (user.role == 'admin' and new_status != 'active'
+                and user.status == 'active'):
+            if user.id == current_user.id:
+                return jsonify({'error': "You cannot deactivate your own "
+                                         "account."}), 400
+            remaining = (AuthUser.query
+                         .filter(AuthUser.role == 'admin',
+                                 AuthUser.status == 'active',
+                                 AuthUser.id != user.id)
+                         .count())
+            if remaining == 0:
+                return jsonify({'error': "This is the only active admin. "
+                                         "Promote someone else first."}), 400
         user.status = new_status
         changes['status'] = user.status
 
