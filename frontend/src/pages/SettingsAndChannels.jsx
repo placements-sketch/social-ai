@@ -14,7 +14,12 @@ const TABS = [
 
 export default function SettingsAndChannels() {
   const [params, setParams] = useSearchParams()
-  const initial = params.get('tab') === 'channels' ? 'channels' : 'settings'
+  // Derived from TABS rather than a hardcoded comparison. The old line only
+  // recognised 'channels', so /settings?tab=diagnostics silently opened
+  // General — the third tab could not be linked or bookmarked at all, and
+  // adding a fourth would have failed the same way without a word.
+  const requested = params.get('tab')
+  const initial = TABS.some(t => t.key === requested) ? requested : 'settings'
   const [tab, setTab] = useState(initial)
 
   const select = (key) => {

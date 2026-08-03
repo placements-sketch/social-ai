@@ -24,7 +24,20 @@ PAGE_ID    = "115573226545299"     # Shop Zetu Page
 
 
 def _require_admin():
-    return (get_jwt() or {}).get('role') == 'admin'
+    """
+    Read the role from the database, not from the token.
+
+    This used to be `get_jwt().get('role') == 'admin'`. The role is stamped into
+    the access token at login and those live 24 hours, so demoting an admin left
+    them with admin access to these routes — which proxy the Graph API using our
+    page token and can rewrite webhook subscriptions — until the token aged out.
+    Every other module in the app resolves the role against AuthUser, so
+    demotion took effect immediately everywhere except here.
+    """
+    from app.models import AuthUser
+    from app.auth import current_user_id
+    user = AuthUser.query.get(current_user_id())
+    return bool(user and user.role == 'admin' and user.status == 'active')
 
 
 def _proxy(url, params):

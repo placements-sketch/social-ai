@@ -23,6 +23,10 @@ export default function Settings({ embedded = false }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const [integrations, setIntegrations] = useState(null)
+  const [intLoading, setIntLoading] = useState(true)
+  const [intError, setIntError] = useState(null)
+
   useEffect(() => {
     const load = async () => {
       setLoading(true)
@@ -39,6 +43,27 @@ export default function Settings({ embedded = false }) {
     }
     load()
   }, [])
+
+  const loadIntegrations = async () => {
+    setIntLoading(true); setIntError(null)
+    try {
+      const res = await fetch(`${API_BASE}/settings/integrations`, { headers: authHeaders() })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed to load')
+      setIntegrations(d.integrations)
+    } catch (err) { setIntError(err.message) } finally { setIntLoading(false) }
+  }
+  useEffect(() => { loadIntegrations() }, [])
+
+  // Which tabs are currently asking for attention. The rail was six identical
+  // buttons: to learn that Shopify hadn't synced in a month you had to guess
+  // which tab to open. A stale feed or a dying token is exactly the thing you
+  // came here to find, so it belongs in the navigation, not behind it.
+  const mt = integrations?.meta, sh = integrations?.shopify
+  const tabAlerts = {
+    integrations: (sh?.stale || sh?.failed_recently > 0 ||
+                   mt?.token_expired || mt?.token_expiring_soon || mt?.connected === false) || false,
+  }
 
   const activeTab = TABS.find(t => t.id === tab)
 
@@ -59,7 +84,7 @@ export default function Settings({ embedded = false }) {
       <div className="flex flex-col md:flex-row gap-5">
         {/* Tab rail */}
         <div className="md:w-60 shrink-0">
-          <div className="bg-white rounded-2xl border border-gray-200 p-1.5 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible hide-scrollbar">
+          <div className="card rounded-2xl p-1.5 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible hide-scrollbar">
             {TABS.map(t => {
               const Icon = t.icon
               const active = tab === t.id
@@ -76,7 +101,16 @@ export default function Settings({ embedded = false }) {
                   )}
                 >
                   <Icon size={16} className="shrink-0" />
-                  <span>{t.label}</span>
+                  <span className="flex-1">{t.label}</span>
+                  {tabAlerts[t.id] && (
+                    <span
+                      title="Needs attention"
+                      className={clsx(
+                        'w-1.5 h-1.5 rounded-full shrink-0',
+                        active ? 'bg-white' : 'bg-amber-500'
+                      )}
+                    />
+                  )}
                 </button>
               )
             })}
@@ -92,7 +126,8 @@ export default function Settings({ embedded = false }) {
           ) : tab === 'handoff' ? (
             <HandoffPanel settings={settings} setSettings={setSettings} />
           ) : tab === 'integrations' ? (
-            <IntegrationsPanel />
+            <IntegrationsPanel data={integrations} loading={intLoading}
+                               error={intError} reload={loadIntegrations} />
           ) : tab === 'business' ? (
             <BusinessPanel settings={settings} setSettings={setSettings} />
           ) : tab === 'delivery' ? (
@@ -356,7 +391,7 @@ function DangerPanel({ settings, setSettings }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+      <div className="card rounded-2xl p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-bold text-gray-900">Export configuration</p>
@@ -415,7 +450,7 @@ function DangerPanel({ settings, setSettings }) {
 
 function PanelSkeleton() {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6 animate-pulse">
+    <div className="card rounded-2xl p-5 sm:p-6 animate-pulse">
       <div className="flex items-start gap-3 pb-4 mb-5 border-b border-gray-100">
         <div className="w-10 h-10 rounded-xl bg-gray-200 shrink-0" />
         <div className="flex-1 space-y-2 pt-1">
@@ -463,6 +498,14 @@ function HandoffPanel({ settings, setSettings }) {
   const [bridging, setBridging] = useState(h.bridging_reply ?? '')
   const [unclaimedMins, setUnclaimedMins] = useState(h.unclaimed_alert_minutes ?? 15)
   const [agentWaitMins, setAgentWaitMins] = useState(h.agent_waiting_minutes ?? 10)
+  // Both of these were live behaviour with no way to see or change them: a
+  // nightly job closes conversations idle past auto_resolve_days, and a reply
+  // arriving within reopen_resolved_within_hours re-opens a resolved chat
+  // instead of forking a new one. Real rules acting on real conversations,
+  // decided by a constant nobody could read off the page.
+  const [autoResolve, setAutoResolve] = useState(h.auto_resolve_days ?? 14)
+  const [reopenHours, setReopenHours] = useState(
+    settings?.conversations?.reopen_resolved_within_hours ?? 24)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
 
@@ -479,6 +522,10 @@ function HandoffPanel({ settings, setSettings }) {
     const aw = parseInt(agentWaitMins, 10)
     if (!Number.isFinite(um) || um < 1 || um > 1440) return setMsg({ type: 'error', text: 'Unclaimed alert must be 1–1440 minutes.' })
     if (!Number.isFinite(aw) || aw < 1 || aw > 1440) return setMsg({ type: 'error', text: 'Agent wait flag must be 1–1440 minutes.' })
+    const ar = parseInt(autoResolve, 10)
+    const rh = parseInt(reopenHours, 10)
+    if (!Number.isFinite(ar) || ar < 0 || ar > 365) return setMsg({ type: 'error', text: 'Auto-resolve must be 0–365 days (0 turns it off).' })
+    if (!Number.isFinite(rh) || rh < 0 || rh > 720) return setMsg({ type: 'error', text: 'Re-open window must be 0–720 hours (0 always starts a new chat).' })
     if (!bridging.trim()) return setMsg({ type: 'error', text: 'The handoff message cannot be empty.' })
 
     setSaving(true)
@@ -487,8 +534,8 @@ function HandoffPanel({ settings, setSettings }) {
         method: 'PATCH', headers: authHeaders(),
         body: JSON.stringify({ handoff: {
           max_agent_load: ml, presence_window_seconds: pw, bridging_reply: bridging.trim(),
-          unclaimed_alert_minutes: um, agent_waiting_minutes: aw,
-        } }),
+          unclaimed_alert_minutes: um, agent_waiting_minutes: aw, auto_resolve_days: ar,
+        }, conversations: { reopen_resolved_within_hours: rh } }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to save')
@@ -502,7 +549,7 @@ function HandoffPanel({ settings, setSettings }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+    <div className="card rounded-2xl p-5 sm:p-6">
       <PanelHeader
         icon={Sliders}
         title="Handoff & assignment"
@@ -546,6 +593,35 @@ function HandoffPanel({ settings, setSettings }) {
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">minutes</span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1.5">A customer waiting this long on an agent who owns the chat shows in that agent's Needs Attention panel.</p>
+        </div>
+      </div>
+
+      <div className="border-t border-gray-200/70 dark:border-white/10 pt-5 mb-5">
+        <p className="text-xs font-semibold text-gray-900 mb-1">Conversation lifecycle</p>
+        <p className="text-[11px] text-gray-400 mb-4">
+          When a chat closes itself, and when a returning customer continues the old thread instead of starting a new one.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Auto-resolve silent chats after</label>
+            <div className="relative">
+              <input className={`${inputCls} pr-14`} type="number" min="0" max="365" value={autoResolve} onChange={e => setAutoResolve(e.target.value)} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">days</span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              Only closes chats where <span className="font-medium text-gray-500">we</span> spoke last — if the customer is still waiting on a reply it stays open. 0 turns auto-resolve off.
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Re-open a resolved chat within</label>
+            <div className="relative">
+              <input className={`${inputCls} pr-16`} type="number" min="0" max="720" value={reopenHours} onChange={e => setReopenHours(e.target.value)} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">hours</span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              A reply this soon after resolving continues the same conversation. Later, it starts a fresh one. 0 always starts fresh.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -616,7 +692,7 @@ function BusinessPanel({ settings, setSettings }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+      <div className="card rounded-2xl p-5 sm:p-6">
         <PanelHeader icon={Store} title="Business info"
           desc="Details your assistant uses when customers ask about hours or how to reach you. Shop Zetu is online-only." />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
@@ -787,7 +863,7 @@ function DeliveryPanel({ settings, setSettings }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+    <div className="card rounded-2xl p-5 sm:p-6">
       <PanelHeader icon={Truck} title="Delivery & orders"
         desc="Delivery zones and rates your assistant quotes when customers ask about shipping." />
 
@@ -880,7 +956,7 @@ function NotificationsPanel({ settings, setSettings }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+    <div className="card rounded-2xl p-5 sm:p-6">
       <PanelHeader icon={Bell} title="Notifications" desc="Where operational alerts go when syncs fail or run long." />
 
       <div className="flex items-center justify-between py-3 border-b border-gray-100 mb-4">
@@ -956,7 +1032,7 @@ function Row({ label, value, mono }) {
 
 function IntegrationCard({ icon: Icon, name, ok, warn, children }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-5">
+    <div className="card rounded-2xl p-4 sm:p-5">
       <div className="flex items-center justify-between mb-2.5 gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center text-gray-700 shrink-0">
@@ -971,22 +1047,10 @@ function IntegrationCard({ icon: Icon, name, ok, warn, children }) {
   )
 }
 
-function IntegrationsPanel() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-
-  const load = async () => {
-    setLoading(true); setError(null)
-    try {
-      const res = await fetch(`${API_BASE}/settings/integrations`, { headers: authHeaders() })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error || 'Failed to load')
-      setData(d.integrations)
-    } catch (err) { setError(err.message) } finally { setLoading(false) }
-  }
-  useEffect(() => { load() }, [])
-
+// State lives in Settings so the tab rail can flag a problem without you having
+// to open the tab to find out there is one. Same single request either way.
+function IntegrationsPanel({ data, loading, error, reload }) {
+  const load = reload
   const m = data?.meta, s = data?.shopify, b = data?.brevo
 
   return (
@@ -1012,13 +1076,29 @@ function IntegrationsPanel() {
         <PanelSkeleton />
       ) : (
         <>
-          <IntegrationCard icon={Instagram} name="Meta · Instagram" ok={m?.connected}>
+          <IntegrationCard icon={Instagram} name="Meta · Instagram"
+                           ok={m?.connected} warn={m?.token_expiring_soon || m?.token_expired}>
             {m?.connected ? (
               <>
                 {m.page_name && <Row label="Page" value={m.page_name} />}
                 {m.ig_username && <Row label="Instagram" value={`@${m.ig_username}`} />}
                 {m.source === 'env' && <Row label="Source" value="Legacy env token" />}
-                {m.token_expires_at && <Row label="Token expires" value={fmtDate(m.token_expires_at)} />}
+                {m.token_expires_at && (
+                  <Row label="Token expires"
+                       value={`${fmtDate(m.token_expires_at)}${
+                         m.token_days_left != null && m.token_days_left >= 0
+                           ? ` · ${m.token_days_left}d left` : ''}`} />
+                )}
+                {m.token_expired && (
+                  <p className="text-[11px] text-red-600 mt-1.5">
+                    This token has expired — Instagram messages are not being sent or received. Reconnect the account.
+                  </p>
+                )}
+                {m.token_expiring_soon && !m.token_expired && (
+                  <p className="text-[11px] text-amber-600 mt-1.5">
+                    Expires in {m.token_days_left} day{m.token_days_left === 1 ? '' : 's'}. A daily job refreshes this — if it's still falling, that job has been failing.
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-xs text-gray-500 py-1">Not connected. Link a Facebook Page and Instagram account through Facebook Login.</p>
@@ -1031,7 +1111,19 @@ function IntegrationsPanel() {
                 <Row label="Products synced" value={fmtAgo(s.last_sync?.products)} />
                 <Row label="Orders synced" value={fmtAgo(s.last_sync?.orders)} />
                 <Row label="Customers synced" value={fmtAgo(s.last_sync?.customers)} />
-                {s.recent_failed && <p className="text-[11px] text-amber-600 mt-1.5">The most recent sync job failed — check Logs.</p>}
+                {/* Name the feed and the number. "Something failed" sends you
+                    to the Logs to work out what; "Orders and products haven't
+                    synced in over 9h" tells you where to look before you go. */}
+                {s.stale && (
+                  <p className="text-[11px] text-amber-600 mt-1.5">
+                    {s.stale_kinds.join(' and ')} {s.stale_kinds.length === 1 ? 'has' : 'have'} not synced in over {s.stale_after_hours}h — syncs are scheduled every 3h.
+                  </p>
+                )}
+                {s.failed_recently > 0 && (
+                  <p className="text-[11px] text-amber-600 mt-1.5">
+                    {s.failed_recently} sync {s.failed_recently === 1 ? 'job' : 'jobs'} failed in the last 24h — check Logs.
+                  </p>
+                )}
                 <WebhookRegister />
               </>
             ) : (
@@ -1055,7 +1147,7 @@ function IntegrationsPanel() {
 function ComingSoon({ tab }) {
   const Icon = tab?.icon || Settings2
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
+    <div className="card rounded-2xl p-10 text-center">
       <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 mx-auto mb-3">
         <Icon size={22} />
       </div>

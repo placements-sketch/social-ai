@@ -50,6 +50,37 @@ CHANNEL_CREDENTIAL_KEYS = {
 
 
 # ─────────────────────────────────────────────
+# Role guards
+# ─────────────────────────────────────────────
+# Every route in this file carried @jwt_required() and nothing more, so any
+# signed-in account — including an agent — could PATCH a channel. Turning off
+# Instagram DMs is the widest switch on the platform: it stops the AI answering
+# on that channel and takes the channel down with it. The tab is admin-only in
+# the UI, but a hidden button is not a permission check; the same gap has now
+# turned up on four pages, so it gets the same shape of fix each time.
+# Mirrors app/ai_settings.py deliberately — one rule, expressed identically.
+
+def _require_role(*roles):
+    """Return (user, None) when the caller holds one of `roles`, else (None, response)."""
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return None, (jsonify({'error': 'User not found'}), 404)
+    if user.role not in roles:
+        return None, (jsonify({'error': 'Forbidden'}), 403)
+    return user, None
+
+
+def _require_admin():
+    """Enabling or disabling a channel, or spending a test send, is an admin call."""
+    return _require_role('admin')
+
+
+def _require_viewer():
+    """Reading channel health. Supervisors oversee the floor, so they may look."""
+    return _require_role('admin', 'supervisor')
+
+
+# ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
 
@@ -159,6 +190,10 @@ def list_channels():
       "public_base_url": "https://..."
     }
     """
+    _user, denied = _require_viewer()
+    if denied:
+        return denied
+
     channels = Channel.query.order_by(Channel.id.asc()).all()
     keys = [c.channel for c in channels]
     stats = _stats_for_channels(keys) if keys else {}
@@ -181,6 +216,10 @@ def list_channels():
 @jwt_required()
 def get_channel(channel_id):
     """Single channel detail."""
+    _user, denied = _require_viewer()
+    if denied:
+        return denied
+
     channel = Channel.query.get(channel_id)
     if not channel:
         return jsonify({'error': 'Channel not found'}), 404
@@ -204,9 +243,9 @@ def update_channel(channel_id):
     Body:
     { "enabled": false }
     """
-    current_user = AuthUser.query.get(current_user_id())
-    if not current_user:
-        return jsonify({'error': 'User not found'}), 404
+    current_user, denied = _require_admin()
+    if denied:
+        return denied
 
     channel = Channel.query.get(channel_id)
     if not channel:
@@ -282,9 +321,11 @@ def test_channel(channel_id):
     import os
     import requests as _requests
 
-    current_user = AuthUser.query.get(current_user_id())
-    if not current_user:
-        return jsonify({'error': 'User not found'}), 404
+    # An outbound call to Meta with our token, recorded against the caller.
+    # Admin, same as every other write here.
+    current_user, denied = _require_admin()
+    if denied:
+        return denied
 
     channel = Channel.query.get(channel_id)
     if not channel:

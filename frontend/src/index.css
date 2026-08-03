@@ -620,6 +620,35 @@ button:not(:disabled):active,
 .dark .border-brand-100  { border-color: rgba(199, 234, 70, 0.22); }
 .dark .border-brand-300  { border-color: rgba(199, 234, 70, 0.35); }
 
+/* -300 borders, same reasoning one shade further up. Settings' danger-zone
+   input and the AI-off banner both sit on a remapped dark tint while keeping a
+   #fca5a5 / #fcd34d pastel edge — a bright ring around a dark panel. */
+.dark .border-amber-300  { border-color: rgba(245, 158, 11, 0.38); }
+.dark .border-red-300    { border-color: rgba(239, 68, 68, 0.38); }
+
+/* text-red-900 is the darkest red Tailwind ships (#7f1d1d). It titles the
+   "Reset all settings" block, which sits on bg-red-50 — and bg-red-50 IS
+   remapped to a near-black tint, so the heading of the most destructive
+   control on the page was near-black on near-black. */
+.dark .text-red-900     { color: #f87171; }
+
+/* bg-gray-900 is the app's "solid dark chip" idiom: primary buttons, and the
+   ACTIVE state of the period pills on Dashboard, Analytics and Messages. Its
+   hover was already remapped (.dark .hover\:bg-gray-900:hover, above) but the
+   resting state never was. #111827 on the dark card surface (~#101114) is about
+   1.05:1 — the white label stays perfectly readable, but the chip's *shape*
+   disappears, so in dark mode nothing showed which period was selected until
+   you hovered it. Matched to bg-black, which these same buttons already pair
+   with (Dashboard uses `bg-black hover:bg-gray-900` on one element). */
+.dark .bg-gray-900 { background-color: var(--brand); }
+.dark .bg-gray-900.text-white,
+.dark .bg-gray-900 .text-white { color: #0a0a0a; }
+/* Exception: paired with text-gray-100 this is not a chip, it's a deliberate
+   dark code surface — the raw-JSON dumps in Meta Diagnostics. Those are already
+   correct in dark mode and the rule above would turn them lime with pale grey
+   text on top. Kept dark, only nudged to sit on the neutral ramp. */
+.dark .bg-gray-900.text-gray-100 { background-color: #16181d; color: #e5e5e5; }
+
 /* Tints still missing from the set above. */
 .dark .bg-blue-50    { background-color: rgba(59, 130, 246, 0.12); }
 .dark .bg-blue-100   { background-color: rgba(59, 130, 246, 0.18); }

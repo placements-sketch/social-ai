@@ -97,6 +97,29 @@ def create_app():
     def missing_token_callback(error):
         return jsonify({'error': 'Missing authorization token'}), 401
 
+    # Deactivating an account has to end the session, not just block the next
+    # login. Access tokens live 24 hours, and nothing in the request path used
+    # to look at `status`, so a deactivated admin kept working — settings,
+    # channels, the Graph API proxy — for up to a day after being switched off.
+    # Offboarding is the whole point of that control on the Users page.
+    #
+    # This runs on every @jwt_required() route, so the rule holds in one place
+    # rather than needing a status check added to each of them (and remembered
+    # for every route added later). Deleted accounts fail here too.
+    @jwt.token_in_blocklist_loader
+    def account_no_longer_active(jwt_header, jwt_data):
+        from app.models import AuthUser
+        try:
+            uid = jwt_data.get('sub')
+            user = AuthUser.query.get(int(uid)) if uid is not None else None
+        except (TypeError, ValueError):
+            return True
+        return (user is None) or (user.status != 'active')
+
+    @jwt.revoked_token_loader
+    def revoked_token_callback(jwt_header, jwt_data):
+        return jsonify({'error': 'This account is no longer active. Please sign in again.'}), 401
+
     # Register blueprints
     try:
         from app.routes import bp

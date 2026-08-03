@@ -5,7 +5,7 @@ Consumers read via get_section(); values fall back to env/hardcoded defaults
 until an admin overrides them, so behavior is unchanged out of the box.
 """
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 
@@ -236,6 +236,25 @@ def list_timezones():
     return jsonify({'timezones': sorted(available_timezones())}), 200
 
 
+# Bounds for every numeric setting, checked server-side.
+#   section, key -> (label, minimum, maximum, what 0 means if it is allowed)
+# The form already range-checks these, but a form is not a boundary: the PATCH
+# route accepts any JSON, and each of these is read back through int() inside a
+# background job — auto-assignment, the unclaimed-alert sweep, the auto-resolve
+# cron. A string that int() can't parse doesn't fail here where an admin would
+# see it; it fails later, in a job nobody is watching, and assignment quietly
+# stops. Bounds live here so the rule holds no matter what calls the API.
+NUMERIC_BOUNDS = {
+    ('handoff', 'max_agent_load'):             ('Max load', 1, 100, None),
+    ('handoff', 'presence_window_seconds'):    ('Presence window', 30, 3600, None),
+    ('handoff', 'unclaimed_alert_minutes'):    ('Unclaimed alert', 1, 1440, None),
+    ('handoff', 'agent_waiting_minutes'):      ('Agent wait flag', 1, 1440, None),
+    ('handoff', 'auto_resolve_days'):          ('Auto-resolve', 0, 365, 'disables auto-resolve'),
+    ('conversations', 'reopen_resolved_within_hours'):
+                                               ('Re-open window', 0, 720, 'always starts a new chat'),
+}
+
+
 def _validate_patch(patch: dict):
     """
     Reject values that would silently misbehave. business_timezone() falls
@@ -244,6 +263,22 @@ def _validate_patch(patch: dict):
     wondering why the Dashboard's "Today" never moved.
     Returns an error string, or None if the patch is fine.
     """
+    for (section, key), (label, lo, hi, zero_means) in NUMERIC_BOUNDS.items():
+        body = patch.get(section)
+        if not isinstance(body, dict) or key not in body:
+            continue
+        raw = body.get(key)
+        if isinstance(raw, bool):          # bool is an int subclass; not a count
+            return f'{label} must be a number.'
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            return f'{label} must be a whole number, not "{raw}".'
+        if val < lo or val > hi:
+            hint = f' ({lo} {zero_means})' if zero_means and lo == 0 else ''
+            return f'{label} must be between {lo} and {hi}{hint}.'
+        body[key] = val                    # store the int, not "14"
+
     biz = patch.get('business')
     if not isinstance(biz, dict):
         return None
@@ -304,7 +339,14 @@ def ai_handover_status():
 
     The Settings toggle asks this before it acts so the prompt can state a real
     number instead of a vague warning.
+
+    Admin-only, like every other read in this file. It was added without a
+    guard while the POST beside it got one — the page is admin-only so nothing
+    was reachable in practice, but "nothing links to it" is not a permission
+    check, and every neighbouring route here proves the expectation.
     """
+    if not _require_admin():
+        return jsonify({'error': 'Admin only'}), 403
     live, restorable = _ai_handover_counts()
     return jsonify({
         'ai_enabled': bool(get_section('ai').get('enabled', True)),
@@ -406,11 +448,23 @@ def integrations_status():
                 .order_by(MetaConnection.connected_at.desc())
                 .first())
         if conn:
+            # The expiry date was already displayed, but it played no part in
+            # the verdict — a token two days from death still showed a green
+            # "Connected". Instagram tokens last 60 days and a daily cron
+            # refreshes them, so anything inside a week means that refresh has
+            # been failing for days and messaging is about to stop dead.
+            exp = conn.token_expires_at
+            days_left = None
+            if exp:
+                days_left = int((exp - datetime.utcnow()).total_seconds() // 86400)
             meta = {
                 'connected': True, 'source': 'oauth',
                 'page_name': conn.page_name,
                 'ig_username': conn.ig_username,
-                'token_expires_at': conn.token_expires_at.isoformat() if conn.token_expires_at else None,
+                'token_expires_at': exp.isoformat() if exp else None,
+                'token_days_left': days_left,
+                'token_expired': days_left is not None and days_left < 0,
+                'token_expiring_soon': days_left is not None and 0 <= days_left <= 7,
             }
         elif os.getenv('FB_PAGE_ID') and os.getenv('FB_ACCESS_TOKEN'):
             meta = {'connected': True, 'source': 'env'}
@@ -418,20 +472,48 @@ def integrations_status():
         pass
 
     # ── Shopify: inferred from sync-job health ──
-    shopify = {'connected': False, 'last_sync': {}, 'recent_failed': False}
+    #
+    # "Connected" used to mean "a sync succeeded at some point in history", so
+    # the card stayed green forever once the first sync landed. On this very
+    # database the newest success is 32 days old and the badge still read
+    # Connected with no warning — a diagnostics panel that can only say "fine"
+    # is worse than none, because it reassures you instead of staying silent.
+    # Freshness is now part of the verdict: syncs run every 3h, so we allow
+    # three missed cycles before calling a feed stale — enough to ride out one
+    # transient failure and its retry without flapping.
+    STALE_AFTER_HOURS = 9
+    shopify = {'connected': False, 'last_sync': {}, 'recent_failed': False,
+               'stale': False, 'stale_kinds': [], 'failed_recently': 0}
     try:
-        last_sync = {}
+        now = datetime.utcnow()
+        last_sync, stale_kinds = {}, []
         for label in ('products', 'orders', 'customers'):
             job = (SyncJob.query
                    .filter(SyncJob.kind.like(f'{label}%'), SyncJob.status == 'success')
                    .order_by(SyncJob.finished_at.desc())
                    .first())
-            last_sync[label] = job.finished_at.isoformat() if (job and job.finished_at) else None
-        recent = SyncJob.query.order_by(SyncJob.started_at.desc()).first()
+            when = job.finished_at if (job and job.finished_at) else None
+            last_sync[label] = when.isoformat() if when else None
+            if when is None or (now - when).total_seconds() > STALE_AFTER_HOURS * 3600:
+                stale_kinds.append(label)
+
+        # A window, not a single row. Looking only at the newest job meant one
+        # success on top of a week of failures reported a clean bill of health.
+        failed_recently = (SyncJob.query
+                           .filter(SyncJob.status == 'failed',
+                                   SyncJob.started_at > now - timedelta(hours=24))
+                           .count())
+
         shopify = {
             'connected': any(last_sync.values()),
             'last_sync': last_sync,
-            'recent_failed': bool(recent and recent.status == 'failed'),
+            'stale': bool(stale_kinds),
+            'stale_kinds': stale_kinds,
+            'stale_after_hours': STALE_AFTER_HOURS,
+            'failed_recently': failed_recently,
+            # Kept for compatibility, but now means "something is wrong right
+            # now", which is what every caller already assumed it meant.
+            'recent_failed': bool(stale_kinds) or failed_recently > 0,
         }
     except Exception:
         pass
