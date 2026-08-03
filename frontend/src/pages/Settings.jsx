@@ -483,17 +483,40 @@ function PanelSkeleton() {
   )
 }
 
-function PanelHeader({ icon: Icon, title, desc }) {
+// One header for every section, so a change here reaches all six at once.
+// `aside` carries a section-specific fact (a count, a state) — the headers were
+// title-and-blurb only, which told you what the section was but never anything
+// about your own configuration.
+function PanelHeader({ icon: Icon, title, desc, aside = null, tone = 'brand' }) {
   return (
     <div className="flex items-start gap-3 pb-4 mb-5 border-b border-gray-100">
-      <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600 shrink-0">
+      <div className={clsx(
+        'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
+        tone === 'danger' ? 'bg-red-50 text-red-600' : 'bg-brand-50 text-brand-600',
+      )}>
         <Icon size={18} />
       </div>
-      <div className="min-w-0">
-        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+      <div className="min-w-0 flex-1">
+        <h2 className="text-sm font-bold text-gray-900 leading-tight">{title}</h2>
         <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
       </div>
+      {aside && <div className="shrink-0 pt-0.5">{aside}</div>}
     </div>
+  )
+}
+
+// Small labelled pill for PanelHeader's `aside`.
+function HeaderStat({ label, value, tone = 'default' }) {
+  return (
+    <span className={clsx(
+      'inline-flex items-baseline gap-1.5 rounded-lg px-2.5 py-1 border',
+      tone === 'warn'
+        ? 'bg-amber-50 border-amber-200 text-amber-700'
+        : 'bg-gray-50 border-gray-200 text-gray-600',
+    )}>
+      <span className="text-xs font-bold">{value}</span>
+      <span className="text-[10px] font-medium uppercase tracking-wide opacity-70">{label}</span>
+    </span>
   )
 }
 
@@ -560,6 +583,7 @@ function HandoffPanel({ settings, setSettings }) {
         icon={Sliders}
         title="Handoff & assignment"
         desc="How conversations auto-assign, and what customers hear when a chat is escalated."
+        aside={<HeaderStat label="per agent" value={h.max_agent_load ?? 10} />}
       />
 
       <div className="flex items-center gap-2 text-[11px] font-medium text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mb-5">
@@ -871,7 +895,9 @@ function DeliveryPanel({ settings, setSettings }) {
   return (
     <div className="card rounded-2xl p-5 sm:p-6">
       <PanelHeader icon={Truck} title="Delivery & orders"
-        desc="Delivery zones and rates your assistant quotes when customers ask about shipping." />
+        desc="Delivery zones and rates your assistant quotes when customers ask about shipping."
+        aside={<HeaderStat label={zones.length === 1 ? 'zone' : 'zones'} value={zones.length}
+                           tone={zones.length === 0 ? 'warn' : 'default'} />} />
 
       <div className="flex items-center gap-2 text-[11px] font-medium text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mb-5">
         <Zap size={13} className="shrink-0" />
@@ -963,7 +989,15 @@ function NotificationsPanel({ settings, setSettings }) {
 
   return (
     <div className="card rounded-2xl p-5 sm:p-6">
-      <PanelHeader icon={Bell} title="Notifications" desc="Where operational alerts go when syncs fail or run long." />
+      {/* Enabled with no webhook URL means alerts are switched on and going
+          nowhere — worth saying in the header rather than leaving you to spot
+          an empty field. */}
+      <PanelHeader icon={Bell} title="Notifications"
+        desc="Where operational alerts go when syncs fail or run long."
+        aside={<HeaderStat
+                 label={enabled && url.trim() ? 'alerts on' : 'not delivering'}
+                 value={enabled && url.trim() ? severity : 'off'}
+                 tone={enabled && !url.trim() ? 'warn' : 'default'} />} />
 
       <div className="flex items-center justify-between py-3 border-b border-gray-100 mb-4">
         <div className="min-w-0 pr-3">
