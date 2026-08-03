@@ -1056,3 +1056,32 @@ survives a round trip.
 days and the refresh job only renews tokens that are **still valid**. An
 account left disconnected past its expiry cannot be reactivated — it needs a
 fresh OAuth connect. Fine over days or weeks; a problem over months.
+
+---
+
+### Step 17 — Point urgent-notification emails at the frontend
+
+**No SQL. One environment variable on Render.**
+
+Urgent notifications (escalations, a channel going down, an Instagram token
+about to expire) are emailed to the recipient. That email has a single button —
+*Open dashboard*.
+
+`FRONTEND_URL` is not set, and the template used to fall back to `href="#"`, so
+the button did nothing when clicked. It now falls back through
+`FRONTEND_URL` → `PUBLIC_BASE_URL` → `APP_BASE_URL`, and drops the button
+entirely rather than rendering a dead one.
+
+That means it currently resolves to `PUBLIC_BASE_URL`, which is the **API**
+host, not the frontend. The link works but lands in the wrong place.
+
+**On Render, set:**
+
+```
+FRONTEND_URL = https://<your-frontend-domain>
+```
+
+No trailing slash — one is stripped either way. The email deep-links to
+`<FRONTEND_URL>/activity`.
+
+Nothing breaks if you skip this; the button just points at the API host.
