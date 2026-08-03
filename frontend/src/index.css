@@ -632,6 +632,17 @@ button:not(:disabled):active,
    hard black outline. Matched to the fill so the edge disappears into it. */
 .dark .border-black { border-color: var(--brand); }
 
+/* Hovering a product row on Analytics darkened its title to pure black — which
+   on a dark card means it vanishes at exactly the moment you point at it. */
+.dark .group:hover .group-hover\:text-black,
+.dark .hover\:text-black:hover { color: #ffffff; }
+
+/* text-white/50 sits on the active period chip. That chip's background is
+   bg-gray-900, remapped to lime — so a half-transparent white label on it was
+   barely there. Darkened to match the near-black the chip's other text gets. */
+.dark .bg-gray-900 .text-white\/50,
+.dark .bg-black .text-white\/50 { color: rgba(10, 10, 10, 0.55); }
+
 /* -300 borders, same reasoning one shade further up. Settings' danger-zone
    input and the AI-off banner both sit on a remapped dark tint while keeping a
    #fca5a5 / #fcd34d pastel edge — a bright ring around a dark panel. */

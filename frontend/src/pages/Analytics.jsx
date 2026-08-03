@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import clsx from 'clsx'
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
@@ -350,17 +351,168 @@ function Funnel({ conversion }) {
   )
 }
 
+/**
+ * Message volume over the selected period.
+ *
+ * Rebuilt because the old chart had three problems, two of them factual:
+ *
+ *  1. The grid and axis colours were hardcoded light-mode hex (#f1f1f2 on the
+ *     grid). Those are inline SVG props, so the dark-mode CSS remap can't reach
+ *     them — in dark mode the gridlines rendered as near-white bars, the
+ *     brightest thing in the panel.
+ *  2. No dots. With a smoothed curve through seven daily totals you cannot tell
+ *     which points are measurements and which are interpolation, so the eye
+ *     reads the curve's peak as a value that may sit between two days.
+ *  3. A series that is zero for the whole period drew a flat line along the
+ *     x-axis, indistinguishable from the axis itself. "AI replied: 0 all week"
+ *     is a real and important fact — the master switch being off — and it was
+ *     rendered as something that looked like chart furniture.
+ */
+function VolumeChart({ rows, periodLabel }) {
+  const { isDark } = useTheme()
+
+  const totals = (rows || []).reduce(
+    (acc, r) => ({
+      inbound: acc.inbound + (Number(r.inbound) || 0),
+      ai: acc.ai + (Number(r.ai_replied) || 0),
+    }),
+    { inbound: 0, ai: 0 },
+  )
+  const noData = !rows?.length || (totals.inbound === 0 && totals.ai === 0)
+  const aiSilent = totals.inbound > 0 && totals.ai === 0
+  // Share of inbound the assistant handled — the number the two lines exist to
+  // let you compare, stated rather than left to be eyeballed.
+  const coverage = totals.inbound ? Math.round((totals.ai / totals.inbound) * 100) : 0
+
+  const C = isDark
+    ? { grid: 'rgba(255,255,255,0.07)', axis: '#8b8b93', inbound: '#c4c4cc' }
+    : { grid: '#ececed', axis: '#a1a1aa', inbound: '#8a8a93' }
+
+  return (
+    <Panel
+      title="Message volume"
+      right={
+        <div className="flex items-center gap-3">
+          {!noData && (
+            <span className="text-[11px] font-semibold tabular-nums" style={{ color: ACCENT }}>
+              {coverage}% AI-handled
+            </span>
+          )}
+          <Eyebrow>{periodLabel}</Eyebrow>
+        </div>
+      }
+      bodyClass="pt-4"
+      lift
+    >
+      {noData ? (
+        <div className="h-[230px] flex flex-col items-center justify-center text-center">
+          <MessageSquare size={30} className="text-gray-300 mb-2.5" />
+          <p className="text-sm font-semibold text-gray-500">No messages in this period</p>
+          <p className="text-xs text-gray-400 mt-1">Pick a wider range, or check the channels are connected.</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={230}>
+          <AreaChart data={rows} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
+            <defs>
+              <linearGradient id="gInbound" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={C.inbound} stopOpacity={isDark ? 0.22 : 0.16} />
+                <stop offset="100%" stopColor={C.inbound} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="gAi" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={ACCENT} stopOpacity={isDark ? 0.3 : 0.24} />
+                <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke={C.grid} vertical={false} />
+            <XAxis
+              dataKey="axisLabel"
+              tick={{ fill: C.axis, fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }}
+              axisLine={false} tickLine={false} dy={4}
+            />
+            {/* Message counts are whole numbers. Without this a max of 3 gets
+                ticks at 0.5, 1.5, 2.5 — axis labels for half a message. */}
+            <YAxis
+              tick={{ fill: C.axis, fontSize: 11, fontFamily: 'Quicksand' }}
+              axisLine={false} tickLine={false} width={40} allowDecimals={false}
+            />
+            <Tooltip content={<AreaTooltip />} cursor={{ stroke: C.axis, strokeDasharray: '3 3', strokeOpacity: 0.5 }} />
+            <Area
+              type="monotone" dataKey="inbound" name="Inbound"
+              stroke={C.inbound} strokeWidth={2} fill="url(#gInbound)"
+              dot={{ r: 2.5, fill: C.inbound, strokeWidth: 0 }}
+              activeDot={{ r: 5, strokeWidth: 2, stroke: isDark ? '#0f0f0f' : '#fff' }}
+            />
+            <Area
+              type="monotone" dataKey="ai_replied" name="AI replied"
+              stroke={ACCENT} strokeWidth={2.5}
+              // A line that is flat at zero all period sits exactly on the
+              // x-axis and reads as part of the frame. Dashed and unfilled, it
+              // reads as "deliberately nothing" instead.
+              strokeDasharray={aiSilent ? '5 4' : undefined}
+              fill={aiSilent ? 'none' : 'url(#gAi)'}
+              dot={aiSilent ? false : { r: 2.5, fill: ACCENT, strokeWidth: 0 }}
+              activeDot={{ r: 5, strokeWidth: 2, stroke: isDark ? '#0f0f0f' : '#fff' }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+
+      {!noData && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-3 pl-1">
+          {/* The legend carries each series' total, so it earns its space
+              instead of only restating which colour is which. */}
+          <span className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className="w-4 h-0.5 rounded" style={{ background: C.inbound }} />
+            Inbound
+            <span className="font-semibold text-gray-700 tabular-nums">{totals.inbound.toLocaleString()}</span>
+          </span>
+          <span className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className="w-4 h-0.5 rounded" style={{ background: ACCENT }} />
+            AI replied
+            <span className="font-semibold text-gray-700 tabular-nums">{totals.ai.toLocaleString()}</span>
+          </span>
+          {aiSilent && (
+            <span className="text-[11px] text-amber-600 font-medium">
+              The assistant answered nothing this period — check the master switch in Settings.
+            </span>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
 function AreaTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   // Prefer the full date. `label` is whatever the axis is keyed on, which was
   // the weekday name — over a 90-day window "Tue" appears thirteen times, so
   // the tooltip could not tell you which Tuesday you were pointing at.
   const when = payload[0]?.payload?.fullDate || label
+  // Colours are set inline, not with bg-gray-900/text-white. Those classes are
+  // remapped in dark mode — bg-gray-900 becomes the brand lime — and the series
+  // colours below are chosen to read against the CHART, not against a lime
+  // panel: the inbound line is pale grey and the AI line is lime itself, which
+  // on a lime tooltip would have been invisible. A fixed dark surface keeps
+  // both legible in either theme, and the series colour moves to a dot.
   return (
-    <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-lg">
-      <p className="text-gray-300 mb-1.5 pb-1.5 font-semibold whitespace-nowrap border-b border-white/15">{when}</p>
+    <div
+      className="rounded-xl px-3 py-2.5 text-xs shadow-xl"
+      style={{
+        background: 'rgba(18,18,20,0.96)',
+        border: '1px solid rgba(255,255,255,0.10)',
+        backdropFilter: 'blur(6px)',
+      }}
+    >
+      <p className="mb-1.5 pb-1.5 font-semibold whitespace-nowrap"
+         style={{ color: '#d4d4d8', borderBottom: '1px solid rgba(255,255,255,0.14)' }}>
+        {when}
+      </p>
       {payload.map((p, i) => (
-        <p key={i} className="font-semibold tabular-nums" style={{ color: p.stroke }}>{p.name}: {p.value}</p>
+        <p key={i} className="flex items-center gap-2 whitespace-nowrap leading-relaxed">
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.stroke }} />
+          <span style={{ color: '#a1a1aa' }}>{p.name}</span>
+          <span className="font-bold tabular-nums ml-auto pl-3" style={{ color: '#fff' }}>{p.value}</span>
+        </p>
       ))}
     </div>
   )
@@ -625,26 +777,7 @@ export default function Analytics() {
       </div>
 
       {/* Volume — area/line trend */}
-      <Panel title="Message volume" right={<Eyebrow>{periodLabel}</Eyebrow>} bodyClass="pt-4" lift>
-        <ResponsiveContainer width="100%" height={230}>
-          <AreaChart data={chartRows} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
-            <defs>
-              <linearGradient id="gInbound" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a1a1aa" stopOpacity={0.18} /><stop offset="100%" stopColor="#a1a1aa" stopOpacity={0} /></linearGradient>
-              <linearGradient id="gAi" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} /><stop offset="100%" stopColor={ACCENT} stopOpacity={0} /></linearGradient>
-            </defs>
-            <CartesianGrid stroke="#f1f1f2" vertical={false} />
-            <XAxis dataKey="axisLabel" tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand' }} axisLine={false} tickLine={false} width={40} />
-            <Tooltip content={<AreaTooltip />} />
-            <Area type="monotone" dataKey="inbound" name="Inbound" stroke="#a1a1aa" strokeWidth={2} fill="url(#gInbound)" />
-            <Area type="monotone" dataKey="ai_replied" name="AI replied" stroke={ACCENT} strokeWidth={2.5} fill="url(#gAi)" />
-          </AreaChart>
-        </ResponsiveContainer>
-        <div className="flex items-center gap-5 mt-3 pl-1">
-          <span className="flex items-center gap-1.5 text-xs text-gray-500"><span className="w-4 h-0.5 rounded bg-gray-400" />Inbound</span>
-          <span className="flex items-center gap-1.5 text-xs text-gray-500"><span className="w-4 h-0.5 rounded" style={{ background: ACCENT }} />AI replied</span>
-        </div>
-      </Panel>
+      <VolumeChart rows={chartRows} periodLabel={periodLabel} />
 
       {/* Intents (donut) + Channels (bars) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
