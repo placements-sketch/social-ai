@@ -637,11 +637,15 @@ export default function Dashboard() {
 
  // Real per-channel-per-day data from analytics.weekly
   const weekly = analyticsData?.weekly || []
-// Trim leading days where nothing happened so the chart doesn't waste space
-  const firstActiveIdx = weekly.findIndex(w =>
-    (w.instagram || 0) + (w.whatsapp || 0) + (w.facebook || 0) + (w.tiktok || 0) > 0
-  )
-  const trimmedWeekly = firstActiveIdx === -1 ? weekly : weekly.slice(firstActiveIdx)
+// The chart spans the WHOLE selected period.
+  //
+  // It used to drop leading days with no traffic, to avoid "wasting space".
+  // The effect was that picking Last month and getting a quiet first three
+  // weeks drew an axis starting on the 21st — so the chart silently stopped
+  // describing the period you asked for, and a month with a slow start looked
+  // like a month that began late. Empty days are information: they say nothing
+  // arrived, which is exactly what you want to see when a channel goes quiet.
+  const trimmedWeekly = weekly
 
   // Weekday names only stay unambiguous for a week or less; past that the axis
   // would repeat "Mon, Tue…" and a custom 3-week range would read as nonsense.

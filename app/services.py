@@ -1052,6 +1052,39 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
 # Gate helpers
 # ─────────────────────────────────────────────
 
+def _channel_allows_ai(channel: str) -> bool:
+    """
+    Is the AI permitted to answer on this channel at all?
+
+    One definition, used by BOTH the live gate and the analytics eligibility
+    snapshot. Those were two hand-written copies of the same rule, with a
+    comment in one telling the reader to keep it in step with the other — the
+    arrangement that let the inbox filters and the customer totals drift apart
+    elsewhere in this codebase.
+
+    A channel with no row is treated as ALLOWED, which is the historical
+    behaviour and is kept deliberately: rows are created when a channel is
+    configured, and a webhook arriving for a channel we have never configured
+    should not be silently swallowed. It is logged instead, so "no row" is
+    visible rather than an invisible default.
+    """
+    try:
+        from app.models import Channel
+        ch = Channel.query.filter_by(channel=channel).first()
+        if ch is None:
+            log_event("warn", "services.channel_not_configured",
+                      f"No channel row for {channel} — treating the AI as allowed",
+                      payload={"channel": channel})
+            return True
+        return bool(ch.enabled)
+    except Exception as e:
+        # Unreadable configuration means the AI stays quiet, matching the way
+        # the master switch fails closed.
+        log_event("error", "services.channel_lookup_failed", str(e),
+                  payload={"channel": channel})
+        return False
+
+
 def _ai_should_respond(channel: str, user_id: str, message: str | None = None):
     """
     Decide whether the AI answers this message.
@@ -1095,8 +1128,7 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None):
     try:
         from app.models import Channel, Conversation, User
 
-        ch = Channel.query.filter_by(channel=channel).first()
-        if ch is not None and not ch.enabled:
+        if not _channel_allows_ai(channel):
             return False, NO_REPLY_CHANNEL_DISABLED
 
         customer = User.query.filter_by(external_id=user_id, channel=channel).first()
@@ -1604,8 +1636,7 @@ def _save_message(user_id, channel, content, intent, direction,
                 from app.settings import get_section
                 from app.utils.intent import is_question
                 global_ok  = bool(get_section("ai").get("enabled", True))
-                ch = Channel.query.filter_by(channel=channel).first()
-                channel_ok = True if ch is None else bool(ch.enabled)
+                channel_ok = _channel_allows_ai(channel)
                 # is_question() is a pure function of the text, so it can be
                 # evaluated here even though the real gate runs later.
                 question_ok = (is_question(content or "")
