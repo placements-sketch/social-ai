@@ -620,6 +620,18 @@ button:not(:disabled):active,
 .dark .border-brand-100  { border-color: rgba(199, 234, 70, 0.22); }
 .dark .border-brand-300  { border-color: rgba(199, 234, 70, 0.35); }
 
+/* divide-gray-100 and -200 were remapped; -50 was missed. It separates the rows
+   on the System Logs table, so in dark mode every log row was divided by a
+   near-white (#f9fafb) hairline — the brightest thing on the page. */
+.dark .divide-gray-50 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* bg-black is remapped to the brand lime, but border-black kept its literal
+   black — so the active filter chip on the Logs page was a lime pill wearing a
+   hard black outline. Matched to the fill so the edge disappears into it. */
+.dark .border-black { border-color: var(--brand); }
+
 /* -300 borders, same reasoning one shade further up. Settings' danger-zone
    input and the AI-off banner both sit on a remapped dark tint while keeping a
    #fca5a5 / #fcd34d pastel edge — a bright ring around a dark panel. */

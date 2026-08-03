@@ -308,8 +308,19 @@ def feed_logs():
 
     page, per_page = _paginate_params()
     exclude_pollers = request.args.get('exclude_pollers', '').lower() in ('1', 'true', 'yes')
-    # ?raw=true opts out of the allowlist, for debugging.
-    raw = request.args.get('raw', '').lower() in ('1', 'true', 'yes')
+    # ?raw=true opts out of the allowlist, for debugging — ADMIN ONLY.
+    #
+    # Without that restriction this was a way around the admin-only rule on
+    # /logs/system. A supervisor is refused there with a 403, but the same rows
+    # came straight back through here: 50 of them, including
+    # integrations.shopify.token and integrations.meta.legacy_credentials_used.
+    # The allowlist is the entire reason non-admins can be shown this feed, so
+    # opting out of it has to carry the same bar as the page it mirrors.
+    #
+    # Ignored rather than rejected for non-admins: the feed is the Activity
+    # page's main content, and a stray query param shouldn't blank it.
+    raw = (request.args.get('raw', '').lower() in ('1', 'true', 'yes')
+           and user.role == 'admin')
 
     query = Log.query
 

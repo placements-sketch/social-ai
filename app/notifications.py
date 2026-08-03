@@ -68,6 +68,8 @@ notifications_bp = Blueprint('notifications', __name__, url_prefix='/api')
 from datetime import datetime, timedelta
 
 VALID_SEVERITIES = {'info', 'warning', 'urgent'}
+# Ordering, so a coalesced notification can only ever get louder, never quieter.
+SEVERITY_RANK = {'info': 0, 'warning': 1, 'urgent': 2}
 
 # How recent an existing notification must be to coalesce a new one into it.
 COALESCE_WINDOW_MINUTES = 5
@@ -89,18 +91,107 @@ def _email_urgent_notification(user_id, title, body):
     )
 
 
+# ── Urgent emails are sent AFTER the transaction commits ─────────────────────
+# create_notification() documents that "the caller is responsible for the
+# commit", but the email was being sent inside it — before that commit. If the
+# caller's transaction then rolled back, the notification never existed and the
+# recipient had already been emailed about it. Verified: 1 email sent, 0 rows
+# saved.
+#
+# Emails are now queued on the session and flushed once the commit succeeds,
+# and dropped on rollback. Nobody gets paged about something that didn't happen.
+_PENDING_EMAILS_KEY = '_pending_urgent_emails'
+_commit_hook_installed = False
+
+
+def _install_commit_hook():
+    global _commit_hook_installed
+    if _commit_hook_installed:
+        return
+    from sqlalchemy import event
+
+    @event.listens_for(db.session, 'after_commit')
+    def _flush_pending_urgent_emails(session):
+        # No database access in here. after_commit runs with the session in
+        # 'committed' state, where SQLAlchemy refuses to emit further SQL —
+        # looking the recipient up here failed with "this session is in
+        # 'committed' state". Worse, it failed *silently*: the exception was
+        # caught and logged as a warning, so urgent emails would simply stop.
+        # Everything the send needs is resolved before the commit instead.
+        for msg in session.info.pop(_PENDING_EMAILS_KEY, []):
+            try:
+                send_email(msg['to'], msg['subject'], msg['html'], msg['text'])
+            except Exception as e:
+                # The in-app notification is the source of truth and it is
+                # already committed; a mail failure must not undo it.
+                log_event('warning', 'notifications.email_failed', str(e))
+
+    @event.listens_for(db.session, 'after_rollback')
+    def _drop_pending_urgent_emails(session):
+        session.info.pop(_PENDING_EMAILS_KEY, None)
+
+    _commit_hook_installed = True
+
+
+def _queue_urgent_email(user_id, title, body):
+    """
+    Render the email now — while the session can still be queried — and hold it
+    until the caller's commit succeeds.
+    """
+    user = AuthUser.query.get(user_id)
+    if not user or not user.email or user.status != 'active':
+        return
+    _install_commit_hook()
+    db.session.info.setdefault(_PENDING_EMAILS_KEY, []).append({
+        'to': user.email,
+        'subject': f"[Urgent] {title}",
+        'html': _urgent_email_html(user.full_name, title, body),
+        'text': _urgent_email_text(user.full_name, title, body),
+    })
+
+
+def _dashboard_url() -> str:
+    """
+    Where the urgent email's button should point.
+
+    FRONTEND_URL is not set in this environment, and the old code fell back to
+    href="#" — so the one action in an urgent email did nothing when clicked.
+    PUBLIC_BASE_URL is already used for webhook URLs and points at the same
+    deployment, so it is a sound second choice; if neither is set we drop the
+    button entirely rather than render a dead one.
+    """
+    for var in ('FRONTEND_URL', 'PUBLIC_BASE_URL', 'APP_BASE_URL'):
+        val = (os.getenv(var) or '').strip().rstrip('/')
+        if val:
+            return val
+    return ''
+
+
 def _urgent_email_html(name, title, body):
+    # Escaped: titles and bodies carry customer-supplied text (usernames,
+    # message excerpts). Interpolating those raw into HTML lets a customer's
+    # message rewrite the email that goes to staff.
+    from html import escape
+    safe_title = escape(title or '')
+    safe_body = escape(body or '')
+    safe_name = escape(name or 'there')
+
+    url = _dashboard_url()
+    button = (
+        f'<p style="margin:24px 0"><a href="{url}/activity"'
+        ' style="background:#ff5900;color:#fff;text-decoration:none;font-weight:bold;font-size:14px;'
+        'padding:12px 22px;border-radius:8px;display:inline-block">Open dashboard</a></p>'
+    ) if url else ''
+
     return (
         '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">'
         '<div style="background:#fff4ed;border-left:4px solid #ff5900;padding:12px 16px;border-radius:6px;margin-bottom:16px">'
         '<span style="color:#ff5900;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:.05em">Urgent</span>'
         '</div>'
-        f'<h2 style="color:#1a1a2e;margin:0 0 8px;font-size:18px">{title}</h2>'
-        + (f'<p style="color:#555;font-size:14px;line-height:1.6">{body}</p>' if body else '') +
-        '<p style="margin:24px 0"><a href="' + (os.getenv('FRONTEND_URL', '').rstrip('/') or '#') +
-        '" style="background:#ff5900;color:#fff;text-decoration:none;font-weight:bold;font-size:14px;'
-        'padding:12px 22px;border-radius:8px;display:inline-block">Open dashboard</a></p>'
-        f'<p style="color:#bbb;font-size:11px;margin-top:24px">Hi {name or "there"} — you\'re getting this because '
+        f'<h2 style="color:#1a1a2e;margin:0 0 8px;font-size:18px">{safe_title}</h2>'
+        + (f'<p style="color:#555;font-size:14px;line-height:1.6">{safe_body}</p>' if body else '')
+        + button +
+        f'<p style="color:#bbb;font-size:11px;margin-top:24px">Hi {safe_name} — you\'re getting this because '
         'it needs prompt attention. Shop Zetu · Social AI Assistant</p></div>'
     )
 
@@ -111,7 +202,9 @@ def _urgent_email_text(name, title, body):
         lines.append("")
         lines.append(body)
     lines.append("")
-    lines.append("Open your dashboard to respond.")
+    url = _dashboard_url()
+    lines.append(f"Open your dashboard to respond: {url}/activity" if url
+                 else "Open your dashboard to respond.")
     lines.append("— Shop Zetu · Social AI Assistant")
     return "\n".join(lines)
 
@@ -167,6 +260,16 @@ def create_notification(
             if body is not None:
                 existing.body = body
             existing.created_at = datetime.utcnow()  # bump so it sorts to top
+
+            # Coalescing keys on type + resource, NOT severity — so a situation
+            # that started as 'info' and escalated to 'urgent' used to merge
+            # into the info row, keep severity 'info', and send no email. The
+            # event got quieter precisely as it got worse. Severity now only
+            # ever ratchets up, and crossing into urgent sends the mail.
+            if SEVERITY_RANK.get(sev, 0) > SEVERITY_RANK.get(existing.severity, 0):
+                existing.severity = sev
+                if sev == 'urgent':
+                    _queue_urgent_email(user_id, title, body)
             return existing
 
     notif = Notification(
@@ -181,13 +284,10 @@ def create_notification(
     )
     db.session.add(notif)
 
-    # Urgent notifications also go out by email (best-effort — a mail failure
-    # must never break the in-app notification, which is the source of truth).
+    # Urgent notifications also go out by email — queued here, sent once the
+    # caller's transaction actually commits.
     if sev == 'urgent':
-        try:
-            _email_urgent_notification(user_id, title, body)
-        except Exception as e:
-            log_event('warning', 'notifications.email_failed', str(e))
+        _queue_urgent_email(user_id, title, body)
 
     return notif
 
@@ -222,15 +322,31 @@ def list_notifications():
 
     rows = query.order_by(Notification.created_at.desc()).limit(limit).all()
 
-    unread_count = (Notification.query
+    # Unread is a STATE, not a window. This count used to carry the same
+    # created_at cutoff as the list, so the bell showed "unread in the last 7
+    # days" while calling itself unread: on this database the admin's badge read
+    # 7 while 17 were genuinely unread, and the oldest was an escalation 53 days
+    # old that no longer appeared anywhere. Mark-all-read has never been
+    # windowed — it clears every unread row — so the badge was also disagreeing
+    # with the button meant to clear it.
+    unread_total = (Notification.query
                     .filter(Notification.user_id == uid)
                     .filter(Notification.read_at.is_(None))
-                    .filter(Notification.created_at >= cutoff)
                     .count())
+    unread_in_window = (Notification.query
+                        .filter(Notification.user_id == uid)
+                        .filter(Notification.read_at.is_(None))
+                        .filter(Notification.created_at >= cutoff)
+                        .count())
 
     return jsonify({
         'notifications': [n.to_dict() for n in rows],
-        'unread_count': unread_count,
+        # The badge number. True unread, no time limit.
+        'unread_count': unread_total,
+        # How many of those the caller is actually looking at, so the page can
+        # say "10 older ones aren't shown" instead of silently dropping them.
+        'unread_in_window': unread_in_window,
+        'unread_outside_window': max(0, unread_total - unread_in_window),
         'total': len(rows),
     }), 200
 

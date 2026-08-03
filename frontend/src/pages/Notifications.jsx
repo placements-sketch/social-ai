@@ -140,6 +140,10 @@ export default function Notifications({ embedded = false }) {
   const [readFilter, setReadFilter] = useState('all')          // 'all' | 'unread' | 'read'
   const [severityFilter, setSeverityFilter] = useState('all') // 'all' | 'urgent' | 'warning' | 'info'
   const [daysFilter, setDaysFilter] = useState(7)             // 7 | 14 | 30
+  // Unread notifications older than the selected window. Without this the page
+  // just doesn't show them — the badge counts 17 and the list shows 6, with
+  // nothing to explain the gap.
+  const [unreadOutside, setUnreadOutside] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -148,6 +152,7 @@ export default function Notifications({ embedded = false }) {
       const data = await fetchNotifications({ limit: 100, days: daysFilter })
       setNotifications(data.notifications || [])
       setUnreadCount(data.unread_count || 0)
+      setUnreadOutside(data.unread_outside_window || 0)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -276,6 +281,10 @@ export default function Notifications({ embedded = false }) {
             { key: 7,  label: '7 days'  },
             { key: 14, label: '14 days' },
             { key: 30, label: '30 days' },
+            // The window stopped at 30 days while the oldest unread
+            // notification here is 53 days old — including an escalation. With
+            // no way to widen past 30 there was no way to reach it at all.
+            { key: 3650, label: 'All' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -290,6 +299,25 @@ export default function Notifications({ embedded = false }) {
           ))}
         </div>
       </div>
+
+      {/* Unread that this window is hiding. The bell counts all unread, so
+          without this the badge and the list disagree with no explanation. */}
+      {unreadOutside > 0 && (
+        <div className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+          <Clock size={14} className="text-amber-600 shrink-0" />
+          <p className="text-xs text-amber-800 flex-1 min-w-0">
+            <span className="font-semibold">{unreadOutside}</span> unread
+            notification{unreadOutside === 1 ? '' : 's'} older than this window
+            {unreadOutside === 1 ? ' is' : ' are'} not shown.
+          </p>
+          <button
+            onClick={() => setDaysFilter(3650)}
+            className="text-xs font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-900 shrink-0"
+          >
+            Show all
+          </button>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">

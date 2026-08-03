@@ -54,12 +54,14 @@ const allNav = [
   // highlight correctly — it shares /settings with the parent.
   { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin'], group: 'Admin' },
 
-  // System Logs is admin-only — raw pipeline output nobody else can act on.
-  // For supervisors and agents this renders as a plain link with no submenu.
-  { to: '/notifications', icon: Bell, label: 'Activity', roles: ['admin', 'agent', 'supervisor'], group: 'System',
-    children: [
-      { to: '/logs', label: 'System Logs', roles: ['admin'] },
-    ] },
+  // No child link — System Logs is a tab on this route, not a route of its own.
+  // /logs only exists as a redirect into /activity?tab=logs, so the child could
+  // never highlight correctly; it shares its route with the parent. Same reason
+  // Settings and AI & Automation lost theirs.
+  //
+  // Points at /activity directly rather than /notifications, which was itself
+  // only a redirect here — one less hop on the app's most-visited System link.
+  { to: '/activity', icon: Bell, label: 'Activity', roles: ['admin', 'agent', 'supervisor'], group: 'System' },
 ]
 
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
