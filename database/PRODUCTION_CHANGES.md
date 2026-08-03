@@ -1135,3 +1135,71 @@ adding anything. Setting `FRONTEND_URL` is now optional.
 **On CORS:** `CORS_ORIGINS` now falls back to `FRONTEND_BASE_URL` when unset, so
 an unset variable no longer blocks the frontend. The app logs which source it
 used at boot — check that line says what you expect after deploying.
+
+---
+
+### Step 19 — Shopify webhooks exhausting the connection pool
+
+**No SQL. Code only — deploy and watch the logs.**
+
+Production is logging runs of:
+
+```
+shopify_webhook.handler_failed
+Handler for 'products/update' failed: QueuePool limit of size 4 overflow 1
+reached, connection timed out, timeout 30.00
+```
+
+Every one is a dropped Shopify update, so the product cache drifts out of date —
+the same *consequence* as Step 12, but the opposite *cause*. Step 12 was the
+Supabase server refusing new connections. This is our own client-side pool
+running dry.
+
+**Two causes, both fixed.**
+
+**1. A connection was held across a network call.**
+`_handle_inventory_update` read the product, then called
+`refresh_stock_for_products()` — an HTTP round trip to Shopify — while still
+holding a pooled connection. This worker has five (`pool_size` 4 +
+`max_overflow` 1). Shopify delivers in bursts, so the pool drained while those
+connections sat idle waiting on the network.
+
+The handler now calls `db.session.commit()` before the HTTP call, which returns
+the connection to the pool; the write afterwards checks one out again.
+
+Reproduced against the real pool — 24 concurrent webhooks, 2s Shopify latency:
+
+| | succeeded | wall time |
+|---|---|---|
+| before | **15 / 24** | 6.3s |
+| after | **24 / 24** | 2.1s |
+
+The nine failures carried the exact error above.
+
+**2. Every webhook spawned its own thread.**
+`threading.Thread(...).start()` with nothing bounding it, so a bulk product edit
+could put far more handlers in flight than there are connections. Replaced with
+a fixed `ThreadPoolExecutor` (`SHOPIFY_WEBHOOK_WORKERS`, default 4). Excess
+deliveries queue instead of timing out. Shopify still gets its 200 immediately —
+20 webhooks acknowledged in 37ms in testing.
+
+**After deploying, confirm:**
+
+```
+-- Should stop growing. Anything recent means it is not fixed.
+SELECT date_trunc('hour', created_at) AS hour, count(*)
+  FROM logs
+ WHERE source = 'shopify_webhook.handler_failed'
+   AND created_at > now() - interval '24 hours'
+ GROUP BY 1 ORDER BY 1 DESC;
+
+-- Stock should track Shopify again.
+SELECT count(*) FILTER (WHERE cached_at > now() - interval '1 hour') AS fresh,
+       count(*) AS total
+  FROM products_cache;
+```
+
+**If it recurs**, the levers in order: raise `SHOPIFY_WEBHOOK_WORKERS` only if
+handlers are queueing (they are network-bound, not connection-bound);
+raise `DB_POOL_SIZE` only if normal web traffic is also timing out — and
+remember Step 12, the pooler has its own ceiling.

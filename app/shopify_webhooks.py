@@ -293,6 +293,21 @@ def _handle_inventory_update(data: dict):
         return
 
     pid = str(m.shopify_product_id)
+
+    # Hand the database connection back BEFORE calling Shopify.
+    #
+    # refresh_stock_for_products() is an HTTP round trip. Holding a pooled
+    # connection across it meant every inventory webhook occupied one of the
+    # five this worker has (pool_size 4 + overflow 1) for the whole call — and
+    # Shopify delivers these in bursts, so the pool drained and handlers began
+    # failing with "QueuePool limit of size 4 overflow 1 reached, connection
+    # timed out". The connection was idle that entire time; nothing needed it.
+    #
+    # commit() ends the transaction and releases the connection back to the
+    # pool. The next query below transparently checks one out again. `pid` is a
+    # plain string, so nothing here depends on the session staying open.
+    db.session.commit()
+
     info = (refresh_stock_for_products([pid]) or {}).get(pid)
     if not info:
         return

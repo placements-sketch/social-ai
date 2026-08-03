@@ -18,10 +18,39 @@ import hmac
 import hashlib
 import base64
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, request, jsonify, current_app
 from app.services import process_message, process_inbound
 
 bp = Blueprint("main", __name__)
+
+
+# ── Shopify webhook worker pool ──────────────────────────────────────────────
+# A fixed pool instead of a thread per webhook.
+#
+# Handlers are mostly waiting on Shopify, not on the database — they now hand
+# their connection back before the network call — so the bound here is not about
+# connections. It caps two other things: how many threads a delivery burst can
+# create, and how many simultaneous calls we aim at Shopify's rate limiter.
+# Anything above the cap queues and runs a moment later, which is what we want;
+# the alternative was handlers timing out and their updates being lost.
+_WEBHOOK_WORKERS = int(os.getenv("SHOPIFY_WEBHOOK_WORKERS", "4"))
+_webhook_executor = None
+_webhook_lock = threading.Lock()
+
+
+def _webhook_pool() -> ThreadPoolExecutor:
+    """The shared executor, created on first use so import stays cheap."""
+    global _webhook_executor
+    if _webhook_executor is None:
+        with _webhook_lock:
+            if _webhook_executor is None:
+                _webhook_executor = ThreadPoolExecutor(
+                    max_workers=_WEBHOOK_WORKERS,
+                    thread_name_prefix="shopify-webhook",
+                )
+    return _webhook_executor
 
 
 def _candidate_app_secrets() -> list[tuple[str, str]]:
@@ -184,7 +213,6 @@ def shopify_webhook():
     topic = request.headers.get("X-Shopify-Topic", "")
     data = request.get_json(silent=True) or {}
 
-    import threading
     app_obj = current_app._get_current_object()
 
     def _process():
@@ -195,7 +223,20 @@ def shopify_webhook():
             except Exception as e:
                 app_obj.logger.error(f"[Shopify webhook bg] {topic} error: {e}")
 
-    threading.Thread(target=_process, daemon=True).start()
+    # Queued onto a small fixed pool, not a fresh thread per webhook.
+    #
+    # This used to be `threading.Thread(...).start()` with nothing bounding it.
+    # Shopify delivers in bursts — a bulk product edit fires many webhooks at
+    # once — so an unbounded spawn put more concurrent handlers in flight than
+    # this worker has database connections (pool_size 4 + overflow 1 = 5). They
+    # queued on the pool, waited the full 30s pool_timeout and failed, which is
+    # the "QueuePool limit of size 4 overflow 1 reached" run in the logs. Each
+    # failure is a dropped Shopify update, so the product cache silently drifts.
+    #
+    # Bounded below the connection count on purpose: web requests need
+    # connections too, and a webhook that waits a second in a queue is fine
+    # where one that times out is data loss. Shopify still gets its 200 now.
+    _webhook_pool().submit(_process)
     return jsonify({"status": "accepted", "topic": topic}), 200
 
 # ─────────────────────────────────────────────
