@@ -114,8 +114,15 @@ export default function Logs({ embedded = false }) {
   const startEntry = total === 0 ? 0 : (page - 1) * perPage + 1
   const endEntry = Math.min(page * perPage, total)
 
+  // Embedded, the Activity wrapper already owns the page width. Keeping
+  // `max-w-4xl mx-auto` here meant System Logs rendered narrower than the
+  // Notifications tab beside it AND re-centred inside the wrapper, so the two
+  // tabs disagreed on both width and left edge. Matches Notifications now.
   return (
-    <div className="space-y-5 w-full max-w-4xl mx-auto min-w-0">
+    <div className={clsx(
+      'space-y-5 w-full min-w-0',
+      !embedded && 'max-w-5xl mx-auto',
+    )}>
       {!embedded && (
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Logs</h1>
