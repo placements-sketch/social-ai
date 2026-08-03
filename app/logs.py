@@ -406,6 +406,11 @@ def _with_customer_handles(rows):
         payload = d.get('payload') or {}
         ext = payload.get('user_external_id')
         handle = by_conv.get(row.conversation_id) or (by_ext.get(ext) if ext else None)
+        # Some stored names already carry a leading '@' and some don't. The UI
+        # prepends one, so the inconsistent ones rendered as "@@amina_ke".
+        # Normalised here, once, rather than in every place that displays it.
+        if handle:
+            handle = handle.strip().lstrip('@').strip()
         if handle:
             # `handle` is what the UI prefers; user_external_id stays put so
             # nothing that relies on the raw ID breaks.
