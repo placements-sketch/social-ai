@@ -694,6 +694,15 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 "and email used on the order so you can look it up. Do NOT ask for an order number."
             )
 
+        # Set by an automation rule with the `include_price` action. This is the
+        # one rule action that shapes the reply instead of replacing it, so it
+        # arrives as a directive on context_data rather than as canned text.
+        if context_data.get("force_include_price"):
+            context_lines.append(
+                "An automation rule requires it: state the price of the product "
+                "explicitly in this reply, in KES. Do not leave the customer to ask for it."
+            )
+
         context_block = "\n".join(context_lines) if context_lines else "No specific product data available."
         intents_str   = ", ".join(intents) if intents else "general inquiry"
 

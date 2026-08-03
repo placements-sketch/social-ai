@@ -449,6 +449,77 @@ def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
                   payload={"comment_id": comment_id, "error": str(e)})
         return None
 
+def send_instagram_private_reply(comment_id: str, text: str) -> dict | None:
+    """
+    Open a DM with someone who commented, via Meta's private-replies endpoint.
+
+    This is the only sanctioned way to move a public comment into a DM: you
+    cannot message a commenter through the normal send API because you have
+    their comment-author ID, not their IGSID. Meta resolves that for us.
+
+    Two constraints worth knowing, because they explain most failures:
+      - It works once per comment, and only within 7 days of the comment.
+      - The person must not have blocked messages from the account.
+
+    Same contract as every other sender here: returns Meta's response on
+    success, None on failure, never raises. Callers treat None as "the public
+    reply still went out, the DM didn't".
+    """
+    _, token = _get_meta_credentials()
+    if not token:
+        log_event("error", "integrations.meta.private_reply",
+                  "No access token — cannot open a DM from this comment",
+                  payload={"comment_id": comment_id})
+        return None
+
+    if not text:
+        log_event("warning", "integrations.meta.private_reply",
+                  "Empty private reply text — skipping",
+                  payload={"comment_id": comment_id})
+        return None
+
+    safe_text = text[:1000]
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}/private_replies"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {"message": safe_text}
+
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        body_preview = (r.text or "")[:400]
+
+        if r.status_code >= 400:
+            log_event("error", "integrations.meta.private_reply",
+                      f"Private reply failed ({r.status_code}): {body_preview[:200]}",
+                      payload={
+                          "comment_id": comment_id,
+                          "status": r.status_code,
+                          "response": body_preview,
+                          "text_preview": safe_text[:120],
+                      })
+            return None
+
+        data = r.json() if r.text else {}
+        log_event("info", "integrations.meta.private_reply",
+                  f"DM opened from comment {comment_id}",
+                  payload={
+                      "comment_id": comment_id,
+                      "message_id": data.get("id"),
+                      "channel": "instagram_dm",
+                      "text_preview": safe_text[:120],
+                  })
+        return data
+
+    except requests.RequestException as e:
+        log_event("error", "integrations.meta.private_reply",
+                  f"Private reply exception: {e}",
+                  payload={"comment_id": comment_id, "error": str(e)})
+        return None
+
+
 # ─────────────────────────────────────────────
 # Facebook Messenger — stub (logs + no-op)
 # ─────────────────────────────────────────────

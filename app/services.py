@@ -670,25 +670,37 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                       external_id=new_ext_id)
         return bridging
 
-    # ── Step 3.6: Template-reply rule check ────────────────────────────────
-    # Some automation rules short-circuit the AI with a canned reply
-    # (e.g. "Out of stock"). First matching rule wins.
-    template = _check_template_rule(message, intents, channel)
-    if template:
-        new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=template,
-                                     comment_external_id=external_id)
-        _save_message(user_id=user_id, channel=channel, content=template,
-                      intent=None, direction="outbound",
-                      external_id=new_ext_id)
-        log_event("info", "services.template_reply",
-                  f"Template-rule reply used for [{channel}] {user_id}",
-                  payload={
-                      "user_external_id": user_id,
-                      "channel": channel,
-                      "intents": intents,
-                  },
-                  conversation_id=(inbound_record.conversation_id if inbound_record else None))
-        return template
+    # ── Step 3.6: Automation rules (everything except stock triggers) ──────
+    # First matching rule wins. Some actions answer the customer outright and
+    # short-circuit the AI; others only set a directive the AI step reads.
+    # Stock-based rules can't be judged yet — they need the Shopify fetch — so
+    # they get their own pass at Step 4.6.
+    rule_directives = {}
+    _rule, _action = _match_automation_action(message, intents, channel)
+    if _rule is not None:
+        outcome = _run_automation_action(
+            _rule, _action, channel=channel, user_id=user_id,
+            external_id=external_id, inbound_record=inbound_record,
+            message=message, intents=intents)
+        rule_directives.update(outcome.get('directives') or {})
+        reply_text = outcome.get('reply')
+        if reply_text:
+            new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply_text,
+                                         comment_external_id=external_id)
+            _save_message(user_id=user_id, channel=channel, content=reply_text,
+                          intent=None, direction="outbound",
+                          external_id=new_ext_id)
+            log_event("info", "services.automation_reply",
+                      f"Rule '{_rule.name}' answered [{channel}] {user_id}",
+                      payload={
+                          "user_external_id": user_id,
+                          "channel": channel,
+                          "intents": intents,
+                          "rule_id": _rule.id,
+                          "action": (_action or {}).get("type"),
+                      },
+                      conversation_id=(inbound_record.conversation_id if inbound_record else None))
+            return reply_text
 
     # ── Step 4: Fetch data for every relevant intent ───────────────────────
     context_data = {}
@@ -950,6 +962,50 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
             log_event("info", "services.live_stock_used",
                       f"Used real-time stock for {len(fresh)} products",
                       conversation_id=(inbound_record.conversation_id if inbound_record else None))
+
+    # ── Step 4.6: Stock-triggered automation rules ─────────────────────────
+    # Deliberately placed AFTER the live stock refresh above, so an
+    # "out of stock" rule is judged on the same number the customer would see
+    # on the site rather than whatever the last nightly sync cached.
+    _srule, _saction = _match_automation_action(
+        message, intents, channel,
+        products=context_data.get('products') or [], stock_pass=True)
+    if _srule is not None:
+        s_outcome = _run_automation_action(
+            _srule, _saction, channel=channel, user_id=user_id,
+            external_id=external_id, inbound_record=inbound_record,
+            message=message, intents=intents)
+        rule_directives.update(s_outcome.get('directives') or {})
+        s_reply = s_outcome.get('reply')
+        if s_reply:
+            # An out-of-stock rule usually wants to name alternatives, and by
+            # this point we have them — so append the ones we found rather than
+            # sending a bare "sorry, sold out".
+            if (_saction or {}).get('suggest_similar'):
+                alts = [p.get('name') for p in (context_data.get('products') or [])[1:3]
+                        if p.get('name')]
+                if alts:
+                    s_reply = f"{s_reply}\n\nYou might also like: {', '.join(alts)}."
+            new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=s_reply,
+                                         comment_external_id=external_id)
+            _save_message(user_id=user_id, channel=channel, content=s_reply,
+                          intent=None, direction="outbound",
+                          external_id=new_ext_id)
+            log_event("info", "services.automation_reply",
+                      f"Stock rule '{_srule.name}' answered [{channel}] {user_id}",
+                      payload={
+                          "user_external_id": user_id,
+                          "channel": channel,
+                          "rule_id": _srule.id,
+                          "action": (_saction or {}).get("type"),
+                          "stock_quantity": (context_data.get('products') or [{}])[0].get('stock_quantity'),
+                      },
+                      conversation_id=(inbound_record.conversation_id if inbound_record else None))
+            return s_reply
+
+    # Hand any rule-set directives to the AI step.
+    if rule_directives:
+        context_data.update(rule_directives)
 
     # ── Step 5a: Create placeholder outbound message FIRST (two-phase) ─────
     # We need message_id available BEFORE the AI runs so we can build UTM
@@ -1936,17 +1992,73 @@ def _find_recent_product_keyword(conversation_id: int, max_lookback: int = 5) ->
         log_event("warn", "services._find_recent_product_keyword", str(e))
         return None
    
-def _check_template_rule(message, intents, channel):
+# Triggers that can only be judged once we know which product the customer is
+# asking about. Rules are therefore evaluated in two passes: everything else
+# before the Shopify fetch (so a canned reply can short-circuit early and stay
+# fast), these immediately after it.
+#
+# The set itself lives in app/automation.py, which also uses it to work out
+# whether one rule shadows another — the same split, decided in one place.
+from app.automation import STOCK_TRIGGER_TYPES as _STOCK_TRIGGERS
+
+
+def _stock_condition_met(tc: dict, products: list) -> bool:
     """
-    Look for an enabled AutomationRule whose action_config.type is
-    'reply_template' and whose trigger matches this message.
+    Evaluate a `shopify_stock` trigger against the products we matched.
 
-    Returns the template string to send, or None if no rule applies.
+    trigger_config: {"type": "shopify_stock", "condition": "eq"|"lte"|"lt"|
+                     "gte"|"gt", "value": 0}
 
-    Match logic mirrors handoff.py: keyword rules match if any keyword is
-    in the message; intent rules match if the intent is in `intents`;
-    channel rules match if the channel is in the rule's `channels` list.
-    Rules are evaluated in sort_order (lowest first) — first match wins.
+    Judged on the BEST match (the product the reply is actually going to talk
+    about), not "any product in the list" — with three candidates returned, an
+    any() would fire an out-of-stock rule because the third-best alternative
+    happened to be sold out.
+    """
+    if not products:
+        return False
+    try:
+        qty = int((products[0] or {}).get("stock_quantity") or 0)
+    except (TypeError, ValueError):
+        return False
+
+    # A malformed threshold must not fire. Defaulting it to 0 meant
+    # {"condition": "eq", "value": "zero"} matched every sold-out product and
+    # sent a customer-facing reply off the back of a broken config.
+    try:
+        target = int(tc.get("value", 0))
+    except (TypeError, ValueError):
+        log_event("warning", "services.stock_rule_config",
+                  f"shopify_stock rule has a non-numeric value {tc.get('value')!r} — not firing")
+        return False
+
+    cond = (tc.get("condition") or "eq").lower()
+    return {
+        "eq":  qty == target,
+        "lte": qty <= target,
+        "lt":  qty < target,
+        "gte": qty >= target,
+        "gt":  qty > target,
+    }.get(cond, False)
+
+
+def _match_automation_action(message, intents, channel, products=None,
+                             stock_pass=False):
+    """
+    Find the first enabled rule whose trigger matches, and return
+    (rule, action_config) — or (None, None).
+
+    Rules are evaluated in sort_order (lowest first) and the first match wins,
+    so an admin can put a narrow exception above a broad rule.
+
+    `stock_pass` selects which half of the rules to consider:
+      False → every trigger except shopify_stock (runs before the Shopify fetch)
+      True  → shopify_stock only (runs after it, with `products` available)
+
+    This used to be _check_template_rule, which returned a template string and
+    ignored any rule whose action wasn't reply_template — five of the seven
+    action types the API accepts had no executor at all, so well-formed rules
+    sat in the UI marked Enabled and silently did nothing. It now returns the
+    matched action so the caller can carry out whichever one it is.
     """
     try:
         from app.models import AutomationRule
@@ -1959,14 +2071,12 @@ def _check_template_rule(message, intents, channel):
 
         for rule in rules:
             ac = rule.action_config or {}
-            if ac.get("type") != "reply_template":
-                continue
-            template = ac.get("template")
-            if not template:
-                continue
-
             tc = rule.trigger_config or {}
             ttype = tc.get("type")
+
+            # Only look at the half of the rules this pass is responsible for.
+            if stock_pass != (ttype in _STOCK_TRIGGERS):
+                continue
 
             # Optional channel scope on any rule
             allowed_channels = tc.get("channels")
@@ -1984,18 +2094,132 @@ def _check_template_rule(message, intents, channel):
                 matched = True
             elif ttype == "channel":
                 matched = channel in (tc.get("channels") or [])
-            # Note: shopify_stock triggers (e.g. "stock = 0") aren't handled
-            # here — they need product context, which requires the Shopify
-            # fetch we haven't done yet at this step. That will come in the
-            # real-Claude milestone where the full execution engine lives.
+            elif ttype == "shopify_stock":
+                matched = _stock_condition_met(tc, products or [])
 
             if matched:
-                return template
+                return rule, ac
 
-        return None
+        return None, None
     except Exception as e:
-        log_event("error", "services._check_template_rule", str(e))
-        return None
+        log_event("error", "services._match_automation_action", str(e))
+        return None, None
+
+
+# What we ask for when a rule fires the order-details action. The action is
+# named ask_order_number, but _lookup_order_status() finds orders by email plus
+# name tokens — it has no way to search by order number, and most customers
+# don't have one to hand. Asking for a number would collect something we cannot
+# use and leave the customer thinking they'd been helped. An admin who really
+# wants different wording sets action_config.prompt_text.
+_DEFAULT_ORDER_DETAILS_ASK = (
+    "Happy to check that for you — could you share the full name and email "
+    "address used on the order? I'll look it up right away."
+)
+
+
+def _run_automation_action(rule, action, *, channel, user_id, external_id,
+                           inbound_record, message, intents):
+    """
+    Carry out a matched rule's action.
+
+    Returns {'reply': str|None, 'directives': dict}.
+      reply      — text that was sent; the pipeline stops here (the customer
+                   has been answered, so generating an AI reply on top would
+                   double-message them).
+      directives — flags handed to the AI step for actions that shape the
+                   reply rather than replacing it.
+
+    Every action is best-effort: a failure is logged and downgraded to "no
+    reply", which falls through to the normal AI path. A broken rule must never
+    cost the customer their answer.
+    """
+    atype = (action or {}).get("type")
+    conv_id = inbound_record.conversation_id if inbound_record else None
+    out = {'reply': None, 'directives': {}}
+
+    def _log(detail, level="info"):
+        log_event(level, "services.automation_action",
+                  f"Rule '{rule.name}' -> {atype}: {detail}",
+                  payload={"rule_id": rule.id, "action": atype,
+                           "channel": channel, "user_external_id": user_id,
+                           "intents": intents},
+                  conversation_id=conv_id)
+
+    try:
+        # ── Canned reply, replaces the AI ────────────────────────────────
+        if atype == "reply_template":
+            template = action.get("template")
+            if not template:
+                _log("no template text configured — falling through to the AI", "warning")
+                return out
+            out['reply'] = template
+
+        # ── Ask for what we need to find the order ───────────────────────
+        elif atype == "ask_order_number":
+            out['reply'] = action.get("prompt_text") or _DEFAULT_ORDER_DETAILS_ASK
+
+        # ── Public comment reply + open a DM ─────────────────────────────
+        elif atype == "trigger_dm_flow":
+            public_reply = action.get("public_reply") or "Just sent you a DM!"
+            dm_message = action.get("dm_message") or (
+                "Hi! You asked about this on our post — happy to help here. "
+                "What would you like to know?"
+            )
+            if not external_id:
+                _log("no comment id on the inbound message — cannot open a DM", "warning")
+                return out
+
+            # The DM is the point of the rule, so open it first; if Meta
+            # refuses (the 7-day window, or the person blocks DMs) we still
+            # want the public reply to go out, but we should not promise a DM
+            # that never arrived.
+            from app.integrations.meta import send_instagram_private_reply
+            dm = send_instagram_private_reply(external_id, dm_message)
+            if dm:
+                _save_message(user_id=user_id, channel="instagram_dm",
+                              content=dm_message, intent=None,
+                              direction="outbound", external_id=dm.get("id"))
+                out['reply'] = public_reply
+                _log("DM opened, public reply posted")
+            else:
+                # Say something true instead. Sending "Check your DMs!" when no
+                # DM exists is worse than answering in the open.
+                out['reply'] = action.get("public_reply_fallback") or (
+                    "Thanks for asking! Drop us a DM and we'll help you out."
+                )
+                _log("private reply refused by Meta — posted a fallback that "
+                     "doesn't promise a DM", "warning")
+
+        # ── Shape the AI's reply rather than replacing it ────────────────
+        elif atype == "include_price":
+            out['directives']['force_include_price'] = True
+            _log("AI instructed to state the price explicitly")
+
+        # ── Deliberate no-op ─────────────────────────────────────────────
+        elif atype == "normal_reply":
+            # Reaching here matters even though nothing happens: rules are
+            # first-match-wins, so this rule having matched means no LATER rule
+            # is consulted. That is the whole point of it — an admin can put a
+            # normal_reply rule above a broad canned-reply rule to carve out an
+            # exception where the AI answers properly instead.
+            _log("matched — suppressing later rules, AI replies normally")
+
+        # ── Escalations are owned by handoff.py (Step 3.5, earlier) ──────
+        elif atype in ("human_escalate", "notify_agent"):
+            _log("escalation action — already handled at the handoff step")
+
+        else:
+            _log("unknown action type — ignored", "warning")
+
+    except Exception as e:
+        log_event("error", "services._run_automation_action",
+                  f"Rule '{getattr(rule, 'name', '?')}' action {atype} failed: {e}",
+                  payload={"rule_id": getattr(rule, 'id', None), "action": atype},
+                  conversation_id=conv_id)
+        return {'reply': None, 'directives': {}}
+
+    return out
     
 
 def _notify_assigned_agent_of_inbound(inbound_record, message_text):

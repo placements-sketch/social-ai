@@ -237,7 +237,10 @@ def _match_automation_rule(text: str) -> AutomationRule | None:
     # because of what it was configured to do. Both live escalation rules were
     # firing by that accident; rewording "Flag for human review" to "Send to an
     # agent" would have silently switched them off.
-    ESCALATING_ACTIONS = {"human_escalate", "notify_agent", "ask_order_number"}
+    #
+    # The set lives in automation.py, which also uses it to decide whether a
+    # rule is genuinely unreachable — one definition, so the two cannot drift.
+    from app.automation import ESCALATION_ACTION_TYPES as ESCALATING_ACTIONS
     escalation_terms = ("notify_agent", "escalate", "human", "flag for human")
 
     rules = AutomationRule.query.filter_by(enabled=True).all()

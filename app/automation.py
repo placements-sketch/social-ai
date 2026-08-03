@@ -78,35 +78,99 @@ VALID_ACTION_TYPES = {
 # These two sets are the honest answer, kept next to the validator so they cannot
 # drift from it. A type here means: some code reads it and changes behaviour.
 #
-#   reply_template  -> services.py::_check_template_rule sends the canned reply
-#   human_escalate  }
-#   notify_agent    }- handoff.py::_match_automation_rule routes to a human
-#   ask_order_number}
+#   reply_template   -> services.py::_run_automation_action sends the canned reply
+#   ask_order_number -> asks for the name + email the order lookup needs
+#   trigger_dm_flow  -> public comment reply + opens a DM (Graph private_replies)
+#   include_price    -> directive on context_data; generator.py states the price
+#   human_escalate   }
+#   notify_agent     }- handoff.py::_match_automation_rule routes to a human
 IMPLEMENTED_ACTION_TYPES = {
     'reply_template', 'human_escalate', 'notify_agent', 'ask_order_number',
+    'trigger_dm_flow', 'include_price',
 }
-# `shopify_stock` needs product context that isn't loaded at the point rules are
-# evaluated — see the note in services.py::_check_template_rule.
-IMPLEMENTED_TRIGGER_TYPES = {'keyword', 'intent', 'always', 'channel'}
+# shopify_stock is evaluated in a second pass at Step 4.6, after the Shopify
+# fetch and the live stock refresh — see services.py::_match_automation_action.
+IMPLEMENTED_TRIGGER_TYPES = {'keyword', 'intent', 'always', 'channel', 'shopify_stock'}
 
-# Actions accepted for backwards compatibility that intentionally do nothing:
-# a rule saying "reply normally" is describing the default, not an action.
+# Triggers judged in the second pass, because they need the matched product.
+# Defined here and imported by services.py so the split has one definition —
+# a rule can only shadow another rule in the SAME pass.
+STOCK_TRIGGER_TYPES = {'shopify_stock'}
+
+# Actions that route a conversation to a person. These are executed by
+# handoff.py at Step 3.5, which scans every enabled rule independently — it is
+# NOT first-match-wins — so a catch-all rule sitting above one of these does not
+# stop it firing. Imported by handoff.py so the list has one definition.
+ESCALATION_ACTION_TYPES = {'human_escalate', 'notify_agent', 'ask_order_number'}
+
+# `normal_reply` runs, but by design produces no visible action: rules are
+# first-match-wins, so its purpose is to MATCH and thereby stop any later rule
+# from applying — an exception carved out above a broad canned-reply rule.
 NO_OP_ACTION_TYPES = {'normal_reply'}
 
 
-def rule_execution_status(rule) -> dict:
+def _shadowed_by(rule, preceding) -> object | None:
+    """
+    The first earlier rule that makes this one unreachable, or None.
+
+    Rules are first-match-wins, so an enabled rule with an `always` trigger
+    swallows everything below it in the same pass — the rules underneath are
+    unreachable code. This is real: the "After Hours" rule here triggers on
+    `always` and sat above "Comment → DM", so that rule could never run no
+    matter how it was configured.
+
+    Two things stop a rule shadowing another: a different pass (stock rules are
+    evaluated separately, so an `always` rule cannot shadow a shopify_stock
+    one), and a narrower channel scope than the rule below it.
+    """
+    tc = rule.trigger_config or {}
+    mine_stock = tc.get('type') in STOCK_TRIGGER_TYPES
+    my_channels = set(tc.get('channels') or [])
+
+    for prev in preceding:
+        if not prev.enabled:
+            continue
+        ptc = prev.trigger_config or {}
+        if (ptc.get('type') in STOCK_TRIGGER_TYPES) != mine_stock:
+            continue                       # different pass — cannot shadow
+        if ptc.get('type') != 'always':
+            continue                       # only a catch-all shadows everything
+        prev_channels = set(ptc.get('channels') or [])
+        if prev_channels:
+            # A scoped catch-all only shadows rules confined to those channels.
+            if not my_channels or not my_channels.issubset(prev_channels):
+                continue
+        return prev
+    return None
+
+
+def rule_execution_status(rule, preceding=()) -> dict:
     """
     Can this rule ever fire? Returned with every rule so the UI can say so
     instead of showing a green Enabled pill on a rule that does nothing.
+
+    `preceding` is the enabled rules ordered above this one, needed to spot
+    rules that are unreachable rather than merely unimplemented.
     """
     tc = rule.trigger_config or {}
     ac = rule.action_config or {}
     ttype, atype = tc.get('type'), ac.get('type')
 
+    # Escalating actions run in handoff.py's own pass, which is not
+    # first-match-wins, so being shadowed here doesn't stop them reaching a
+    # human. Warning about them would be a false alarm.
+    shadower = None if atype in ESCALATION_ACTION_TYPES else _shadowed_by(rule, preceding)
+    if shadower is not None:
+        return {'runnable': False, 'no_op': False,
+                'reason': f'Unreachable — "{shadower.name}" above it triggers on '
+                          f'every message, and the first matching rule wins. '
+                          f'Move this rule above it, or narrow that one.'}
+
     if atype in NO_OP_ACTION_TYPES:
         return {'runnable': True, 'no_op': True,
-                'reason': 'Describes the default behaviour — the assistant '
-                          'replies normally. Nothing extra happens.'}
+                'reason': 'Sends nothing itself. Because the first matching rule '
+                          'wins, it stops any rule below it from firing and lets '
+                          'the assistant reply normally.'}
 
     if atype and atype not in IMPLEMENTED_ACTION_TYPES:
         return {'runnable': False, 'no_op': False,
@@ -155,7 +219,10 @@ def list_rules():
     return jsonify({
         # `execution` rides along with every rule so the list can show which
         # ones actually do something. Enabled and runnable are not the same.
-        'rules': [{**r.to_dict(), 'execution': rule_execution_status(r)} for r in rules],
+        # Each rule is judged against the ones ordered above it, so an
+        # unreachable rule reports as unreachable rather than as fine.
+        'rules': [{**r.to_dict(), 'execution': rule_execution_status(r, rules[:i])}
+                  for i, r in enumerate(rules)],
         'total': len(rules),
     }), 200
 
@@ -502,7 +569,10 @@ def reorder_rules():
     return jsonify({
         # `execution` rides along with every rule so the list can show which
         # ones actually do something. Enabled and runnable are not the same.
-        'rules': [{**r.to_dict(), 'execution': rule_execution_status(r)} for r in rules],
+        # Each rule is judged against the ones ordered above it, so an
+        # unreachable rule reports as unreachable rather than as fine.
+        'rules': [{**r.to_dict(), 'execution': rule_execution_status(r, rules[:i])}
+                  for i, r in enumerate(rules)],
         'total': len(rules),
     }), 200
 
