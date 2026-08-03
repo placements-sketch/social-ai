@@ -43,6 +43,11 @@ const RoundedBar = (props) => {
 // Custom tooltip to ensure text is visible
 const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
+    // The full date, spelled out. The axis only labels every fifth day or so,
+    // and the tooltip showed values with no date at all — so hovering a point
+    // between two labels told you the numbers without telling you which day
+    // they belonged to. fullDate is carried on each row for exactly this.
+    const when = payload[0]?.payload?.fullDate
     return (
       <div style={{
         background: '#000000',
@@ -51,6 +56,13 @@ const CustomTooltip = ({ active, payload }) => {
         boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
         padding: '8px 12px'
       }}>
+        {when && (
+          <p style={{
+            color: '#ffffff', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 700,
+            margin: '0 0 6px', paddingBottom: 6,
+            borderBottom: '1px solid rgba(255,255,255,0.15)', whiteSpace: 'nowrap',
+          }}>{when}</p>
+        )}
         {payload.map((entry, idx) => {
           const isTikTok = entry.name.includes('TikTok')
           return (
@@ -654,6 +666,11 @@ export default function Dashboard() {
     time: dateAxis
       ? (parseBackendTime(w.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || w.day)
       : w.day,
+    // Unabbreviated, for the tooltip. The axis label is deliberately short and
+    // sparse; this is what you actually need when pointing at a day.
+    fullDate: parseBackendTime(w.date)?.toLocaleDateString('en-GB', {
+      weekday: 'short', day: 'numeric', month: 'long', year: 'numeric',
+    }) || w.date || w.day,
     // Instagram
     instagram: w.instagram || 0,
     instagram_ai: w.instagram_ai || 0,

@@ -352,9 +352,13 @@ function Funnel({ conversion }) {
 
 function AreaTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
+  // Prefer the full date. `label` is whatever the axis is keyed on, which was
+  // the weekday name — over a 90-day window "Tue" appears thirteen times, so
+  // the tooltip could not tell you which Tuesday you were pointing at.
+  const when = payload[0]?.payload?.fullDate || label
   return (
     <div className="bg-gray-900 text-white rounded-lg px-3 py-2 text-xs shadow-lg">
-      <p className="text-gray-300 mb-1">{label}</p>
+      <p className="text-gray-300 mb-1.5 pb-1.5 font-semibold whitespace-nowrap border-b border-white/15">{when}</p>
       {payload.map((p, i) => (
         <p key={i} className="font-semibold tabular-nums" style={{ color: p.stroke }}>{p.name}: {p.value}</p>
       ))}
@@ -503,6 +507,25 @@ export default function Analytics() {
     api_error: 'Claude API error', network: 'Network error', bad_output: 'Malformed response', unknown: 'Unknown error',
   }
   const failureRows = (failure_breakdown || []).map((f) => ({ label: FAILURE_LABELS[f.reason] || f.reason, value: f.count }))
+
+  // Weekday names are only unambiguous inside a single week. Past that the axis
+  // repeats itself, so it switches to dates — the rule the Dashboard already
+  // applied and this chart did not. fullDate is carried alongside for the
+  // tooltip, because the axis label is deliberately short and only every few
+  // points get one.
+  const dateAxis = (data.window_days || 0) > 7
+  const chartRows = (weekly || []).map((w) => {
+    const d = w.date ? new Date(w.date + 'T00:00:00') : null
+    return {
+      ...w,
+      axisLabel: dateAxis && d
+        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : w.day,
+      fullDate: d
+        ? d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
+        : (w.date || w.day),
+    }
+  })
   const isStaffLead = user?.role === 'supervisor' || user?.role === 'admin'
 
   return (
@@ -604,13 +627,13 @@ export default function Analytics() {
       {/* Volume — area/line trend */}
       <Panel title="Message volume" right={<Eyebrow>{periodLabel}</Eyebrow>} bodyClass="pt-4" lift>
         <ResponsiveContainer width="100%" height={230}>
-          <AreaChart data={weekly || []} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+          <AreaChart data={chartRows} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
             <defs>
               <linearGradient id="gInbound" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a1a1aa" stopOpacity={0.18} /><stop offset="100%" stopColor="#a1a1aa" stopOpacity={0} /></linearGradient>
               <linearGradient id="gAi" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} /><stop offset="100%" stopColor={ACCENT} stopOpacity={0} /></linearGradient>
             </defs>
             <CartesianGrid stroke="#f1f1f2" vertical={false} />
-            <XAxis dataKey="day" tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="axisLabel" tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand', fontWeight: 600 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a1a1aa', fontSize: 11, fontFamily: 'Quicksand' }} axisLine={false} tickLine={false} width={40} />
             <Tooltip content={<AreaTooltip />} />
             <Area type="monotone" dataKey="inbound" name="Inbound" stroke="#a1a1aa" strokeWidth={2} fill="url(#gInbound)" />

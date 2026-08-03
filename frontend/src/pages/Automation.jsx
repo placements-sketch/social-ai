@@ -249,10 +249,16 @@ export default function Automation({ embedded = false }) {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-6 w-full max-w-4xl mx-auto">
+    /* When embedded in the AI & Automation tabs the parent already provides
+       the page title and the width constraint, so repeating them here stacked
+       two headings on top of each other — "AI & Automation" above the tab bar,
+       "Automation Rules" immediately below it — and nested one max-width inside
+       an identical one. AISettings already guarded its own title this way;
+       this file did not. */
+    <div className={clsx('space-y-4 sm:space-y-6 w-full', !embedded && 'max-w-4xl mx-auto')}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Automation Rules</h1>
+          {!embedded && <h1 className="text-2xl font-bold text-gray-900">Automation Rules</h1>}
           <p className="text-sm text-gray-500 mt-0.5">Define how the AI handles specific scenarios</p>
         </div>
         <button

@@ -43,10 +43,11 @@ const allNav = [
   { to: '/products',  icon: Package,   label: 'Products',  roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics', roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
-  { to: '/ai', icon: Bot, label: 'AI & Automation', roles: ['admin'], group: 'Admin',
-    children: [
-      { to: '/ai?tab=automation', label: 'Automation Rules', roles: ['admin'] },
-    ] },
+  // One entry. The child pointed at ?tab=automation, which is a tab within the
+  // same page rather than a separate destination — so the nav implied two
+  // places where there is one, and the child could never highlight correctly
+  // because it shares its route with the parent.
+  { to: '/ai', icon: Bot, label: 'AI & Automation', roles: ['admin'], group: 'Admin' },
   { to: '/users',    icon: Users,    label: 'Users',    roles: ['admin'], group: 'Admin' },
   { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin'], group: 'Admin',
     children: [

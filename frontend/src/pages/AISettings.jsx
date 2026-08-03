@@ -190,7 +190,7 @@ export default function AISettings({ embedded = false }) {
 
   if (loading) {
     return (
-      <div className="space-y-6 w-full max-w-4xl mx-auto">
+      <div className={clsx('space-y-6 w-full', !embedded && 'max-w-4xl mx-auto')}>
         <SkeletonHeader />
         <div className="space-y-4">
           <div className="card p-5 space-y-3">
@@ -207,7 +207,7 @@ export default function AISettings({ embedded = false }) {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-4xl mx-auto">
+    <div className={clsx('space-y-6 w-full', !embedded && 'max-w-4xl mx-auto')}>
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
