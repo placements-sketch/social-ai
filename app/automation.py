@@ -89,7 +89,7 @@ IMPLEMENTED_ACTION_TYPES = {
     'trigger_dm_flow', 'include_price',
 }
 # shopify_stock is evaluated in a second pass at Step 4.6, after the Shopify
-# fetch and the live stock refresh — see services.py::_match_automation_action.
+# fetch and the live stock refresh — see services.py::_match_automation_actions.
 IMPLEMENTED_TRIGGER_TYPES = {'keyword', 'intent', 'always', 'channel', 'shopify_stock'}
 
 # Triggers judged in the second pass, because they need the matched product.
@@ -102,6 +102,27 @@ STOCK_TRIGGER_TYPES = {'shopify_stock'}
 # NOT first-match-wins — so a catch-all rule sitting above one of these does not
 # stop it firing. Imported by handoff.py so the list has one definition.
 ESCALATION_ACTION_TYPES = {'human_escalate', 'notify_agent', 'ask_order_number'}
+
+# ── Terminal vs directive ────────────────────────────────────────────────────
+# "First matching rule wins" is right for actions that ANSWER the customer —
+# you cannot send two canned replies to one message, so the first one to match
+# has to win and the rest must not fire.
+#
+# It is wrong for actions that only SHAPE the reply the assistant is going to
+# write anyway. include_price adds an instruction to the prompt; it sends
+# nothing. Treating it as terminal meant an include_price rule sitting near the
+# top silently switched off every rule beneath it — so a customer asking about a
+# sold-out item would get the price mentioned but never the out-of-stock reply.
+#
+# Directive actions therefore accumulate and evaluation CONTINUES. Terminal
+# actions stop it. normal_reply is terminal on purpose: it is the explicit
+# "stop here and let the assistant answer" exception.
+DIRECTIVE_ACTION_TYPES = {'include_price'}
+
+
+def is_terminal_action(action_type) -> bool:
+    """True if matching this action stops any further rule from being applied."""
+    return action_type not in DIRECTIVE_ACTION_TYPES
 
 # `normal_reply` runs, but by design produces no visible action: rules are
 # first-match-wins, so its purpose is to MATCH and thereby stop any later rule
@@ -135,6 +156,8 @@ def _shadowed_by(rule, preceding) -> object | None:
             continue                       # different pass — cannot shadow
         if ptc.get('type') != 'always':
             continue                       # only a catch-all shadows everything
+        if not is_terminal_action((prev.action_config or {}).get('type')):
+            continue                       # a directive doesn't stop evaluation
         prev_channels = set(ptc.get('channels') or [])
         if prev_channels:
             # A scoped catch-all only shadows rules confined to those channels.

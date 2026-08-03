@@ -676,8 +676,7 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # Stock-based rules can't be judged yet — they need the Shopify fetch — so
     # they get their own pass at Step 4.6.
     rule_directives = {}
-    _rule, _action = _match_automation_action(message, intents, channel)
-    if _rule is not None:
+    for _rule, _action in _match_automation_actions(message, intents, channel):
         outcome = _run_automation_action(
             _rule, _action, channel=channel, user_id=user_id,
             external_id=external_id, inbound_record=inbound_record,
@@ -967,10 +966,9 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # Deliberately placed AFTER the live stock refresh above, so an
     # "out of stock" rule is judged on the same number the customer would see
     # on the site rather than whatever the last nightly sync cached.
-    _srule, _saction = _match_automation_action(
-        message, intents, channel,
-        products=context_data.get('products') or [], stock_pass=True)
-    if _srule is not None:
+    for _srule, _saction in _match_automation_actions(
+            message, intents, channel,
+            products=context_data.get('products') or [], stock_pass=True):
         s_outcome = _run_automation_action(
             _srule, _saction, channel=channel, user_id=user_id,
             external_id=external_id, inbound_record=inbound_record,
@@ -2041,14 +2039,24 @@ def _stock_condition_met(tc: dict, products: list) -> bool:
     }.get(cond, False)
 
 
-def _match_automation_action(message, intents, channel, products=None,
-                             stock_pass=False):
+def _match_automation_actions(message, intents, channel, products=None,
+                              stock_pass=False):
     """
-    Find the first enabled rule whose trigger matches, and return
-    (rule, action_config) — or (None, None).
+    Every rule that applies to this message, in sort_order, as
+    [(rule, action_config), ...].
 
-    Rules are evaluated in sort_order (lowest first) and the first match wins,
-    so an admin can put a narrow exception above a broad rule.
+    "First match wins" only applies to actions that ANSWER the customer. You
+    cannot send two canned replies to one message, so the first such rule wins
+    and evaluation stops there. Actions that merely shape the reply the
+    assistant is going to write anyway — include_price — send nothing, so they
+    accumulate and evaluation continues past them.
+
+    Treating those as terminal meant an include_price rule near the top quietly
+    disabled every rule below it: ask about a sold-out item and you'd get the
+    price mentioned but never the out-of-stock reply.
+
+    So this returns any leading run of directive rules, plus the first terminal
+    rule if one matches.
 
     `stock_pass` selects which half of the rules to consider:
       False → every trigger except shopify_stock (runs before the Shopify fetch)
@@ -2062,7 +2070,9 @@ def _match_automation_action(message, intents, channel, products=None,
     """
     try:
         from app.models import AutomationRule
+        from app.automation import is_terminal_action
 
+        matched_rules = []
         text = (message or "").lower()
         rules = (AutomationRule.query
                  .filter_by(enabled=True)
@@ -2098,12 +2108,14 @@ def _match_automation_action(message, intents, channel, products=None,
                 matched = _stock_condition_met(tc, products or [])
 
             if matched:
-                return rule, ac
+                matched_rules.append((rule, ac))
+                if is_terminal_action(ac.get("type")):
+                    break        # this one answers the customer — nothing below it applies
 
-        return None, None
+        return matched_rules
     except Exception as e:
-        log_event("error", "services._match_automation_action", str(e))
-        return None, None
+        log_event("error", "services._match_automation_actions", str(e))
+        return []
 
 
 # What we ask for when a rule fires the order-details action. The action is

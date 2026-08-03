@@ -41,9 +41,42 @@ both off. Nothing in the UI would have changed.
 
 ### The matcher
 
-`_check_template_rule` became `_match_automation_action`, which returns the
-matched rule **and its action** instead of just a template string. Rules are
-evaluated in `sort_order`, first match wins.
+`_check_template_rule` became `_match_automation_actions`, which returns **every
+rule that applies**, in `sort_order`, instead of just a template string.
+
+### What happens when several rules match
+
+"First match wins" is right for actions that **answer** the customer — you
+cannot send two canned replies to one message, so the first such rule wins and
+everything below it is skipped.
+
+It is wrong for actions that only **shape** the reply the assistant was going to
+write anyway. `include_price` adds a line to the prompt; it sends nothing.
+Treating it as terminal meant an `include_price` rule near the top quietly
+switched off every rule beneath it — ask about a sold-out item and you'd get the
+price mentioned but never the out-of-stock reply.
+
+So actions fall into two kinds:
+
+| Kind | Actions | Effect on evaluation |
+|---|---|---|
+| **Directive** | `include_price` | Accumulates; evaluation **continues** |
+| **Terminal** | `reply_template`, `trigger_dm_flow`, `ask_order_number`, `human_escalate`, `notify_agent`, `normal_reply` | Applies, then **stops** |
+
+Evaluation therefore collects any leading run of directive rules plus the first
+terminal rule. Verified:
+
+| Rules that match | Applied | Skipped |
+|---|---|---|
+| `include_price`, then `reply_template` | both | — |
+| two `reply_template` | the first | the second |
+| `include_price`, `include_price`, `reply_template`, `reply_template` | first three | the last |
+| `normal_reply` above a broad `reply_template` | `normal_reply` only | the canned reply |
+
+Escalation is a **third, separate mechanism**: `handoff.py` runs earlier
+(Step 3.5) and scans every enabled rule independently rather than
+first-match-wins, so a catch-all sitting above an escalation rule does not stop
+it reaching a human.
 
 It runs in **two passes**, because a stock rule cannot be judged before we know
 which product the customer means:
@@ -146,6 +179,7 @@ deliberately do **not** warn, because warning would be a false alarm:
 | Case | Warns? | Why |
 |---|---|---|
 | Catch-all above a canned-reply rule | **Yes** | Genuinely unreachable |
+| **Directive** catch-all (`include_price`) above anything | No | Directives don't stop evaluation |
 | Catch-all above an **escalation** rule | No | `handoff.py` scans every rule independently — not first-match-wins |
 | Catch-all above a **stock** rule | No | Different pass |
 | **Disabled** catch-all | No | Disabled rules match nothing |

@@ -239,21 +239,37 @@ def heartbeat():
     """
     Record that the current user is active right now. Called by the
     frontend every ~30 seconds while a tab is open. Updates last_seen_at
-    so the Users page can show online/idle/offline presence indicators.
+    so the Users page can show online/offline presence indicators.
 
-    Deliberately lightweight: no validation, no audit log, single
-    timestamp write. Returns 204 No Content to save bandwidth.
+    Returns the resulting presence rather than 204 No Content.
+
+    It used to return an empty 204 "to save bandwidth", and that was the whole
+    bug behind "I'm online but it says I'm offline". Logging out clears
+    last_seen_at, so the /auth/verify that runs at login correctly reports
+    'offline' — you genuinely haven't checked in yet. The client stores that in
+    `user` and renders it. The heartbeat then fires and marks you online on the
+    server, but with an empty body there was nothing to tell the client, and
+    `user.presence` is not refetched. So you sat there reading 'offline' until
+    a page refresh triggered another /auth/verify.
+
+    Still lightweight: one timestamp write, no validation, no audit row. The
+    response is two fields.
     """
     uid = current_user_id()
     if not uid:
-        return '', 204
+        return jsonify({'presence': 'offline', 'last_seen_at': None}), 200
 
     user = AuthUser.query.get(uid)
-    if user:
-        user.last_seen_at = datetime.utcnow()
-        db.session.commit()
+    if not user:
+        return jsonify({'presence': 'offline', 'last_seen_at': None}), 200
 
-    return '', 204
+    user.last_seen_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'presence': user.presence_status(),
+        'last_seen_at': user.last_seen_at.isoformat(),
+    }), 200
 
 
 @auth_bp.route('/users', methods=['GET'])

@@ -50,18 +50,32 @@ export function AuthProvider({ children }) {
   // Heartbeat: while authenticated, ping the backend every 30s so other
   // staff see this user as "online". Only runs when a tab is visible —
   // background tabs go idle naturally.
+  // Keyed on user?.id, NOT the whole user object: the ping below writes the
+  // fresh presence back into `user`, and depending on the object identity would
+  // tear down and restart this effect on every beat — pinging again, updating
+  // again, forever.
   useEffect(() => {
-    if (!user) return
+    if (!user?.id) return
 
     const ping = async () => {
       if (document.visibilityState !== 'visible') return
       const token = localStorage.getItem('authToken')
       if (!token) return
       try {
-        await fetch(`${API_URL}/api/auth/heartbeat`, {
+        const res = await fetch(`${API_URL}/api/auth/heartbeat`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         })
+        if (!res.ok) return
+        // The heartbeat is the only thing that knows you're online. Without
+        // feeding its answer back, `user.presence` kept whatever /auth/verify
+        // said at login — 'offline', because logging out clears last_seen_at —
+        // and only a page refresh ever corrected it.
+        const data = await res.json()
+        if (!data?.presence) return
+        setUser(prev => (
+          prev && prev.presence === data.presence ? prev : { ...prev, ...data }
+        ))
       } catch {
         // Silent — heartbeat failure is non-fatal
       }
@@ -69,8 +83,18 @@ export function AuthProvider({ children }) {
 
     ping() // immediate ping on login
     const timer = setInterval(ping, 30_000)
-    return () => clearInterval(timer)
-  }, [user])
+
+    // Coming back to a backgrounded tab should not leave you showing offline
+    // for up to another 30 seconds. Beats are skipped while hidden, so the
+    // moment the tab is visible again is exactly when one is owed.
+    const onVisible = () => { if (document.visibilityState === 'visible') ping() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [user?.id])
 
 const verifyToken = async (token) => {
     try {
