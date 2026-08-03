@@ -52,7 +52,7 @@ html, body, #root {
      page rather than panes sitting on it. Lifting the base to ~44 and letting
      the blur do the darkening gives a surface with material to it. Alpha stays
      moderate so the ambient lime behind still refracts through. */
-  --glass-bg:     rgba(44, 47, 52, 0.86);
+  --glass-bg:     rgba(20, 21, 24, 0.92);
   /* Edges are a suggestion, not a frame. */
   --glass-border: rgba(255, 255, 255, 0.085);
   --glass-hi:     rgba(255, 255, 255, 0.04);
@@ -633,7 +633,7 @@ button:not(:disabled):active,
 /* Darken the glass a touch so cards sit under their content rather than
    competing with it. */
 .dark {
-  --glass-bg: rgba(40, 43, 48, 0.88);
+  --glass-bg: rgba(18, 19, 22, 0.92);
 }
 
 /* ── Make the lime pop ───────────────────────────────────────────────────────
