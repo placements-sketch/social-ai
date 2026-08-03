@@ -327,9 +327,14 @@ input:-webkit-autofill:active {
 .dark .bg-black { background-color: var(--brand); }
 .dark .bg-black.text-white,
 .dark .bg-black .text-white { color: #0a0a0a; }
+/* Scoped to elements whose BASE is bg-black — those are lime in dark mode, so
+   hovering to a deeper lime is right. Unscoped, these two also caught buttons
+   whose base is bg-gray-900 (navy), which then flashed lime on hover; the one
+   in Messages did exactly that. Left alone, `hover:bg-gray-800` gives Tailwind's
+   #1f2937 — a lighter navy, which is what a navy button should do. */
 .dark .bg-black:hover,
-.dark .hover\:bg-gray-800:hover,
-.dark .hover\:bg-gray-900:hover { background-color: #b4d93a; }
+.dark .bg-black.hover\:bg-gray-800:hover,
+.dark .bg-black.hover\:bg-gray-900:hover { background-color: #b4d93a; }
 
 /* Tinted badges — the *-50 tints render near-white on dark, so soften them to
    translucent washes and lift the paired text into readable range. */
@@ -637,10 +642,11 @@ button:not(:disabled):active,
 .dark .group:hover .group-hover\:text-black,
 .dark .hover\:text-black:hover { color: #ffffff; }
 
-/* text-white/50 sits on the active period chip. That chip's background is
-   bg-gray-900, remapped to lime — so a half-transparent white label on it was
-   barely there. Darkened to match the near-black the chip's other text gets. */
-.dark .bg-gray-900 .text-white\/50,
+/* text-white/50 on a bg-black element: that base is lime in dark mode, so a
+   half-transparent WHITE label on it is barely there. Darkened to match the
+   near-black the element's other text already gets.
+   Deliberately NOT applied to bg-gray-900 — that stays navy, where a
+   translucent white label is correct. */
 .dark .bg-black .text-white\/50 { color: rgba(10, 10, 10, 0.55); }
 
 /* -300 borders, same reasoning one shade further up. Settings' danger-zone
@@ -655,22 +661,26 @@ button:not(:disabled):active,
    control on the page was near-black on near-black. */
 .dark .text-red-900     { color: #f87171; }
 
-/* bg-gray-900 is the app's "solid dark chip" idiom: primary buttons, and the
-   ACTIVE state of the period pills on Dashboard, Analytics and Messages. Its
-   hover was already remapped (.dark .hover\:bg-gray-900:hover, above) but the
-   resting state never was. #111827 on the dark card surface (~#101114) is about
-   1.05:1 — the white label stays perfectly readable, but the chip's *shape*
-   disappears, so in dark mode nothing showed which period was selected until
-   you hovered it. Matched to bg-black, which these same buttons already pair
-   with (Dashboard uses `bg-black hover:bg-gray-900` on one element). */
-.dark .bg-gray-900 { background-color: var(--brand); }
-.dark .bg-gray-900.text-white,
-.dark .bg-gray-900 .text-white { color: #0a0a0a; }
-/* Exception: paired with text-gray-100 this is not a chip, it's a deliberate
-   dark code surface — the raw-JSON dumps in Meta Diagnostics. Those are already
-   correct in dark mode and the rule above would turn them lime with pale grey
-   text on top. Kept dark, only nudged to sit on the neutral ramp. */
-.dark .bg-gray-900.text-gray-100 { background-color: #16181d; color: #e5e5e5; }
+/* bg-gray-900 stays exactly as Tailwind ships it: #111827.
+
+   That is not a neutral grey — Tailwind v3's default `gray` ramp is the cool
+   one, and gray-900 carries a strong blue (R17 G24 B39). It is the navy on the
+   period pills, export buttons, avatars, the Profile role badge, chat bubbles
+   and the "Turn AI off" button, and it is a deliberate part of the palette.
+
+   It was briefly remapped to the brand lime here, on the theory that the chip
+   was invisible against the card. That was wrong twice over: it repainted every
+   navy element in the app lime, and the contrast reading behind it was measured
+   against the card's OLD fill. Against the current surface (#0d0f12) the navy
+   sits well clear of it — B differs by 21 — so there was nothing to fix.
+
+   If a specific chip ever does need more separation, give that chip a border;
+   don't repaint a whole palette entry. */
+
+/* The hover partner. `bg-gray-900 hover:bg-black` would drop to pure #000 on
+   hover — darker than the page, so the button reads as a hole. Lifted to
+   gray-800, keeping the navy family and moving in the direction a hover should. */
+.dark .hover\:bg-black:hover { background-color: #1f2937; }
 
 /* Tints still missing from the set above. */
 .dark .bg-blue-50    { background-color: rgba(59, 130, 246, 0.12); }
