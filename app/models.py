@@ -50,21 +50,30 @@ class AuthUser(db.Model):
     def check_password(self, password):
         return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
     
+    # A tab sends a heartbeat every 30 seconds while it is visible, so 90
+    # seconds is three missed beats — enough headroom for a slow request or a
+    # brief network drop without flickering.
+    PRESENCE_ONLINE_SECONDS = 90
+
     def presence_status(self):
         """
-        Derive presence from last_seen_at.
-          - online: seen within last 90 seconds (3x heartbeat headroom)
-          - idle:   seen within last 5 minutes
+        Derive presence from last_seen_at. Two states only.
+
+          - online:  seen within the last 90 seconds
           - offline: anything older, or never seen
+
+        There used to be an 'idle' state between 90 seconds and 5 minutes.
+        It was removed because nobody could act on it: an agent shown as idle
+        might be reading a long thread, or might have shut their laptop four
+        minutes ago, and the badge could not tell you which. Worse, it made
+        someone who had genuinely left look half-present for five minutes, which
+        is exactly when you want to route work elsewhere. Offline plus "last
+        seen 4m ago" says the same thing without the false reassurance.
         """
         if not self.last_seen_at:
             return 'offline'
         delta = (datetime.utcnow() - self.last_seen_at).total_seconds()
-        if delta < 90:
-            return 'online'
-        if delta < 300:
-            return 'idle'
-        return 'offline'
+        return 'online' if delta < self.PRESENCE_ONLINE_SECONDS else 'offline'
 
     def to_dict(self):
         return {

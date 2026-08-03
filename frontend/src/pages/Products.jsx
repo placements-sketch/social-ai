@@ -393,12 +393,26 @@ export default function Products() {
                         {p.stock_quantity}
                       </span>
                     </td>
-                    <td className="px-4 py-4 text-center">
-                      {p.stock_quantity === 0 ? (
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">Out of Stock</span>
-                      ) : (
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">In Stock</span>
-                      )}
+                    {/* The label was wrapping to two lines inside a pill sized
+                        for one — "In / Stock" stacked, with the rounded-full
+                        border drawn around the taller box, which is what made
+                        it read as a broken circle. whitespace-nowrap stops the
+                        wrap; the column no longer has to be wide enough to
+                        avoid it by luck. */}
+                    <td className="px-4 py-4">
+                      <div className="flex justify-center">
+                        <span className={clsx(
+                          'inline-flex items-center gap-1.5 text-[11px] font-semibold',
+                          'px-2.5 py-1 rounded-full whitespace-nowrap border',
+                          p.stock_quantity === 0
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : 'bg-green-50 text-green-700 border-green-200'
+                        )}>
+                          <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0',
+                            p.stock_quantity === 0 ? 'bg-red-500' : 'bg-green-500')} />
+                          {p.stock_quantity === 0 ? 'Out of stock' : 'In stock'}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}

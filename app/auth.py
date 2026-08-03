@@ -204,8 +204,21 @@ def verify():
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
-    """Logout endpoint."""
-    log_audit(current_user_id(), 'logout')
+    """
+    Logout endpoint.
+
+    Clears last_seen_at so the user drops to offline at once. Without this,
+    someone who deliberately signed out went on showing as online for up to
+    90 seconds and then lingered as "last seen just now" — so the one moment
+    we know for certain that a person has left was the moment the page kept
+    insisting they were there.
+    """
+    uid = current_user_id()
+    user = AuthUser.query.get(uid)
+    if user is not None:
+        user.last_seen_at = None
+        db.session.commit()
+    log_audit(uid, 'logout')
     return jsonify({'message': 'Logged out successfully'}), 200
 
 

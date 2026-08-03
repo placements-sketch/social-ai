@@ -943,3 +943,116 @@ SELECT count(*) AS conversations_still_marked_for_the_ai
 FROM conversations
 WHERE status <> 'resolved' AND ai_enabled IS TRUE;
 ```
+
+---
+
+### Step 16 — One Instagram account, and retiring shopzetu
+
+**Why.** The platform is now limited to a **single connected Instagram account**.
+The code change ships with the deploy: connecting a second account is refused
+with a message naming the one already connected, rather than silently replacing
+it. Swapping is two deliberate steps — disconnect, then connect — because a
+silent swap disconnects a live account mid-conversation and there is no undo.
+
+Re-connecting the SAME account is still allowed; that is how an expired token
+gets refreshed.
+
+---
+
+#### There is no database work to do
+
+Checked on production:
+
+```
+ig_username   is_active   ig_login_expires_at        time_left
+mileszetu     true        2026-09-29 10:28:10        57 days
+```
+
+**One row. shopzetu is not in `meta_connections` at all.** It was never
+connected through Instagram Login — it was the old Facebook-Login/environment
+setup. So there is nothing to deactivate here, and the token refresh job will
+renew mileszetu automatically once it comes within 14 days of expiry.
+
+Re-run this whenever you want to confirm the state:
+
+```sql
+SELECT ig_username, is_active, ig_login_expires_at,
+       (ig_login_expires_at - now()) AS time_left
+FROM meta_connections
+ORDER BY id;
+```
+
+---
+
+#### Where shopzetu actually still lives: environment variables
+
+`_get_meta_credentials()` falls back to `FB_PAGE_ID` + `FB_ACCESS_TOKEN` when
+there is no OAuth token for an account, and `send_instagram_reply()` falls back
+to *that* when there is no Instagram Login token.
+
+So while those variables are set, there is a path where a reply goes out **as
+shopzetu instead of the connected account** — and it triggers exactly when
+something else has already gone wrong: mileszetu disconnected, its token
+lapsed, or a webhook arriving for an account with no row.
+
+The deploy makes that visible: reaching the fallback now logs
+`integrations.meta.legacy_credentials_used` at **error** level, so it reaches
+the alerts panel rather than happening quietly.
+
+**To kill shopzetu properly, clear these on Render:**
+
+```
+FB_PAGE_ID
+FB_ACCESS_TOKEN
+```
+
+With those gone, a missing OAuth token fails loudly instead of posting under the
+wrong brand — which is the outcome you want.
+
+**Also update, from the earlier self-reply work:**
+
+```
+OUR_ACCOUNT_HANDLES=mileszetu      # was shopzetu
+OUR_ACCOUNT_IDS=                   # clear — meta_connections now supplies this
+```
+
+`_our_account_identifiers()` reads `meta_connections` first, so mileszetu is
+already recognised. Leaving `shopzetu` in there is not harmful — it just means
+the guard would also ignore shopzetu's own comments — but it is stale and
+misleading.
+
+`IG_BUSINESS_ACCOUNT_ID` can stay or go. It is read by `meta_poller.py` to tell
+our account from the customer in DM threads, and that module is not invoked from
+anywhere in the codebase.
+
+**Verify after clearing:** send a test DM and confirm the reply arrives from
+mileszetu, then check nothing logged:
+
+```sql
+SELECT created_at, message
+FROM logs
+WHERE source = 'integrations.meta.legacy_credentials_used'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+No rows means every reply used the connected account's own credentials.
+
+---
+
+#### The swap procedure, from here on
+
+1. **Disconnect** the current account in the UI.
+2. **Connect** the new one.
+
+The other order fails with *"@mileszetu is already connected. Disconnect it
+first"* — intended behaviour, not a bug.
+
+Disconnecting deletes nothing. Reconnecting later matches on
+`ig_login_user_id` and refreshes the row in place, so conversation history
+survives a round trip.
+
+**One caution for parking an account.** Instagram Login tokens expire after 60
+days and the refresh job only renews tokens that are **still valid**. An
+account left disconnected past its expiry cannot be reactivated — it needs a
+fresh OAuth connect. Fine over days or weeks; a problem over months.

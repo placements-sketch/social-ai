@@ -16,7 +16,7 @@ export default function Users() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')        // 'all' | 'admin' | 'supervisor' | 'agent'
   const [statusFilter, setStatusFilter] = useState('all')    // 'all' | 'active' | 'inactive'
-  const [presenceFilter, setPresenceFilter] = useState('all')// 'all' | 'online' | 'idle' | 'offline'
+  const [presenceFilter, setPresenceFilter] = useState('all')  // 'all' | 'online' | 'offline'
   const [sortBy, setSortBy] = useState('name')               // 'name' | 'recent' | 'joined'
   const [showModal, setShowModal] = useState(false)
   const [modalData, setModalData] = useState({
@@ -352,9 +352,8 @@ export default function Users() {
           onChange={e => setPresenceFilter(e.target.value)}
           className="input text-xs shrink-0 cursor-pointer"
         >
-          <option value="all">All presence</option>
-          <option value="online">Online</option>
-          <option value="idle">Idle</option>
+          <option value="all">Everyone</option>
+          <option value="online">Online now</option>
           <option value="offline">Offline</option>
         </select>
 
@@ -462,11 +461,9 @@ export default function Users() {
                               <PresenceDot status={user.presence || 'offline'} />
                               <span className={clsx(
                                 'capitalize font-medium',
-                                user.presence === 'online' ? 'text-green-700'
-                                  : user.presence === 'idle' ? 'text-amber-700'
-                                  : 'text-gray-500'
+                                user.presence === 'online' ? 'text-green-700' : 'text-gray-500'
                               )}>
-                                {user.presence || 'offline'}
+                                {user.presence === 'online' ? 'Online' : 'Offline'}
                               </span>
                               {lastSeenLabel(user.last_seen_at, user.presence) && (
                                 <span className="text-gray-400">

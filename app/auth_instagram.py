@@ -219,6 +219,35 @@ def callback():
     conn = MetaConnection.query.filter_by(ig_login_user_id=ig_user_id).first()
     if conn is None and username:
         conn = MetaConnection.query.filter_by(ig_username=username).first()
+
+    # ONE ACTIVE ACCOUNT AT A TIME.
+    #
+    # The platform is deliberately limited to a single connected Instagram
+    # account. Connecting a second one is refused rather than silently
+    # replacing the first: a swap disconnects a live account mid-conversation,
+    # and doing that as a side effect of clicking "Connect" is not something a
+    # person can undo. Disconnect the current account first, then connect the
+    # new one — two deliberate steps.
+    #
+    # Re-connecting the SAME account is always allowed; that is how an expired
+    # token is refreshed.
+    if conn is None:
+        other = (MetaConnection.query
+                 .filter(MetaConnection.is_active.is_(True))
+                 .filter(MetaConnection.ig_login_user_id.isnot(None))
+                 .first())
+        if other is not None:
+            log_event("warn", "auth_ig.callback.second_account_refused",
+                      f"Refused to connect {username or ig_user_id} — "
+                      f"{other.ig_username or other.ig_login_user_id} is already connected",
+                      payload={"attempted": username or ig_user_id,
+                               "existing": other.ig_username or other.ig_login_user_id})
+            return redirect(_frontend(
+                return_to, connected='0',
+                error=(f"@{other.ig_username or 'another account'} is already connected. "
+                       f"Disconnect it first — only one Instagram account can be "
+                       f"connected at a time.")))
+
     if conn is None:
         conn = MetaConnection(connected_at=datetime.utcnow())
         db.session.add(conn)

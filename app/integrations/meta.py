@@ -98,8 +98,23 @@ def _get_meta_credentials(account_id: str | None = None):
     if conn is not None and conn.page_id and conn.page_access_token:
         return conn.page_id, conn.page_access_token
 
-    # 2. Fall back to env vars (legacy Explorer-token setup)
-    return os.getenv("FB_PAGE_ID"), os.getenv("FB_ACCESS_TOKEN")
+    # 2. Fall back to env vars (legacy Explorer-token setup).
+    #
+    # Loudly. This fallback is a different Instagram account from whichever one
+    # is connected through OAuth — so reaching it means a reply is about to go
+    # out under the wrong brand, and it happens precisely when something else
+    # has already gone wrong (token expired, account disconnected, no row for
+    # this business_account_id). Silently posting as another account is worse
+    # than failing to post, so this is recorded as an error rather than taken
+    # as a normal path.
+    legacy_page, legacy_token = os.getenv("FB_PAGE_ID"), os.getenv("FB_ACCESS_TOKEN")
+    if legacy_token:
+        log_event("error", "integrations.meta.legacy_credentials_used",
+                  "Falling back to the FB_PAGE_ID / FB_ACCESS_TOKEN environment "
+                  "credentials — this is NOT the connected account. Clear those "
+                  "variables once every account is connected through OAuth.",
+                  payload={"requested_account": account_id, "legacy_page_id": legacy_page})
+    return legacy_page, legacy_token
 
 
 # ─────────────────────────────────────────────

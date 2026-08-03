@@ -22,7 +22,12 @@ html, body, #root {
    Consumed by CSS and by the few components that set colours inline (where a
    class can't reach). Light is the fallback; .dark on <html> flips them.     */
 :root {
-  --bg:          #ffffff;
+  /* The page is a light grey, not white. It used to be #ffffff — identical to
+     the cards sitting on it, which were themselves white with a WHITE border
+     (rgba(255,255,255,0.55)). Nothing separated a card from the page except a
+     faint shadow, so the layout read as one undifferentiated sheet. Cards stay
+     white; the background steps back to let them sit on top of something. */
+  --bg:          #f3f4f6;
   --surface:     #ffffff;
   --surface-2:   #f9fafb;
   --border:      #e5e7eb;
@@ -440,14 +445,15 @@ body::before {
 .card,
 .stat-card,
 .glass {
-  background-color: rgba(255, 255, 255, 0.66);
+  background-color: rgba(255, 255, 255, 0.92);
   /* Mid-heavy. 20px only softened what was behind; 28 with a little more
      saturation actually diffuses it, which is what reads as glass rather than
      as a tinted rectangle. */
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   backdrop-filter: blur(28px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.05);
+  /* A grey hairline. A white border on a white card drew nothing at all. */
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px rgba(16, 24, 40, 0.06);
   transition: transform var(--dur) var(--ease-out),
               box-shadow var(--dur) var(--ease-out),
               border-color var(--dur) var(--ease-out);
