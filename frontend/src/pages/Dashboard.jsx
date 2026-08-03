@@ -494,9 +494,13 @@ export default function Dashboard() {
       tiktok_comment:    'TikTok comment',
     })[p.channel] || p.channel
 
-    const userRef = p.user_external_id
-      ? `@${p.user_external_id}`
-      : (p.handle ? `@${p.handle}` : 'a customer')
+    // Handle first, ID second. This was the wrong way round, so even when a
+    // username was available the feed printed the raw platform ID — and on
+    // Instagram that ID is an IGSID, a 16-digit number that identifies the
+    // customer to nobody. The server now resolves the handle for us.
+    const userRef = p.handle
+      ? `@${p.handle}`
+      : (p.user_external_id ? `@${p.user_external_id}` : 'a customer')
 
     // ── Inbound message
     if (src === 'services.inbound') {
