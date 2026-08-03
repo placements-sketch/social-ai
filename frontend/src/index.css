@@ -52,10 +52,10 @@ html, body, #root {
      page rather than panes sitting on it. Lifting the base to ~44 and letting
      the blur do the darkening gives a surface with material to it. Alpha stays
      moderate so the ambient lime behind still refracts through. */
-  --glass-bg:     rgba(34, 35, 38, 0.62);
+  --glass-bg:     rgba(44, 47, 52, 0.86);
   /* Edges are a suggestion, not a frame. */
   --glass-border: rgba(255, 255, 255, 0.085);
-  --glass-hi:     rgba(255, 255, 255, 0.055);
+  --glass-hi:     rgba(255, 255, 255, 0.04);
 }
 
 /* ── Motion tokens ──────────────────────────────────────────────────────────
@@ -444,8 +444,8 @@ body::before {
   /* Mid-heavy. 20px only softened what was behind; 28 with a little more
      saturation actually diffuses it, which is what reads as glass rather than
      as a tinted rectangle. */
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  backdrop-filter: blur(28px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.55);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.05);
   transition: transform var(--dur) var(--ease-out),
@@ -633,7 +633,7 @@ button:not(:disabled):active,
 /* Darken the glass a touch so cards sit under their content rather than
    competing with it. */
 .dark {
-  --glass-bg: rgba(30, 31, 34, 0.64);
+  --glass-bg: rgba(40, 43, 48, 0.88);
 }
 
 /* ── Make the lime pop ───────────────────────────────────────────────────────
