@@ -240,7 +240,9 @@ def system_logs():
                  .limit(per_page).offset((page - 1) * per_page).all())
 
     return jsonify({
-        'logs': [r.to_dict() for r in rows],
+        # Same treatment as the feed: the System Logs tab renders `message`
+        # verbatim, and those strings have raw IGSIDs written into them.
+        'logs': _with_customer_handles(rows),
         'total': total,
         'page': page,
         'per_page': per_page,
@@ -355,67 +357,34 @@ def feed_logs():
 
 def _with_customer_handles(rows):
     """
-    Serialise feed rows, adding the customer's username where we know it.
+    Serialise log rows, adding the customer's username wherever we know it.
 
-    Live Activity was reading raw platform IDs off the wire —
-    "@1049159518028579 sent a message" — because the only identity in a log
-    payload is `user_external_id`, which on Instagram is an IGSID, not a
-    handle. We DO store the username on users.name; nothing was joining to it.
+    Two separate leaks were showing raw platform IDs to people:
 
-    Resolved here rather than at write time so existing log rows benefit: of the
-    rows carrying a user_external_id, 220 of 245 link to a conversation and 178
-    of those have a stored name.
+      1. Live Activity built its sentence from `payload.user_external_id`, which
+         on Instagram is an IGSID — a 16-digit number identifying the customer
+         to nobody. The username sits on users.name; nothing joined to it.
+      2. The System Logs tab renders `message` verbatim, and those strings had
+         the ID written into them at log time ("Inbound [instagram_dm] from
+         1572623687906312"). Rewriting history is not an option, so the ID is
+         substituted on the way out.
 
-    Two lookups, both batched — no N+1:
-      1. conversation_id -> conversations.user_id -> users.name  (most rows)
-      2. payload user_external_id -> users.external_id           (rows with no
-         conversation, e.g. faults logged before the thread existed)
+    Both go through app/identity.py so the rule has one definition. Batched —
+    at most two queries regardless of page size.
     """
-    from app.models import Conversation, User
+    from app.identity import resolve_rows, humanise
 
     dicts = [r.to_dict() for r in rows]
+    handles, id_map = resolve_rows(rows, text_fields=('message',))
 
-    conv_ids = {r.conversation_id for r in rows if r.conversation_id}
-    ext_ids = {(d.get('payload') or {}).get('user_external_id')
-               for d in dicts}
-    ext_ids.discard(None)
-
-    by_conv, by_ext = {}, {}
-
-    if conv_ids:
-        for conv_id, name, ext in (
-            db.session.query(Conversation.id, User.name, User.external_id)
-            .join(User, User.id == Conversation.user_id)
-            .filter(Conversation.id.in_(conv_ids)).all()
-        ):
-            if name:
-                by_conv[conv_id] = name
-            if ext and name:
-                by_ext.setdefault(ext, name)
-
-    # Only look up what the conversation join didn't already answer.
-    missing = {e for e in ext_ids if e not in by_ext}
-    if missing:
-        for name, ext in (db.session.query(User.name, User.external_id)
-                          .filter(User.external_id.in_(missing))
-                          .filter(User.name.isnot(None)).all()):
-            if name:
-                by_ext.setdefault(ext, name)
-
-    for d, row in zip(dicts, rows):
-        payload = d.get('payload') or {}
-        ext = payload.get('user_external_id')
-        handle = by_conv.get(row.conversation_id) or (by_ext.get(ext) if ext else None)
-        # Some stored names already carry a leading '@' and some don't. The UI
-        # prepends one, so the inconsistent ones rendered as "@@amina_ke".
-        # Normalised here, once, rather than in every place that displays it.
-        if handle:
-            handle = handle.strip().lstrip('@').strip()
+    for i, d in enumerate(dicts):
+        handle = handles.get(i)
         if handle:
             # `handle` is what the UI prefers; user_external_id stays put so
             # nothing that relies on the raw ID breaks.
-            payload = {**payload, 'handle': handle}
-            d['payload'] = payload
+            d['payload'] = {**(d.get('payload') or {}), 'handle': handle}
+        if d.get('message'):
+            d['message'] = humanise(d['message'], id_map)
 
     return dicts
 

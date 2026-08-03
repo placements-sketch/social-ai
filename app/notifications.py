@@ -339,8 +339,24 @@ def list_notifications():
                         .filter(Notification.created_at >= cutoff)
                         .count())
 
+    # Notification titles are composed from User.handle, which falls back to
+    # external_id when we don't yet know the username — so "New message from
+    # 1049159518028579" got written into the row permanently. Usernames usually
+    # arrive later (thread creation, a profile fetch), so the ID is swapped for
+    # the name on the way out and old notifications start reading properly.
+    # Only ids that really are customer external_ids are touched.
+    from app.identity import resolve_notifications, humanise
+    id_map = resolve_notifications(rows)
+
+    serialised = []
+    for n in rows:
+        d = n.to_dict()
+        d['title'] = humanise(d.get('title'), id_map)
+        d['body'] = humanise(d.get('body'), id_map)
+        serialised.append(d)
+
     return jsonify({
-        'notifications': [n.to_dict() for n in rows],
+        'notifications': serialised,
         # The badge number. True unread, no time limit.
         'unread_count': unread_total,
         # How many of those the caller is actually looking at, so the page can
