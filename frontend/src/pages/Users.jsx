@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Loader2, X, Check, Users as UsersIcon, Search, Shield, ShieldCheck, UserRound } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, X, Check, Users as UsersIcon, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
@@ -290,23 +290,25 @@ export default function Users() {
         </button>
       </div>
 
-      {/* KPI strip */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Total',  value: totalUsers,  Icon: UserRound,    color: 'text-gray-700',   bg: 'bg-gray-100' },
-          { label: 'Active', value: activeUsers, Icon: ShieldCheck,  color: 'text-green-600',  bg: 'bg-green-50' },
-          { label: 'Online', value: onlineUsers, Icon: UsersIcon,    color: 'text-brand-600',  bg: 'bg-brand-50' },
-        ].map(({ label, value, Icon, color, bg }) => (
-          <div key={label} className="card p-3 sm:p-4 min-w-0">
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', bg)}>
-                <Icon size={14} className={color} />
-              </div>
-            </div>
-            <p className="text-xl sm:text-2xl font-bold text-gray-900 tabular-nums leading-none">{value}</p>
-            <p className="text-[10px] sm:text-xs text-gray-500 font-semibold mt-1.5 uppercase tracking-wide truncate">{label}</p>
-          </div>
-        ))}
+      {/* One line, not three cards.
+          Total / Active / Online were three bordered boxes for a team of four —
+          "Total 4" and "Active 4" are the same number on any healthy team, and
+          three cards to say so took more vertical space than the user list
+          itself. A sentence carries it, and the online count is the only part
+          that changes minute to minute. */}
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-gray-900">
+          <PresenceDot status={onlineUsers > 0 ? 'online' : 'offline'} pulse={onlineUsers > 0} />
+          {onlineUsers} online
+        </span>
+        <span className="text-gray-400">
+          &middot; {totalUsers} {totalUsers === 1 ? 'person' : 'people'}
+        </span>
+        {activeUsers !== totalUsers && (
+          <span className="text-amber-600 font-medium text-xs">
+            &middot; {totalUsers - activeUsers} deactivated
+          </span>
+        )}
       </div>
 
       {/* Filter row */}
@@ -436,9 +438,19 @@ export default function Users() {
                   <div key={user.id} className="card p-4 hover:shadow-md transition-all duration-200">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3.5 flex-1">
-                        {/* Avatar */}
-                        <div className="w-10 h-10 rounded-xl bg-black text-white flex items-center justify-center font-semibold text-xs shrink-0 mt-0.5">
-                          {getInitials(user.full_name)}
+                        {/* Presence sits ON the avatar rather than buried in
+                            a metadata row three lines below. Whether someone is
+                            available is the first thing you look for here, so it
+                            belongs on the thing your eye lands on first. */}
+                        <div className="relative shrink-0 mt-0.5">
+                          <div className="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center font-semibold text-xs">
+                            {getInitials(user.full_name)}
+                          </div>
+                          <PresenceDot
+                            status={user.presence || 'offline'}
+                            size="md"
+                            className="absolute -bottom-0.5 -right-0.5 ring-2 ring-white"
+                          />
                         </div>
                         
                         {/* User info */}
@@ -450,27 +462,23 @@ export default function Users() {
                             </span>
                           </div>
                           <p className="text-xs text-gray-500 font-mono truncate">{user.email}</p>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400 flex-wrap">
-                            <span>Joined {joinDate}</span>
-                            <span className={clsx('px-1.5 py-0.5 rounded font-medium text-xs', 
-                              user.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'
-                            )}>
-                              {user.status}
+                          {/* The dot on the avatar already says online or
+                              offline, so repeating the word here was the same
+                              fact twice on one row. What the dot cannot say is
+                              WHEN — that is the part worth the space. */}
+                          <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
+                            <span className={clsx('font-medium',
+                              user.presence === 'online' ? 'text-green-600' : 'text-gray-500')}>
+                              {user.presence === 'online'
+                                ? 'Online now'
+                                : (lastSeenLabel(user.last_seen_at, user.presence) || 'Offline')}
                             </span>
-                            <span className="inline-flex items-center gap-1.5">
-                              <PresenceDot status={user.presence || 'offline'} />
-                              <span className={clsx(
-                                'capitalize font-medium',
-                                user.presence === 'online' ? 'text-green-700' : 'text-gray-500'
-                              )}>
-                                {user.presence === 'online' ? 'Online' : 'Offline'}
+                            {user.status !== 'active' && (
+                              <span className="px-1.5 py-0.5 rounded font-semibold bg-amber-50 text-amber-700 capitalize">
+                                {user.status}
                               </span>
-                              {lastSeenLabel(user.last_seen_at, user.presence) && (
-                                <span className="text-gray-400">
-                                  · {lastSeenLabel(user.last_seen_at, user.presence)}
-                                </span>
-                              )}
-                            </span>
+                            )}
+                            <span className="text-gray-400">· Joined {joinDate}</span>
                           </div>
                         </div>
                       </div>
