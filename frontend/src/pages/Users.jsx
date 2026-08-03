@@ -471,7 +471,7 @@ export default function Users() {
                               user.presence === 'online' ? 'text-green-600' : 'text-gray-500')}>
                               {user.presence === 'online'
                                 ? 'Online now'
-                                : (lastSeenLabel(user.last_seen_at, user.presence) || 'Offline')}
+                                : (lastSeenLabel(user.last_seen_at, user.presence, user.last_login) || 'Offline')}
                             </span>
                             {user.status !== 'active' && (
                               <span className="px-1.5 py-0.5 rounded font-semibold bg-amber-50 text-amber-700 capitalize">

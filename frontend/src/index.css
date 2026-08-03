@@ -526,16 +526,31 @@ body::before {
   transition-duration: var(--dur-fast);
 }
 
-/* Tactile press. Anything with an explicit Tailwind active: transform
-   (e.g. active:rotate-180) has higher specificity and keeps its own behaviour. */
+/* Tactile press.
+ *
+ * Uses the standalone `scale` property, NOT `transform: scale()`. The two are
+ * not interchangeable: `transform` is a single value, so setting it on :active
+ * REPLACED whatever transform the element already had. Every icon button
+ * centred with `absolute top-1/2 -translate-y-1/2` therefore lost its centring
+ * the instant it was pressed and dropped by half its own height — far enough
+ * that the pointer ended up outside the button, so mouseup landed elsewhere and
+ * no click event ever fired.
+ *
+ * That is why the show/hide password eye did nothing on the login screen. It
+ * was not the component: the button was moving out from under the cursor
+ * mid-click. The same rule silently broke the eye on Profile and on Reset
+ * Password — all three are centred that way.
+ *
+ * `scale` composes with `transform` instead of overwriting it, so the press
+ * effect and the centring coexist. */
 button:not(:disabled),
 [role='button'],
 a[href] {
-  transition: transform var(--dur-fast) var(--ease-out);
+  transition: scale var(--dur-fast) var(--ease-out);
 }
 button:not(:disabled):active,
 [role='button']:active {
-  transform: scale(0.97);
+  scale: 0.97;
 }
 
 /* Entrance animations — add .pop-in to a modal panel, .sheet-in to a bottom

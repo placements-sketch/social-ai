@@ -46,14 +46,32 @@ export default function PresenceDot({ status, size = 'sm', pulse = true, classNa
  * Returns null when the user is online — there is no point telling someone
  * that a person who is here right now was last seen just now.
  */
-export function lastSeenLabel(lastSeenAt, status) {
+export function lastSeenLabel(lastSeenAt, status, lastLogin) {
   if (status === 'online') return null
-  if (!lastSeenAt) return 'Never signed in'
 
-  const seen = parseBackendTime(lastSeenAt)
+  // `last_seen_at` is the presence heartbeat, and logging out clears it so the
+  // dot drops to offline immediately. Reading only that field meant anyone who
+  // had signed out read as "Never signed in" — including an admin who was on
+  // the platform minutes earlier. Whether someone has EVER signed in is
+  // `last_login`, which is a different column and survives logout.
+  if (!lastSeenAt) {
+    const login = parseBackendTime(lastLogin)
+    if (!login) return 'Never signed in'
+    return `Signed out · last in ${login.toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short',
+    })}`
+  }
+
+  let seen = parseBackendTime(lastSeenAt)
   // A bare `return` here handed back undefined, so a malformed timestamp
   // rendered as nothing at all rather than as an honest "unknown".
   if (!seen) return 'Last seen unknown'
+
+  // Whichever is later. The heartbeat only runs while a tab is open, so a
+  // stale last_seen_at next to a newer last_login would report someone as last
+  // seen weeks before they demonstrably signed in.
+  const login = parseBackendTime(lastLogin)
+  if (login && login > seen) seen = login
 
   const delta = Math.floor((Date.now() - seen.getTime()) / 1000)
   if (delta < 0) return 'Last seen just now'      // clock skew safety
