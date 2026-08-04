@@ -836,7 +836,7 @@ def verify_ig_login_token(token: str, ig_user_id: str = None) -> dict:
              'error': str|None}. Never raises.
     """
     if not token:
-        return {'ok': False, 'user_id': None, 'username': None,
+        return {'ok': False, 'user_id': None, 'business_id': None, 'username': None,
                 'error': 'No Instagram Login token stored for this connection.'}
 
     # Addressed by NUMERIC ACCOUNT ID, with `me` only as a last resort.
@@ -855,14 +855,22 @@ def verify_ig_login_token(token: str, ig_user_id: str = None) -> dict:
 
     for target in targets:
         try:
+            # `user_id` is requested as well as `id` because they are DIFFERENT
+            # numbers and we need both:
+            #   id      37355381327440609  — app-scoped, what OAuth hands back
+            #   user_id 17841412308701394  — the IG Business Account id
+            # Webhooks are keyed on the business id, and _connection_for()
+            # matches on ig_business_account_id — which this flow never stored,
+            # so routing always fell through to "most recent active
+            # connection". Fine with one account, wrong with two.
             r, body = ig_login_request(
                 'GET', target,
-                params={'fields': 'id,username', 'access_token': token},
+                params={'fields': 'id,user_id,username', 'access_token': token},
                 timeout=10)
         except requests.RequestException as e:
             log_event("warning", "integrations.meta.verify_failed",
                       f"Could not reach Instagram to verify the token: {e}")
-            return {'ok': False, 'user_id': None, 'username': None,
+            return {'ok': False, 'user_id': None, 'business_id': None, 'username': None,
                     'error': f'Could not reach Instagram: {e}'}
 
         if r.status_code < 400:
@@ -876,11 +884,14 @@ def verify_ig_login_token(token: str, ig_user_id: str = None) -> dict:
     else:
         log_event("error", "integrations.meta.verify_failed",
                   f"Token rejected by Instagram: {last_err}")
-        return {'ok': False, 'user_id': None, 'username': None, 'error': last_err}
+        return {'ok': False, 'user_id': None, 'business_id': None, 'username': None, 'error': last_err}
 
     return {
         'ok': True,
-        'user_id': str(body.get('id') or body.get('user_id') or '') or None,
+        # The app-scoped id — what we key the connection row on.
+        'user_id': str(body.get('id') or '') or None,
+        # The IG Business Account id — what webhooks report as the recipient.
+        'business_id': str(body.get('user_id') or '') or None,
         'username': body.get('username'),
         'error': None,
     }

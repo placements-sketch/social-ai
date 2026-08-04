@@ -171,6 +171,21 @@ def callback():
                    if expired else (raw or 'Token exchange failed')[:120])))
     ig_user_id = str(body.get('user_id') or '')
 
+    # What Meta actually GRANTED, which is not necessarily what we asked for.
+    # The exchange response carries `permissions`; we were storing IG_SCOPES —
+    # our own request — as though it were the grant, so the connection card
+    # would claim messaging access even if the user had unticked it or the app
+    # was not approved for it. Logged verbatim because a token that authorises
+    # nothing looks identical to a healthy one until an API call fails.
+    granted = body.get('permissions')
+    if isinstance(granted, list):
+        granted = ','.join(str(g) for g in granted)
+    log_event("info", "auth_ig.callback.granted",
+              f"Instagram granted: {granted or '(none reported)'} for {ig_user_id}",
+              payload={'user_id': ig_user_id, 'granted': granted,
+                       'requested': ','.join(IG_SCOPES),
+                       'response_keys': sorted(body.keys())})
+
     # 2. Short-lived → long-lived (60 days)
     long_token, expires_at = short_token, None
     try:
@@ -197,13 +212,14 @@ def callback():
     # retries unversioned, and the failure is now logged instead of swallowed.
     # The token exchange above already gave us the numeric account id, so we
     # address that rather than `me`, which does not resolve on this host.
-    username, account_type = None, None
+    username, account_type, ig_business_id = None, None, None
     try:
         from app.integrations.meta import verify_ig_login_token
         ident = verify_ig_login_token(long_token, ig_user_id)
         if ident['ok']:
             username = ident.get('username')
             ig_user_id = ident.get('user_id') or ig_user_id
+            ig_business_id = ident.get('business_id')
         else:
             log_event("error", "auth_ig.identity_lookup_failed",
                       f"Could not read the username for {ig_user_id}: {ident.get('error')}")
@@ -264,11 +280,19 @@ def callback():
         db.session.add(conn)
 
     conn.ig_login_user_id = ig_user_id
+    # Webhooks arrive keyed on this, not on the app-scoped id above.
+    if ig_business_id:
+        conn.ig_business_account_id = ig_business_id
     conn.ig_login_token = long_token
     conn.ig_login_expires_at = expires_at
     conn.ig_username = username or conn.ig_username
-    conn.scopes = IG_SCOPES
-    conn.last_verified_at = datetime.utcnow()
+    # The grant, falling back to our request only if Meta reported nothing.
+    conn.scopes = (granted.split(',') if granted else IG_SCOPES)
+    # NOT stamped here. last_verified_at means "Instagram confirmed this token
+    # works", and at this point nothing has confirmed anything — the identity
+    # lookup above may well have failed. Setting it here made a connection look
+    # verified purely because it had been created.
+    conn.last_verified_at = None
     conn.is_active = True
     if auth_user_id and not conn.auth_user_id:
         conn.auth_user_id = auth_user_id
@@ -412,6 +436,11 @@ def verify_one(conn_id):
             conn.ig_username = result['username']
         if result.get('user_id') and not conn.ig_login_user_id:
             conn.ig_login_user_id = result['user_id']
+        # The business account id is what webhooks report as the recipient, so
+        # without it _connection_for() can never match a delivery to this row.
+        # Backfilled here for connections made before it was captured.
+        if result.get('business_id'):
+            conn.ig_business_account_id = result['business_id']
         db.session.commit()
 
         # A valid token is only half of "connected". Without a webhook
