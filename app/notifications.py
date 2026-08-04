@@ -141,6 +141,25 @@ def _queue_urgent_email(user_id, title, body):
     user = AuthUser.query.get(user_id)
     if not user or not user.email or user.status != 'active':
         return
+
+    # Resolve platform ids to handles before rendering.
+    #
+    # Titles are composed from User.handle, which falls back to external_id when
+    # the username isn't known yet — so an urgent email could read "New message
+    # from 1049159518028579". The in-app views already substitute these on the
+    # way out; the email is rendered here and was missing it, which is the one
+    # place it matters most: you read it away from the app with no way to look
+    # the number up.
+    try:
+        from app.identity import candidate_ids, handles_for_external_ids, humanise
+        id_map = handles_for_external_ids(candidate_ids(title, body))
+        title = humanise(title, id_map)
+        body = humanise(body, id_map)
+    except Exception as e:
+        # A lookup failure must not cost the alert — a numeric id in the
+        # subject line still beats no email at all.
+        log_event('warning', 'notifications.handle_resolve_failed', str(e)[:160])
+
     _install_commit_hook()
     db.session.info.setdefault(_PENDING_EMAILS_KEY, []).append({
         'to': user.email,

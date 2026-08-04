@@ -345,6 +345,21 @@ def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict 
                           payload={"igsid": igsid})
             return data
 
+        # "does not exist / missing permissions" means this id is not addressable
+        # by the token we hold — an IGSID is scoped to the account it was issued
+        # for, so conversations from a previously connected account can never be
+        # resolved by the current one. Narrowing the fields cannot help and the
+        # customer's name is simply unknowable, so stop here and record it as a
+        # fact rather than an error that invites investigation each time.
+        body_l = (r.text or "").lower()
+        if "does not exist" in body_l or "missing permissions" in body_l:
+            log_event("info", "integrations.meta.username_unresolvable",
+                      f"IGSID {igsid} is not addressable by the connected "
+                      f"account — most likely a thread from a previously "
+                      f"connected Instagram account.",
+                      payload={"igsid": igsid})
+            return None
+
         # Only worth retrying if there is a narrower attempt left.
         level = "warning" if fields == "username" else "info"
         log_event(level, "integrations.meta.username_lookup",

@@ -40,6 +40,36 @@ AI_SUPPRESSED = ""
 # different log sources and some paths (exceptions, failed sends) logged
 # nothing at all, leaving gaps nobody could explain.
 NO_REPLY_DUPLICATE_WEBHOOK     = "duplicate_webhook"
+
+# ── Inbound claim ────────────────────────────────────────────────────────────
+# Message ids we have started processing, newest last. Never released: an id is
+# unique to one message, so "seen" is permanent and this doubles as a dedupe
+# cache. Bounded so a long-running process cannot grow it without limit.
+import threading as _threading
+from collections import OrderedDict as _OrderedDict
+
+_SEEN_INBOUND = _OrderedDict()
+_SEEN_INBOUND_LOCK = _threading.Lock()
+_SEEN_INBOUND_MAX = 5000
+
+
+def _claim_inbound(external_id: str) -> bool:
+    """
+    True if this thread is the first to claim `external_id`.
+
+    The database check that follows is a read whose matching write lands much
+    later, so on its own it cannot stop two concurrent deliveries of the same
+    webhook from both proceeding. This makes the claim atomic.
+    """
+    if not external_id:
+        return True                     # nothing to key on; let it through
+    with _SEEN_INBOUND_LOCK:
+        if external_id in _SEEN_INBOUND:
+            return False
+        _SEEN_INBOUND[external_id] = None
+        while len(_SEEN_INBOUND) > _SEEN_INBOUND_MAX:
+            _SEEN_INBOUND.popitem(last=False)
+        return True
 NO_REPLY_MASTER_SWITCH_OFF     = "ai_master_switch_off"
 NO_REPLY_SETTINGS_UNREADABLE   = "settings_unreadable"
 NO_REPLY_CHANNEL_DISABLED      = "channel_disabled"
@@ -539,6 +569,24 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     if external_id:
         from app import db
         from app.models import Message
+
+        # Claimed atomically BEFORE the database check.
+        #
+        # The check below is a read, and the matching write happens much later
+        # in this function — so with concurrent webhook handling two deliveries
+        # of the same event could both read "not seen yet", both pass, and both
+        # run the entire pipeline. That is what puts pairs of identical lines in
+        # Live Activity: not one event logged twice, but the same event
+        # genuinely processed twice, replies and all.
+        #
+        # Claiming closes that window: whichever thread gets there first owns
+        # the id, and the loser stops immediately. The DB check stays as the
+        # cross-process and cross-restart backstop.
+        if not _claim_inbound(external_id):
+            _record_no_reply(NO_REPLY_DUPLICATE_WEBHOOK, channel, user_id,
+                             detail=f"concurrent delivery, mid={external_id}")
+            return AI_SUPPRESSED
+
         already_replied = Message.query.filter_by(
             external_id=external_id
         ).first()
@@ -736,6 +784,22 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # "is this available?" + a photo, where the text names no product.
     vision_desc = None   # referenced later even when no photo was sent
     vision_attrs = {}    # garment type / colour, used to narrow the catalogue
+
+    # A photo and its caption arrive as two separate webhooks. When this message
+    # carries no image but points at something ("i want this, still available?"),
+    # the photo it refers to is in the message just before it.
+    if (not image_urls
+            and inbound_record is not None
+            and _is_referential(message)):
+        recovered = _find_recent_image_urls(inbound_record.conversation_id)
+        if recovered:
+            image_urls = recovered
+            log_event("info", "services.image_recovered",
+                      f"Reusing the photo from the previous message for "
+                      f"{str(user_id)[:24]}",
+                      payload={"images": len(recovered)},
+                      conversation_id=inbound_record.conversation_id)
+
     if image_urls:
         from app.ai.generator import describe_product_in_image
         vision_attrs = describe_product_in_image(image_urls) or {}
@@ -2057,6 +2121,36 @@ def _qualifiers_in(text: str | None) -> list[str]:
         if w in _QUALIFIER_WORDS and w not in seen:
             seen.append(w)
     return seen
+
+
+def _find_recent_image_urls(conversation_id: int, max_lookback: int = 4) -> list:
+    """
+    The most recent photo the customer sent in this conversation.
+
+    Instagram delivers a photo and its caption as SEPARATE messages, so the
+    common pattern is a bare image followed a second later by "i want this,
+    still available?". That second webhook carries no image, and looking only at
+    the current message the assistant answered "I don't see a product link or
+    image attached to your message" — to someone who had just sent a photo.
+
+    Looking back a few messages recovers it. Capped tightly: an image from
+    further back is probably a different item, and re-answering about the wrong
+    photo is worse than admitting we can't see one.
+    """
+    if not conversation_id:
+        return []
+    try:
+        from app.models import Message
+        rows = (Message.query
+                .filter_by(conversation_id=conversation_id, direction='inbound')
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(max_lookback).all())
+        for m in rows:
+            if m.image_urls:
+                return list(m.image_urls)
+    except Exception as e:
+        log_event("warning", "services.image_lookback_failed", str(e)[:160])
+    return []
 
 
 def _find_recent_product_keyword(conversation_id: int, max_lookback: int = 5) -> str | None:
