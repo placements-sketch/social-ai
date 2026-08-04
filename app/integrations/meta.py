@@ -697,6 +697,85 @@ def fetch_instagram_media(media_id: str) -> dict | None:
 IG_REFRESH_WHEN_DAYS_LEFT = int(os.getenv("IG_REFRESH_WHEN_DAYS_LEFT", "14"))
 
 
+# Webhook fields an Instagram Login account must be subscribed to for anything
+# to reach us. One definition, imported by the OAuth callback and the health
+# check, so a change here cannot apply to only one of them.
+IG_SUBSCRIBED_FIELDS = "messages,comments"
+
+
+def subscribe_ig_login_webhooks(ig_user_id: str, token: str,
+                                fields: str = None) -> tuple[bool, dict]:
+    """
+    Subscribe an Instagram Login account to webhook events.
+
+    Addressed by NUMERIC ACCOUNT ID, not by `me`.
+
+    The OAuth callback used to POST to `/me/subscribed_apps` and Instagram
+    answered:
+
+        400 {"error":{"message":"Unsupported request - method type: post",
+                      "type":"IGApiException","code":100}}
+
+    `me` resolves on GET but is not a routable target for a POST on this edge,
+    so the subscription silently never happened — and an account with a
+    perfectly valid token receives no messages or comments at all, which looks
+    exactly like a broken integration for a reason nothing on the page reports.
+
+    Falls back to `me` only if the numeric form fails, so a future API change in
+    the other direction does not break it again.
+
+    Returns (ok, response_body). Never raises.
+    """
+    fields = fields or IG_SUBSCRIBED_FIELDS
+    attempts = [str(ig_user_id)] if ig_user_id else []
+    attempts.append('me')
+
+    last_body = {}
+    for target in attempts:
+        try:
+            r = requests.post(
+                f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{target}/subscribed_apps",
+                params={'subscribed_fields': fields, 'access_token': token},
+                timeout=20,
+            )
+            try:
+                body = r.json()
+            except ValueError:
+                body = {'raw': (r.text or '')[:400]}
+        except requests.RequestException as e:
+            last_body = {'error': str(e)}
+            continue
+
+        ok = r.ok and bool(body.get('success'))
+        log_event('info' if ok else 'warning', 'integrations.meta.ig_subscribe',
+                  f"target={target} ok={ok} status={r.status_code} body={str(body)[:200]}")
+        if ok:
+            return True, body
+        last_body = body
+
+    return False, last_body
+
+
+def get_ig_login_subscriptions(ig_user_id: str, token: str) -> tuple[bool, dict]:
+    """
+    What this Instagram account is actually subscribed to, straight from Meta.
+
+    A valid token with no subscription receives nothing, and that combination
+    is indistinguishable from a healthy connection unless you ask. Returns
+    (ok, body) where body['data'] lists the subscribed fields.
+    """
+    target = str(ig_user_id) if ig_user_id else 'me'
+    try:
+        r = requests.get(
+            f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{target}/subscribed_apps",
+            params={'access_token': token}, timeout=10,
+        )
+        body = r.json() if r.text else {}
+    except requests.RequestException as e:
+        return False, {'error': str(e)}
+    return r.ok, body
+
+
 def verify_ig_login_token(token: str) -> dict:
     """
     Ask Instagram whether this token actually works, right now.

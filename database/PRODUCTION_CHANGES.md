@@ -1203,3 +1203,65 @@ SELECT count(*) FILTER (WHERE cached_at > now() - interval '1 hour') AS fresh,
 handlers are queueing (they are network-bound, not connection-bound);
 raise `DB_POOL_SIZE` only if normal web traffic is also timing out — and
 remember Step 12, the pooler has its own ceiling.
+
+---
+
+### Step 20 — Instagram webhook subscription was never happening
+
+**No SQL. Deploy, then click **Verify** on each connected account.**
+
+Production logs:
+
+```
+auth_ig.subscribe
+37355381327440609: 400 {"error":{"message":"Unsupported request - method type: post",
+                       "type":"IGApiException","code":100}}
+```
+
+**What it means.** After OAuth we subscribe the account to webhook events.
+That call was addressed to `me`:
+
+```
+POST https://graph.instagram.com/v23.0/me/subscribed_apps      ← rejected
+POST https://graph.instagram.com/v23.0/{ig-user-id}/subscribed_apps   ← correct
+```
+
+`me` resolves on GET but is not a routable target for a POST on this edge, so
+Instagram refused it and **the subscription never happened**.
+
+**Why this matters more than it looks.** The account still finished connecting
+with a perfectly valid token. A valid token with no subscription receives
+*nothing* — no DMs, no comments — and from the Channels page that is
+indistinguishable from a healthy connection. The card even said **Connected**,
+because that badge only meant "row active, no expiry recorded" (Step 20's
+sibling fix, below).
+
+**What changed.**
+
+- Subscribe now uses the numeric account id, falling back to `me` only if that
+  fails, so a change in the other direction cannot silently break it again.
+- The subscribe/check calls moved into `app/integrations/meta.py`
+  (`subscribe_ig_login_webhooks`, `get_ig_login_subscriptions`) so the OAuth
+  callback and the health check share one definition.
+- A new **Verify** button (shield icon) on each connection asks Instagram
+  directly whether the token works, **and repairs a missing subscription in
+  place** — no disconnect/reconnect needed. It also backfills `ig_username`,
+  which is why a connection can display as a bare numeric id.
+- Connection status gained an `unverified` state. A missing expiry used to fall
+  through to a green "Connected"; it now reads amber **"Not verified"** until
+  something has actually checked.
+
+**After deploying:** open Settings → Channels and press **Verify** on each
+account. Expect the toast *"…webhook subscription was missing, so it was
+reconnected."* Then confirm inbound is flowing:
+
+```sql
+SELECT max(created_at) AS newest_inbound, count(*) AS last_hour
+  FROM messages
+ WHERE direction = 'inbound'
+   AND created_at > now() - interval '1 hour';
+```
+
+If subscription still fails, the response body is logged verbatim under
+`integrations.meta.ig_subscribe` — a rejected field name shows up there and
+nowhere else.

@@ -202,16 +202,17 @@ def callback():
 
     # 4. Subscribe THIS account to webhooks. Without it Meta delivers nothing,
     #    exactly like the Page-level subscription on the Facebook Login side.
+    #    Addressed by numeric account id. This used to POST to `/me/...`, which
+    #    Instagram rejects with "Unsupported request - method type: post" — so
+    #    the subscription never happened and the account received nothing,
+    #    despite holding a valid token.
     subscribed = False
     try:
-        sub = requests.post(
-            f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/me/subscribed_apps",
-            params={'subscribed_fields': IG_SUBSCRIBED_FIELDS, 'access_token': long_token},
-            timeout=20)
-        subscribed = bool((sub.json() or {}).get('success'))
+        from app.integrations.meta import subscribe_ig_login_webhooks
+        subscribed, body = subscribe_ig_login_webhooks(ig_user_id, long_token)
         log_event("info" if subscribed else "error", "auth_ig.subscribe",
-                  f"{username or ig_user_id}: {sub.status_code} {sub.text[:150]}")
-    except requests.RequestException as e:
+                  f"{username or ig_user_id}: subscribed={subscribed} {str(body)[:150]}")
+    except Exception as e:
         log_event("error", "auth_ig.subscribe_failed", str(e))
 
     # 5. Upsert. Match on the IG login id so re-connecting refreshes in place
@@ -388,6 +389,10 @@ def verify_one(conn_id):
     if not conn.ig_login_token:
         return jsonify({'error': 'This connection has no Instagram Login token'}), 400
 
+    from app.integrations.meta import (
+        get_ig_login_subscriptions, subscribe_ig_login_webhooks,
+    )
+
     result = verify_ig_login_token(conn.ig_login_token)
 
     if result['ok']:
@@ -397,9 +402,31 @@ def verify_one(conn_id):
         if result.get('user_id') and not conn.ig_login_user_id:
             conn.ig_login_user_id = result['user_id']
         db.session.commit()
+
+        # A valid token is only half of "connected". Without a webhook
+        # subscription Meta delivers nothing, and the two states look identical
+        # from here — which is exactly what happened: the OAuth callback's
+        # subscribe call was failing, so accounts finished connecting with a
+        # good token and no subscription, and simply never received anything.
+        acct = conn.ig_login_user_id
+        sub_ok, sub_body = get_ig_login_subscriptions(acct, conn.ig_login_token)
+        subscribed = bool(sub_ok and (sub_body.get('data') or []))
+
+        repaired = False
+        if not subscribed:
+            # Fix it here rather than making someone disconnect and reconnect.
+            repaired, _ = subscribe_ig_login_webhooks(acct, conn.ig_login_token)
+            subscribed = repaired
+
+        result['webhooks_subscribed'] = subscribed
+        result['webhooks_repaired'] = repaired
+
         log_event("info", "auth_ig.verify_ok",
-                  f"Token verified for @{conn.ig_username or conn.ig_login_user_id}",
-                  payload={'connection_id': conn.id})
+                  f"Token verified for @{conn.ig_username or acct}; "
+                  f"webhooks_subscribed={subscribed} repaired={repaired}",
+                  payload={'connection_id': conn.id,
+                           'webhooks_subscribed': subscribed,
+                           'webhooks_repaired': repaired})
     else:
         # Deliberately NOT deactivating the row. A network blip is not proof the
         # connection is dead, and silently flipping is_active would stop

@@ -100,10 +100,20 @@ export default function InstagramConnections() {
     setBusyId(c.id)
     try {
       const { result } = await verifyConnection(c.id)
-      if (result?.ok) {
-        showToast(`Instagram confirmed this token works — @${result.username}.`, 'success')
-      } else {
+      if (!result?.ok) {
         showToast(result?.error || 'Instagram rejected this token.', 'error')
+      } else if (result.webhooks_repaired) {
+        // Worth saying out loud: the account held a valid token but was not
+        // subscribed, so nothing was reaching us until this moment.
+        showToast(
+          `@${result.username} verified — and its webhook subscription was missing, so it was reconnected. Messages will arrive from now on.`,
+          'success')
+      } else if (result.webhooks_subscribed) {
+        showToast(`@${result.username} verified — token valid and webhooks subscribed.`, 'success')
+      } else {
+        showToast(
+          `@${result.username} has a valid token but webhooks could not be subscribed — messages will not arrive. Check the Logs.`,
+          'error')
       }
       load()
     } catch (e) {
