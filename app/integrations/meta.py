@@ -37,7 +37,60 @@ GRAPH_API_VERSION = "v25.0"
 # The token is issued by the Instagram business login OAuth flow and lasts 60
 # days — unlike page tokens, it MUST be refreshed. See IG_LOGIN_USER_TOKEN.
 IG_LOGIN_GRAPH = "https://graph.instagram.com"
-IG_LOGIN_API_VERSION = "v23.0"
+IG_LOGIN_API_VERSION = os.getenv("IG_LOGIN_API_VERSION", "v23.0")
+
+
+# Meta's answer when a URL doesn't resolve to a real node+edge+method. It does
+# NOT mean "wrong HTTP verb" — it means the path shape isn't routable at all.
+_UNSUPPORTED_REQUEST = "unsupported request"
+
+
+def ig_login_request(method: str, path: str, **kwargs):
+    """
+    Call graph.instagram.com, retrying without the version prefix.
+
+    Two paths on this host demonstrably work unversioned — /access_token and
+    /refresh_access_token — while every versioned call we make came back:
+
+        {"message":"Unsupported request - method type: get",
+         "type":"IGApiException","code":100}
+
+    ...for GET /v23.0/me, and the same with "post" for
+    /v23.0/{id}/subscribed_apps. When the version segment isn't recognised the
+    router reads it as a node id and the next segment as an edge, so nothing
+    resolves and the verb gets blamed. That one fault explains all three
+    symptoms we saw: verification failing, webhook subscription failing, and the
+    account showing a numeric id because the callback's username lookup was
+    quietly failing too.
+
+    Versioned is tried first so anything already working is untouched; the
+    unversioned retry only happens on that specific error. `path` has no leading
+    slash — e.g. "me" or "1784.../subscribed_apps".
+    """
+    attempts = [f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{path}",
+                f"{IG_LOGIN_GRAPH}/{path}"]
+    last = None
+    for i, url in enumerate(attempts):
+        r = requests.request(method, url, **kwargs)
+        try:
+            body = r.json() if r.text else {}
+        except ValueError:
+            body = {}
+        last = (r, body)
+
+        if r.ok:
+            if i:      # the unversioned form is the one that worked
+                log_event("info", "integrations.meta.ig_unversioned",
+                          f"{method.upper()} {path} succeeded without the version "
+                          f"prefix — {IG_LOGIN_API_VERSION} is not routable on "
+                          f"graph.instagram.com")
+            return r, body
+
+        msg = ((body.get("error") or {}).get("message") or "").lower()
+        if _UNSUPPORTED_REQUEST not in msg:
+            return r, body      # a real error — surface it, don't retry blindly
+
+    return last
 
 
 def _connection_for(account_id: str | None):
@@ -733,15 +786,11 @@ def subscribe_ig_login_webhooks(ig_user_id: str, token: str,
     last_body = {}
     for target in attempts:
         try:
-            r = requests.post(
-                f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{target}/subscribed_apps",
+            r, body = ig_login_request(
+                'POST', f'{target}/subscribed_apps',
                 params={'subscribed_fields': fields, 'access_token': token},
                 timeout=20,
             )
-            try:
-                body = r.json()
-            except ValueError:
-                body = {'raw': (r.text or '')[:400]}
         except requests.RequestException as e:
             last_body = {'error': str(e)}
             continue
@@ -766,11 +815,8 @@ def get_ig_login_subscriptions(ig_user_id: str, token: str) -> tuple[bool, dict]
     """
     target = str(ig_user_id) if ig_user_id else 'me'
     try:
-        r = requests.get(
-            f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{target}/subscribed_apps",
-            params={'access_token': token}, timeout=10,
-        )
-        body = r.json() if r.text else {}
+        r, body = ig_login_request('GET', f'{target}/subscribed_apps',
+                                   params={'access_token': token}, timeout=10)
     except requests.RequestException as e:
         return False, {'error': str(e)}
     return r.ok, body
@@ -793,11 +839,10 @@ def verify_ig_login_token(token: str) -> dict:
         return {'ok': False, 'user_id': None, 'username': None,
                 'error': 'No Instagram Login token stored for this connection.'}
 
-    url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/me"
     try:
-        r = requests.get(url, params={'fields': 'id,username',
-                                      'access_token': token}, timeout=10)
-        body = r.json() if r.text else {}
+        r, body = ig_login_request('GET', 'me',
+                                   params={'fields': 'id,username',
+                                           'access_token': token}, timeout=10)
     except requests.RequestException as e:
         log_event("warning", "integrations.meta.verify_failed",
                   f"Could not reach Instagram to verify the token: {e}")

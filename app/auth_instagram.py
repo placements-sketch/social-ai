@@ -188,17 +188,28 @@ def callback():
         log_event("warn", "auth_ig.callback.long_lived_failed", str(e))
 
     # 3. Who did we just connect?
+    #
+    # This is where ig_username comes from, and it has been failing silently:
+    # the versioned URL isn't routable on graph.instagram.com, Meta answered
+    # "Unsupported request", and a 400 is not a RequestException — so the except
+    # below never fired, username stayed None, and the account has been showing
+    # as a bare numeric id ever since. Routed through ig_login_request(), which
+    # retries unversioned, and the failure is now logged instead of swallowed.
     username, account_type = None, None
     try:
-        me = requests.get(f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/me", params={
+        from app.integrations.meta import ig_login_request
+        _r, me = ig_login_request('GET', 'me', params={
             'fields': 'id,username,account_type',
             'access_token': long_token,
-        }, timeout=15).json()
+        }, timeout=15)
         username = me.get('username')
         account_type = me.get('account_type')
         ig_user_id = str(me.get('id') or ig_user_id)
-    except requests.RequestException:
-        pass
+        if not username:
+            log_event("error", "auth_ig.identity_lookup_failed",
+                      f"Could not read the username for {ig_user_id}: {str(me)[:200]}")
+    except requests.RequestException as e:
+        log_event("error", "auth_ig.identity_lookup_failed", str(e))
 
     # 4. Subscribe THIS account to webhooks. Without it Meta delivers nothing,
     #    exactly like the Page-level subscription on the Facebook Login side.
