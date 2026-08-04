@@ -953,6 +953,32 @@ def cron_attribute():
             ))
             existing.add(o['id'])
             attributed += 1
+
+            # Tell the team a link the assistant sent turned into an order.
+            #
+            # Routed through notifications rather than a new polling endpoint:
+            # the bell already polls, every client already listens, and the row
+            # doubles as the permanent record. The UI celebrates on seeing the
+            # type; nothing here knows or cares about the animation.
+            try:
+                from app.notifications import notify_admins
+                _amt = o.get('total') or 0
+                _cur = o.get('currency') or 'KES'
+                notify_admins(
+                    type_='conversion_attributed',
+                    title=f"Sale from an AI recommendation — {_cur} {_amt}",
+                    body=(f"Order {o.get('order_number') or o['id']} came from a "
+                          f"link the assistant sent"
+                          + (f", {minutes} minutes after the message" if minutes is not None else "")
+                          + "."),
+                    severity='info',
+                    resource_type='conversation',
+                    resource_id=conv_id,
+                    coalesce=False,   # every sale is its own event worth seeing
+                )
+            except Exception as e:
+                # A missed celebration must never cost an attribution row.
+                log_event("warning", "cron.attribution_notify_failed", str(e)[:160])
             if attributed % 100 == 0:
                 db.session.commit()
                 update_progress(f"Attributed {attributed} (scanned {scanned})...")

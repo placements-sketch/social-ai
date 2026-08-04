@@ -864,3 +864,36 @@ button:not(:disabled):active,
 .border-x-2 { border-left-width: 1px; border-right-width: 1px; }
 .border-y-2 { border-top-width: 1px; border-bottom-width: 1px; }
 .ring-2, .ring-4, .ring-8 { --tw-ring-offset-width: 0px; box-shadow: 0 0 0 1px var(--tw-ring-color, rgba(199,234,70,0.45)); }
+
+/* ── Sale celebration ───────────────────────────────────────────────────────
+   Falls from above the viewport so pieces enter rather than pop into being.
+   Transform and opacity only — both composited, so sixty of them cost nothing
+   and cannot make the inbox stutter while an agent is typing. */
+@keyframes confetti-fall {
+  0%   { transform: translate3d(0, -12vh, 0) rotate(0deg);              opacity: 0; }
+  8%   { opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0), 108vh, 0) rotate(680deg); opacity: 0; }
+}
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  animation-name: confetti-fall;
+  animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1);
+  animation-fill-mode: both;
+  will-change: transform, opacity;
+}
+
+@keyframes celebrate-banner-in {
+  0%   { transform: translateY(-14px) scale(0.96); opacity: 0; }
+  14%  { transform: translateY(0)     scale(1);    opacity: 1; }
+  85%  { transform: translateY(0)     scale(1);    opacity: 1; }
+  100% { transform: translateY(-8px)  scale(0.98); opacity: 0; }
+}
+.celebrate-banner { animation: celebrate-banner-in 4.2s ease-in-out both; }
+
+/* Someone who has asked for less motion should still be TOLD about the sale —
+   the banner stays, the falling pieces go. */
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece { display: none; }
+  .celebrate-banner { animation: none; }
+}

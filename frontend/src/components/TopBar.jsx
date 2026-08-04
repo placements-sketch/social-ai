@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useToast } from './Toast'
+import Celebration from './Celebration'
 import {
   Bell, Menu, LogOut, User, MessageSquare,
   AlertTriangle, CheckCircle, X, CheckCheck,
   Radio, Users as UsersIcon, Shield,
   Zap, Bot, Trash2, UserPlus, UserCheck, Package,
   AlertOctagon, Settings as SettingsIcon, ShieldAlert,
-  Sun, Moon,
+  Sun, Moon, Sparkles,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -102,6 +103,9 @@ function notifVisuals(type, severity) {
     ai_settings_changed: { Icon: Bot, color: 'text-brand-600',  bg: 'bg-brand-50' },
     ai_settings_reset:   { Icon: Bot, color: 'text-amber-600',  bg: 'bg-amber-50'  },
 
+    // Money in. The one notification that is good news.
+    conversion_attributed: { Icon: Sparkles, color: 'text-brand-600', bg: 'bg-brand-50' },
+
     // Security
     webhook_signature_failed: { Icon: Shield, color: 'text-red-600', bg: 'bg-red-50' },
   }
@@ -185,6 +189,8 @@ export default function TopBar({ onMenuClick }) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
+  // Set when a conversion notification arrives; Celebration clears itself.
+  const [celebration, setCelebration] = useState(null)
   const { user, logout } = useAuth()
   const { toggleTheme, isDark } = useTheme()
   const navigate = useNavigate()
@@ -341,6 +347,13 @@ export default function TopBar({ onMenuClick }) {
           const isUnread = !n.read
           const isMyOwnAction = n.actor_id && user?.id && n.actor_id === user.id
 
+          // A link the assistant sent turned into an order. Celebrated instead
+          // of toasted — this is the one notification that is good news, and
+          // burying it in the same grey card as "sync failed" wastes it.
+          if (n.type === 'conversion_attributed' && isUnread) {
+            setCelebration({ id: n.id, amount: (n.title || '').split('—').pop().trim() })
+          }
+
           if (isUrgent && isUnread && !isMyOwnAction) {
             showToast({
               title: n.title,
@@ -482,6 +495,10 @@ export default function TopBar({ onMenuClick }) {
   }
 
   return (
+    <>
+    {/* Portalled to the top of the tree so the confetti is not clipped by
+        the header's own bounds. It is pointer-events-none throughout. */}
+    <Celebration trigger={celebration?.id} amount={celebration?.amount} />
     <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6" style={{ backgroundColor: 'var(--topbar-bg)', backdropFilter: 'blur(20px) saturate(180%)', borderBottom: '1px solid var(--topbar-line)' }}>
       <div className="flex items-center gap-3">
         {/* Hamburger — MOBILE ONLY, where it opens the drawer. On desktop it
@@ -709,5 +726,6 @@ export default function TopBar({ onMenuClick }) {
         </div>
       </div>
     </header>
+    </>
   )
 }
