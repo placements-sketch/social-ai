@@ -117,6 +117,58 @@ def ig_login_probe():
             results.append({'variant': label, 'url': url, 'status': 0,
                             'ok': False, 'error': str(e)[:160]})
 
+    # ── Who does Meta think we can talk to? ──────────────────────────────
+    # Sends and username lookups both fail with the same 500 / code 1, and both
+    # are keyed on the CUSTOMER's IGSID while every call about our own account
+    # succeeds. So the question is whether the recipient id taken from the
+    # webhook is one this token is actually allowed to address. Listing the
+    # conversations Meta will admit to is read-only and answers that directly:
+    # if a thread appears here, compare its participant id with the recipient
+    # we are posting to; if NO threads appear at all, the token cannot see
+    # messaging for this account, which is a permission/mode answer rather than
+    # an id-mismatch one.
+    convos = {'checked': [], 'threads': []}
+    for label, path in (('conversations', f'{IG_LOGIN_GRAPH}/{V}/me/conversations'),
+                        ('conversations (unversioned)', f'{IG_LOGIN_GRAPH}/me/conversations')):
+        try:
+            rc = requests.get(path, params={
+                'fields': 'participants,updated_time',
+                'access_token': token,
+            }, timeout=10)
+            cb = rc.json() if rc.text else {}
+            entry = {'variant': label, 'url': path, 'status': rc.status_code,
+                     'ok': rc.ok, 'error': (cb.get('error') or {}).get('message'),
+                     'code': (cb.get('error') or {}).get('code')}
+            convos['checked'].append(entry)
+            if rc.ok:
+                for th in (cb.get('data') or [])[:10]:
+                    parts = ((th.get('participants') or {}).get('data') or [])
+                    convos['threads'].append({
+                        'thread_id': th.get('id'),
+                        'updated': th.get('updated_time'),
+                        'participants': [{'id': p.get('id'),
+                                          'username': p.get('username')} for p in parts],
+                    })
+                break
+        except requests.RequestException as e:
+            convos['checked'].append({'variant': label, 'url': path,
+                                      'ok': False, 'error': str(e)[:160]})
+
+    # The recipient ids we would actually post to, straight from our own rows,
+    # so they can be eyeballed against the participants above.
+    from app import db
+    from app.models import Conversation as _Conv, User as _U
+    recent = []
+    try:
+        rows = (db.session.query(_Conv.id, _U.external_id, _U.name, _Conv.channel)
+                .join(_U, _U.id == _Conv.user_id)
+                .filter(_Conv.channel.like('instagram%'))
+                .order_by(_Conv.id.desc()).limit(5).all())
+        recent = [{'conversation_id': c, 'recipient_id': e,
+                   'stored_username': n, 'channel': ch} for c, e, n, ch in rows]
+    except Exception as e:
+        recent = [{'error': str(e)[:160]}]
+
     working = [r for r in results if r['ok']]
     log_event('info' if working else 'error', 'meta_test.ig_login_probe',
               f"{len(working)}/{len(results)} URL shapes accepted for "
@@ -133,6 +185,12 @@ def ig_login_probe():
         'api_version_tried': V,
         'working': [r['variant'] for r in working],
         'results': results,
+        # Compare `conversations.threads[].participants[].id` against
+        # `recent_recipients[].recipient_id`. A mismatch means we are posting to
+        # an id from a different scope; an empty thread list with an error means
+        # this token cannot see messaging at all.
+        'conversations': convos,
+        'recent_recipients': recent,
     }), 200
 
 
