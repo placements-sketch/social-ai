@@ -822,7 +822,7 @@ def get_ig_login_subscriptions(ig_user_id: str, token: str) -> tuple[bool, dict]
     return r.ok, body
 
 
-def verify_ig_login_token(token: str) -> dict:
+def verify_ig_login_token(token: str, ig_user_id: str = None) -> dict:
     """
     Ask Instagram whether this token actually works, right now.
 
@@ -839,27 +839,48 @@ def verify_ig_login_token(token: str) -> dict:
         return {'ok': False, 'user_id': None, 'username': None,
                 'error': 'No Instagram Login token stored for this connection.'}
 
-    try:
-        r, body = ig_login_request('GET', 'me',
-                                   params={'fields': 'id,username',
-                                           'access_token': token}, timeout=10)
-    except requests.RequestException as e:
-        log_event("warning", "integrations.meta.verify_failed",
-                  f"Could not reach Instagram to verify the token: {e}")
-        return {'ok': False, 'user_id': None, 'username': None,
-                'error': f'Could not reach Instagram: {e}'}
+    # Addressed by NUMERIC ACCOUNT ID, with `me` only as a last resort.
+    #
+    # `me` is not a routable node on graph.instagram.com for Instagram Login.
+    # Every call that failed here contained it — GET /me, GET /v23.0/me,
+    # POST /v23.0/me/subscribed_apps — and every call that worked
+    # (/access_token, /refresh_access_token) avoids node paths entirely. Meta
+    # reports the mismatch as "Unsupported request - method type: get", which
+    # reads like a wrong verb and is really "that path does not exist".
+    #
+    # `fields` differs per form: on a numeric node the id field is `id`; asking
+    # `me` for `user_id` is the documented shape. Requesting both is harmless.
+    targets = [t for t in (str(ig_user_id) if ig_user_id else None, 'me') if t]
+    last_err = 'Instagram rejected this token.'
 
-    if r.status_code >= 400:
-        err = ((body.get('error') or {}).get('message')
-               or f'Instagram returned {r.status_code}')
+    for target in targets:
+        try:
+            r, body = ig_login_request(
+                'GET', target,
+                params={'fields': 'id,username', 'access_token': token},
+                timeout=10)
+        except requests.RequestException as e:
+            log_event("warning", "integrations.meta.verify_failed",
+                      f"Could not reach Instagram to verify the token: {e}")
+            return {'ok': False, 'user_id': None, 'username': None,
+                    'error': f'Could not reach Instagram: {e}'}
+
+        if r.status_code < 400:
+            break
+
+        last_err = ((body.get('error') or {}).get('message')
+                    or f'Instagram returned {r.status_code}')
+        log_event("warning", "integrations.meta.verify_attempt",
+                  f"Verify against '{target}' failed: {last_err}",
+                  payload={'target': target, 'status': r.status_code})
+    else:
         log_event("error", "integrations.meta.verify_failed",
-                  f"Token rejected by Instagram: {err}",
-                  payload={'status': r.status_code})
-        return {'ok': False, 'user_id': None, 'username': None, 'error': err}
+                  f"Token rejected by Instagram: {last_err}")
+        return {'ok': False, 'user_id': None, 'username': None, 'error': last_err}
 
     return {
         'ok': True,
-        'user_id': str(body.get('id')) if body.get('id') else None,
+        'user_id': str(body.get('id') or body.get('user_id') or '') or None,
         'username': body.get('username'),
         'error': None,
     }

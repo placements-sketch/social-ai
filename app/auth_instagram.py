@@ -195,20 +195,19 @@ def callback():
     # below never fired, username stayed None, and the account has been showing
     # as a bare numeric id ever since. Routed through ig_login_request(), which
     # retries unversioned, and the failure is now logged instead of swallowed.
+    # The token exchange above already gave us the numeric account id, so we
+    # address that rather than `me`, which does not resolve on this host.
     username, account_type = None, None
     try:
-        from app.integrations.meta import ig_login_request
-        _r, me = ig_login_request('GET', 'me', params={
-            'fields': 'id,username,account_type',
-            'access_token': long_token,
-        }, timeout=15)
-        username = me.get('username')
-        account_type = me.get('account_type')
-        ig_user_id = str(me.get('id') or ig_user_id)
-        if not username:
+        from app.integrations.meta import verify_ig_login_token
+        ident = verify_ig_login_token(long_token, ig_user_id)
+        if ident['ok']:
+            username = ident.get('username')
+            ig_user_id = ident.get('user_id') or ig_user_id
+        else:
             log_event("error", "auth_ig.identity_lookup_failed",
-                      f"Could not read the username for {ig_user_id}: {str(me)[:200]}")
-    except requests.RequestException as e:
+                      f"Could not read the username for {ig_user_id}: {ident.get('error')}")
+    except Exception as e:
         log_event("error", "auth_ig.identity_lookup_failed", str(e))
 
     # 4. Subscribe THIS account to webhooks. Without it Meta delivers nothing,
@@ -404,7 +403,8 @@ def verify_one(conn_id):
         get_ig_login_subscriptions, subscribe_ig_login_webhooks,
     )
 
-    result = verify_ig_login_token(conn.ig_login_token)
+    # The account id, not `me` — see verify_ig_login_token().
+    result = verify_ig_login_token(conn.ig_login_token, conn.ig_login_user_id)
 
     if result['ok']:
         conn.last_verified_at = datetime.utcnow()
