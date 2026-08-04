@@ -1477,6 +1477,27 @@ const handleSend = async (retryOf = null) => {
               </button>
 
               {/* Assignment button — supervisor/admin only */}
+              {/* Claim — the agent's own route into an unclaimed conversation.
+                  The Assign dropdown beside this is admin/supervisor only, so
+                  an agent looking at the Unclaimed queue could read a waiting
+                  customer and had no way to take them: the only path was asking
+                  a supervisor. The backend already allowed self-claiming and
+                  refuses anything else, so this was a missing button rather
+                  than a missing rule.
+                  Shown to everyone — a supervisor picking up a chat themselves
+                  shouldn't have to assign it to themselves through a menu. */}
+              {activeConv && !activeConv.assigned_to && (
+                <button
+                  onClick={() => handleAssign(user?.id)}
+                  disabled={assigningConvId === activeConv.id || !user?.id}
+                  className="text-xs font-semibold px-2 sm:px-3 py-1.5 rounded-lg border border-brand-500 bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors whitespace-nowrap flex items-center gap-1.5 disabled:opacity-50"
+                  title="Take this conversation"
+                >
+                  <UserCheck size={13} />
+                  <span>{assigningConvId === activeConv.id ? 'Claiming…' : 'Claim'}</span>
+                </button>
+              )}
+
               {(user?.role === 'supervisor' || user?.role === 'admin') && (
                 <div className="relative">
                   <button
