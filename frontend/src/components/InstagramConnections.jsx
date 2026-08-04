@@ -59,14 +59,15 @@ export default function InstagramConnections() {
     if (!p.has('connected')) return
     if (p.get('connected') === '1') {
       const acct = p.get('account')
-      showToast(
-        p.get('subscribed') === '1'
-          ? `Connected @${acct} — webhooks subscribed.`
-          : `Connected @${acct}, but webhook subscription failed. Messages won't arrive until that succeeds.`,
-        p.get('subscribed') === '1' ? 'success' : 'warning'
-      )
+      showToast(p.get('subscribed') === '1'
+        ? { title: `Connected @${acct}`, body: 'Webhooks subscribed — messages and comments will arrive.', severity: 'info' }
+        : { title: `Connected @${acct}, but not subscribed`,
+            body: "Webhook subscription failed, so nothing will arrive yet. Press Verify to retry it.",
+            severity: 'warning' })
     } else {
-      showToast(p.get('error') || 'Connection cancelled.', 'error')
+      showToast({ title: 'Instagram not connected',
+                  body: p.get('error') || 'The connection was cancelled.',
+                  severity: 'warning' })
     }
     window.history.replaceState({}, '', window.location.pathname)
     load()
@@ -78,7 +79,7 @@ export default function InstagramConnections() {
       const { oauth_url } = await startInstagramConnect(window.location.pathname)
       window.location.href = oauth_url
     } catch (e) {
-      showToast(e.message, 'error')
+      showToast({ title: "Couldn't start the Instagram connection", body: e.message, severity: 'urgent' })
       setConnecting(false)
     }
   }
@@ -87,10 +88,11 @@ export default function InstagramConnections() {
     setBusyId(c.id)
     try {
       await refreshConnection(c.id)
-      showToast(`Token refreshed for @${c.ig_username || c.ig_login_user_id}.`, 'success')
+      showToast({ title: `Token refreshed for @${c.ig_username || c.ig_login_user_id}`,
+                  body: 'Its 60-day window starts again from today.', severity: 'info' })
       load()
     } catch (e) {
-      showToast(e.message, 'error')
+      showToast({ title: 'Token refresh failed', body: e.message, severity: 'urgent' })
     } finally {
       setBusyId(null)
     }
@@ -101,23 +103,26 @@ export default function InstagramConnections() {
     try {
       const { result } = await verifyConnection(c.id)
       if (!result?.ok) {
-        showToast(result?.error || 'Instagram rejected this token.', 'error')
+        showToast({ title: 'Instagram rejected this token',
+                    body: result?.error || 'Reconnect the account to restore messaging.',
+                    severity: 'urgent' })
       } else if (result.webhooks_repaired) {
         // Worth saying out loud: the account held a valid token but was not
         // subscribed, so nothing was reaching us until this moment.
-        showToast(
-          `@${result.username} verified — and its webhook subscription was missing, so it was reconnected. Messages will arrive from now on.`,
-          'success')
+        showToast({ title: `@${result.username} verified — subscription repaired`,
+                    body: 'Its webhook subscription was missing, so nothing was arriving. It has been re-subscribed.',
+                    severity: 'warning' })
       } else if (result.webhooks_subscribed) {
-        showToast(`@${result.username} verified — token valid and webhooks subscribed.`, 'success')
+        showToast({ title: `@${result.username} verified`,
+                    body: 'Token is valid and webhooks are subscribed.', severity: 'info' })
       } else {
-        showToast(
-          `@${result.username} has a valid token but webhooks could not be subscribed — messages will not arrive. Check the Logs.`,
-          'error')
+        showToast({ title: `@${result.username}: webhooks not subscribed`,
+                    body: 'The token is valid but the subscription failed, so messages will not arrive. Check Activity → System Logs.',
+                    severity: 'urgent' })
       }
       load()
     } catch (e) {
-      showToast(e.message, 'error')
+      showToast({ title: 'Verification failed', body: e.message, severity: 'urgent' })
     } finally {
       setBusyId(null)
     }
@@ -127,10 +132,12 @@ export default function InstagramConnections() {
     setBusyId(c.id)
     try {
       await disconnectConnection(c.id)
-      showToast(`Disconnected @${c.ig_username || c.ig_login_user_id}.`, 'success')
+      showToast({ title: `Disconnected @${c.ig_username || c.ig_login_user_id}`,
+                  body: 'Nothing was deleted — reconnecting restores this account in place.',
+                  severity: 'info' })
       load()
     } catch (e) {
-      showToast(e.message, 'error')
+      showToast({ title: 'Disconnect failed', body: e.message, severity: 'urgent' })
     } finally {
       setBusyId(null)
     }

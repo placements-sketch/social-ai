@@ -19,15 +19,33 @@ export function useToast() {
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
 
-  const showToast = useCallback((toast) => {
+  const showToast = useCallback((toast, legacySeverity) => {
     const id = Math.random().toString(36).slice(2)
-    const sev = toast.severity || 'info'
+
+    // Accepts showToast('text'), showToast('text', 'error') and the object
+    // form. A string used to fall straight into the spread below, where
+    // {...'hello'} becomes {0:'h',1:'e',…} — `title` ended up undefined and the
+    // toast rendered as an empty card. Silent, because nothing threw: you got a
+    // notification-shaped box with no words in it.
+    const t = typeof toast === 'string'
+      ? { title: toast, severity: legacySeverity }
+      : (toast || {})
+
+    // Callers reach for success/error; the design has three levels. Mapped
+    // rather than ignored, so an unrecognised name can't quietly become 'info'
+    // and strip the colour off a failure.
+    const sev = ({
+      success: 'info', info: 'info',
+      warning: 'warning', warn: 'warning',
+      error: 'urgent', danger: 'urgent', urgent: 'urgent',
+    })[t.severity] || 'info'
+
     setToasts(prev => {
       // If we're at the cap, drop the oldest first
       const trimmed = prev.length >= MAX_VISIBLE_TOASTS
         ? prev.slice(prev.length - MAX_VISIBLE_TOASTS + 1)
         : prev
-      return [...trimmed, { id, severity: sev, ...toast }]
+      return [...trimmed, { ...t, id, severity: sev }]
     })
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
