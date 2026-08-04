@@ -313,6 +313,24 @@ export default function TopBar({ onMenuClick }) {
           newList.forEach(n => seenIdsRef.current.add(n.id))
           isFirstLoadRef.current = false
 
+          // Celebrate a sale that landed while nobody was looking.
+          //
+          // Everything above is marked "seen" on first load so the backlog
+          // doesn't toast — but that also swallowed the celebration for anyone
+          // who opened the app after the sale, or refreshed. A conversion is
+          // the one thing worth announcing on arrival rather than only in the
+          // instant it happens. Newest only: five sales overnight should be one
+          // celebration, not five.
+          const freshSale = newList
+            .filter(n => n.type === 'conversion_attributed' && !n.read)
+            .sort((a, b) => (b.id || 0) - (a.id || 0))[0]
+          if (freshSale) {
+            setCelebration({
+              id: freshSale.id,
+              amount: (freshSale.title || '').split('—').pop().trim(),
+            })
+          }
+
           const announced = alreadyToasted()
           const unreadUrgent = newList.filter(
             n => !n.read && n.severity === 'urgent' &&
