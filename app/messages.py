@@ -580,7 +580,6 @@ def send_reply(conversation_id):
                           conversation_id=conv.id)
     except Exception as e:
         delivered = False
-        from app.utils.logger import log_event
         log_event("error", "messages.send_reply.dispatch",
                   f"Failed to dispatch manual reply for conv {conv.id}: {e}",
                   payload={"conversation_id": conv.id, "error": str(e)},
@@ -665,8 +664,7 @@ def update_conversation(conversation_id):
                 coalesce=False,  # each resolution is a discrete event worth seeing
             )
         except Exception as e:
-            from app.utils.logger import log_event
-            log_event("error", "messages.notify_resolution_fail",
+                log_event("error", "messages.notify_resolution_fail",
                       f"notify_supervisors failed: {e}",
                       payload={"conversation_id": conv.id, "error": str(e)},
                       conversation_id=conv.id)
@@ -987,8 +985,7 @@ def edit_message(message_id):
                 delivered = True
                 db.session.commit()
         except Exception as e:
-            from app.utils.logger import log_event
-            log_event("error", "messages.edit_message.dispatch",
+                log_event("error", "messages.edit_message.dispatch",
                       f"Edit dispatch failed: {e}",
                       payload={"message_id": message_id, "error": str(e)})
 
