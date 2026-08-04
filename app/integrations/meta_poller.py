@@ -21,6 +21,33 @@ from app.utils.logger import log_event
 
 GRAPH_API_VERSION = "v25.0"
 
+def _our_ids() -> set:
+    """
+    Every id that means "this is us" in a polled thread.
+
+    Resolved through services._our_account_identifiers(), which reads the ACTIVE
+    connection rows first and treats the environment as a fallback — the same
+    rule the self-reply guard uses.
+
+    This used to read IG_BUSINESS_ACCOUNT_ID and FB_PAGE_ID directly, so the
+    poller's idea of "us" was whatever was last typed into Render rather than
+    whichever account is actually connected. Swap the connected account and the
+    env var is instantly stale: the poller stops recognising our own messages
+    and files them as if a customer had sent them. One source of truth means
+    changing accounts needs no environment changes at all.
+    """
+    try:
+        from app.services import _our_account_identifiers
+        ids, _handles = _our_account_identifiers()
+        return set(ids)
+    except Exception as e:
+        log_event("warning", "meta_poller.identity_lookup_failed", str(e))
+        # Last resort only — better a stale id than treating our own messages
+        # as customer traffic because the lookup blew up.
+        return {x for x in (os.getenv("IG_BUSINESS_ACCOUNT_ID"),
+                            os.getenv("FB_PAGE_ID")) if x}
+
+
 def _conversations_url():
     """Build the FB Graph conversations URL for the configured Page."""
     from app.integrations.meta import _get_meta_credentials
@@ -112,9 +139,7 @@ def _process_thread(thread: dict) -> int:
     # whether they have new unprocessed messages. This catches users created
     # via webhook (whose messages are already saved and would be deduped out
     # of the loop below) and ensures their username shows in the UI.
-    our_ig_id = os.getenv("IG_BUSINESS_ACCOUNT_ID")
-    our_page_id = os.getenv("FB_PAGE_ID")
-    skip_ids = {x for x in (our_ig_id, our_page_id) if x}
+    skip_ids = _our_ids()
     try:
         for participant_id, username in participant_usernames.items():
             if participant_id in skip_ids:
@@ -139,9 +164,7 @@ def _process_thread(thread: dict) -> int:
     # the business participant is whoever sent the most recent OUTBOUND
     # message. Simpler heuristic: anyone matching our IG user ID env var,
     # falling back to the participant that ISN'T the message sender.
-    our_ig_id = os.getenv("IG_BUSINESS_ACCOUNT_ID")
-    our_page_id = os.getenv("FB_PAGE_ID")
-    our_ids = {x for x in (our_ig_id, our_page_id) if x}
+    our_ids = _our_ids()
 
     messages = (thread.get("messages") or {}).get("data") or []
     if not messages:
