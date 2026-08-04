@@ -89,6 +89,10 @@ def _serialize_product(p: ProductCache) -> dict:
         'price': _format_price(p.price),       # display string
         'price_value': float(p.price) if p.price is not None else None,  # numeric
         'variants': p.variants or [],
+        # Per-variant stock. `stock_quantity` is the total, which answers "can
+        # I sell this" but not "which size is gone" — the question anyone
+        # opening a product actually has.
+        'variants_detail': p.variants_detail or [],
         'images': p.images or [],
         'tags': p.tags or [],
         'stock_quantity': p.stock_quantity,

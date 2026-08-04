@@ -1,11 +1,187 @@
 import { useState, useEffect } from 'react'
-import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search, X, Tag } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
+import { ModalPortal } from '../context/ModalPortal'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatTimeAgo } from '../utils/time'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+
+/**
+ * One product, in full.
+ *
+ * The list can only show a name, a price and a total — enough to scan, not
+ * enough to answer a customer. This is the detail an agent is actually asked
+ * for mid-conversation: which size is gone, what the description says, what it
+ * is tagged as, and how stale our copy of it is.
+ *
+ * Everything here comes from the row already loaded for the list, so opening a
+ * product costs no request.
+ */
+/**
+ * Shopify descriptions are HTML — 7045 of 7713 in this catalogue contain tags.
+ * Rendered as text you get `<span style="font-size: 10pt;">2 PACK BOXERS</span>`
+ * on screen; rendered as HTML you inherit whatever markup and inline styling
+ * the store's editor produced, inside our layout. Stripped to plain text
+ * instead, with entities decoded, so it reads as a sentence either way.
+ */
+function plainText(html) {
+  if (!html) return ''
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+
+function ProductDetailModal({ product, onClose }) {
+  if (!product) return null
+
+  const stock = product.stock_quantity
+  const untracked = stock == null
+  const variants = product.variants_detail || []
+  const images = product.images || []
+  const [activeImg, setActiveImg] = useState(0)
+
+  const stockTone = untracked
+    ? 'bg-gray-100 text-gray-500'
+    : stock === 0
+      ? 'bg-red-50 text-red-600'
+      : stock <= 5
+        ? 'bg-amber-50 text-amber-700'
+        : 'bg-green-50 text-green-600'
+
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 fade-in" onClick={onClose} />
+        <div className="relative glass glass-modal pop-in rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] overflow-y-auto custom-scrollbar">
+          <div className="flex items-start justify-between gap-3 p-5 pb-0">
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-gray-900 leading-snug">{product.name}</h2>
+              <p className="text-xs text-gray-400 mt-1">
+                {product.handle ? `/${product.handle}` : `Shopify id ${product.shopify_product_id}`}
+              </p>
+            </div>
+            <button onClick={onClose}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
+                    aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-[minmax(0,220px)_1fr] gap-5">
+            <div>
+              <div className="aspect-square rounded-xl bg-gradient-to-br from-brand-100 to-brand-50 overflow-hidden flex items-center justify-center">
+                {images[activeImg]
+                  ? <img src={images[activeImg]} alt="" className="w-full h-full object-cover" />
+                  : <Package size={34} className="text-brand-600" />}
+              </div>
+              {images.length > 1 && (
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {images.slice(0, 6).map((src, i) => (
+                    <button key={i} onClick={() => setActiveImg(i)}
+                            className={clsx('w-11 h-11 rounded-lg overflow-hidden border-2 transition-colors',
+                              i === activeImg ? 'border-brand-500' : 'border-transparent opacity-60 hover:opacity-100')}>
+                      <img src={src} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="min-w-0 space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-lg font-bold text-gray-900">{product.price || '—'}</span>
+                <span className={clsx('text-[11px] font-semibold px-2 py-0.5 rounded-md', stockTone)}>
+                  {untracked ? 'Not tracked' : stock === 0 ? 'Out of stock' : `${stock} in stock`}
+                </span>
+              </div>
+
+              {/* Per-variant stock. The total says whether you can sell it; this
+                  says which size to stop promising. */}
+              {variants.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">
+                    Stock by variant
+                  </p>
+                  <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                    {variants.map((v, i) => {
+                      const q = v.stock_quantity ?? v.inventory_quantity
+                      // Respected per variant: a variant Shopify isn't tracking
+                      // has no meaningful number, and showing 0 would read as
+                      // "sold out" when it means "we don't count this one".
+                      const tracked = v.inventory_tracked !== false
+                      const out = tracked && q === 0
+                      return (
+                        <div key={i} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs text-gray-700 truncate">{v.title || v.name || `Variant ${i + 1}`}</p>
+                            {v.sku && (
+                              <p className="text-[10px] text-gray-400 font-mono truncate">{v.sku}</p>
+                            )}
+                          </div>
+                          <span className={clsx('text-xs font-semibold tabular-nums shrink-0',
+                            out ? 'text-red-600'
+                              : !tracked || q == null ? 'text-gray-400'
+                                : q <= 5 ? 'text-amber-600' : 'text-gray-600')}>
+                            {!tracked || q == null ? 'untracked' : out ? 'sold out' : q}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {plainText(product.description) && (
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">Description</p>
+                  <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-line">
+                    {plainText(product.description).length > 700
+                      ? `${plainText(product.description).slice(0, 700)}…`
+                      : plainText(product.description)}
+                  </p>
+                </div>
+              )}
+
+              {(product.tags || []).length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Tags</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {product.tags.map((t, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-[11px] text-gray-600 bg-gray-100 rounded-md px-2 py-0.5">
+                        <Tag size={10} className="text-gray-400" />{t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Stated, not hidden: this is a cached copy, and how old it is
+                  decides whether you trust the stock number above. */}
+              {product.cached_at && (
+                <p className="text-[11px] text-gray-400 pt-1">
+                  Synced from Shopify {formatTimeAgo(product.cached_at)}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  )
+}
 
 // ProductKPIs Component - animated KPI cards
 function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
@@ -87,6 +263,9 @@ export default function Products() {
 
   // Sync UI
   const [showSyncDiff, setShowSyncDiff] = useState(false)
+  // The product whose detail is open. Held as the row itself, not an id — the
+  // list already has every field the modal shows, so opening one costs nothing.
+  const [detail, setDetail] = useState(null)
 
   // Settle the typing before asking the server. This fired on every keystroke,
   // and it fired fetchStatus() with it — four catalogue-wide COUNT queries
@@ -363,7 +542,17 @@ export default function Products() {
               </thead>
               <tbody>
                 {products.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <tr key={p.id}
+                      onClick={() => setDetail(p)}
+                      // Keyboard-reachable: a row that only responds to a mouse
+                      // is a control half the people using it cannot press.
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open ${p.name}`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(p) }
+                      }}
+                      className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none focus:bg-gray-50">
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center shrink-0 overflow-hidden">
@@ -432,7 +621,15 @@ export default function Products() {
                     : { label: `${stock} in stock`, cls: 'bg-green-50 text-green-600' }
               const img = (p.images && p.images[0]) || null
               return (
-                <div key={p.id} className="bg-white border border-gray-200 rounded-2xl p-3 flex items-start gap-3">
+                <div key={p.id}
+                     onClick={() => setDetail(p)}
+                     tabIndex={0}
+                     role="button"
+                     aria-label={`Open ${p.name}`}
+                     onKeyDown={(e) => {
+                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(p) }
+                     }}
+                     className="bg-white border border-gray-200 rounded-2xl p-3 flex items-start gap-3 cursor-pointer hover:border-gray-300 transition-colors focus:outline-none focus:border-brand-500">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-100 to-brand-50 flex items-center justify-center shrink-0 overflow-hidden">
                     {img
                       ? <img src={img} alt="" className="w-full h-full object-cover" />
@@ -534,6 +731,8 @@ export default function Products() {
           </div>
         </div>
       )}
+
+      <ProductDetailModal product={detail} onClose={() => setDetail(null)} />
     </div>
   )
 }
