@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Instagram, Plus, RefreshCw, Unlink, CheckCircle2,
-  AlertTriangle, XCircle, Loader2,
+  AlertTriangle, XCircle, Loader2, HelpCircle, ShieldCheck,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useToast } from './Toast'
 import {
   listConnections, startInstagramConnect, refreshConnection, disconnectConnection,
+  verifyConnection,
 } from '../api/connections'
 
 // Token health, surfaced plainly. Instagram Login tokens last 60 days and can
@@ -17,6 +18,10 @@ const STATUS = {
   expiring:     { label: 'Expiring',    Icon: AlertTriangle, cls: 'text-amber-600 bg-amber-50' },
   expired:      { label: 'Expired',     Icon: XCircle,       cls: 'text-red-600 bg-red-50' },
   disconnected: { label: 'Disconnected',Icon: XCircle,       cls: 'text-gray-500 bg-gray-100' },
+  // Active, but with no expiry on file and no recent check against Instagram.
+  // This used to render as a green "Connected" — the absence of information
+  // presented as good news. Amber says what is true: we do not know.
+  unverified:   { label: 'Not verified', Icon: HelpCircle,   cls: 'text-amber-600 bg-amber-50' },
 }
 
 const SURFACE = {
@@ -83,6 +88,23 @@ export default function InstagramConnections() {
     try {
       await refreshConnection(c.id)
       showToast(`Token refreshed for @${c.ig_username || c.ig_login_user_id}.`, 'success')
+      load()
+    } catch (e) {
+      showToast(e.message, 'error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleVerify = async (c) => {
+    setBusyId(c.id)
+    try {
+      const { result } = await verifyConnection(c.id)
+      if (result?.ok) {
+        showToast(`Instagram confirmed this token works — @${result.username}.`, 'success')
+      } else {
+        showToast(result?.error || 'Instagram rejected this token.', 'error')
+      }
       load()
     } catch (e) {
       showToast(e.message, 'error')
@@ -185,21 +207,41 @@ export default function InstagramConnections() {
                     ? (c.days_left < 0
                         ? 'Token expired — reconnect to restore messaging.'
                         : `Token valid for ${c.days_left} more day${c.days_left === 1 ? '' : 's'}.`)
-                    : 'No expiry recorded for this token.'}
+                    /* "No expiry recorded" stated a fact and left you to draw the
+                       wrong conclusion from a green badge beside it. Instagram
+                       Login tokens always come with a 60-day life, so a missing
+                       expiry means we failed to record one — not that it lasts
+                       forever, and not that the connection is healthy. */
+                    : c.last_verified_at
+                      ? `No expiry on file. Instagram confirmed this token on ${new Date(c.last_verified_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.`
+                      : 'No expiry on file and never checked against Instagram — this account may or may not still work. Verify it.'}
                 </p>
               </div>
 
               {c.is_active && (
                 <div className="flex items-center gap-1 shrink-0">
                   {c.surface === 'instagram_login' && (
-                    <button
-                      onClick={() => handleRefresh(c)}
-                      disabled={busy}
-                      title="Refresh token"
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                    </button>
+                    <>
+                      {/* The only control here that checks anything. Refresh
+                          renews a token; this asks Instagram whether the one we
+                          hold is still good, and fills in the username. */}
+                      <button
+                        onClick={() => handleVerify(c)}
+                        disabled={busy}
+                        title="Check this token with Instagram"
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors disabled:opacity-50"
+                      >
+                        {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                      </button>
+                      <button
+                        onClick={() => handleRefresh(c)}
+                        disabled={busy}
+                        title="Refresh token"
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 transition-colors disabled:opacity-50"
+                      >
+                        {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => handleDisconnect(c)}

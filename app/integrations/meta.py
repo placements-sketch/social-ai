@@ -697,6 +697,50 @@ def fetch_instagram_media(media_id: str) -> dict | None:
 IG_REFRESH_WHEN_DAYS_LEFT = int(os.getenv("IG_REFRESH_WHEN_DAYS_LEFT", "14"))
 
 
+def verify_ig_login_token(token: str) -> dict:
+    """
+    Ask Instagram whether this token actually works, right now.
+
+    Everything else in the connection card is inference from our own database:
+    a row marked active with no expiry recorded reads as "Connected" without
+    anything ever having spoken to Instagram. This is the one call that turns
+    that claim into a fact — and it returns the username too, which is why the
+    card was showing a bare numeric account id.
+
+    Returns {'ok': bool, 'user_id': str|None, 'username': str|None,
+             'error': str|None}. Never raises.
+    """
+    if not token:
+        return {'ok': False, 'user_id': None, 'username': None,
+                'error': 'No Instagram Login token stored for this connection.'}
+
+    url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/me"
+    try:
+        r = requests.get(url, params={'fields': 'id,username',
+                                      'access_token': token}, timeout=10)
+        body = r.json() if r.text else {}
+    except requests.RequestException as e:
+        log_event("warning", "integrations.meta.verify_failed",
+                  f"Could not reach Instagram to verify the token: {e}")
+        return {'ok': False, 'user_id': None, 'username': None,
+                'error': f'Could not reach Instagram: {e}'}
+
+    if r.status_code >= 400:
+        err = ((body.get('error') or {}).get('message')
+               or f'Instagram returned {r.status_code}')
+        log_event("error", "integrations.meta.verify_failed",
+                  f"Token rejected by Instagram: {err}",
+                  payload={'status': r.status_code})
+        return {'ok': False, 'user_id': None, 'username': None, 'error': err}
+
+    return {
+        'ok': True,
+        'user_id': str(body.get('id')) if body.get('id') else None,
+        'username': body.get('username'),
+        'error': None,
+    }
+
+
 def refresh_ig_login_tokens(force: bool = False) -> dict:
     """
     Refresh Instagram Login tokens that are nearing expiry.

@@ -289,12 +289,26 @@ def _connection_health(c: MetaConnection) -> dict:
     else:
         surface = 'unknown'
 
+    # An unrecorded expiry used to fall through to 'ok', so a row we knew
+    # nothing about displayed a green "Connected" badge. Instagram Login tokens
+    # are issued with a 60-day life, so a null expiry does not mean "never
+    # expires" — it means the exchange never recorded one, and we cannot say
+    # whether this connection works. That is its own state, not a healthy one.
+    #
+    # Verifying (POST /<id>/verify) asks Instagram directly and stamps
+    # last_verified_at, which is what moves a connection out of 'unverified'.
+    verified_recently = False
+    if c.last_verified_at:
+        verified_recently = (datetime.utcnow() - c.last_verified_at).days <= 7
+
     if not c.is_active:
         status = 'disconnected'
     elif days_left is not None and days_left < 0:
         status = 'expired'
     elif days_left is not None and days_left <= 14:
         status = 'expiring'
+    elif days_left is None and not verified_recently:
+        status = 'unverified'
     else:
         status = 'ok'
 
@@ -347,6 +361,54 @@ def refresh_one(conn_id):
     summary = refresh_ig_login_tokens(force=True)
     db.session.refresh(conn)
     return jsonify({'summary': summary, 'connection': _connection_health(conn)}), 200
+
+
+@auth_ig_bp.route('/<int:conn_id>/verify', methods=['POST'])
+@jwt_required()
+def verify_one(conn_id):
+    """
+    Ask Instagram whether this connection's token still works.
+
+    Everything else on the card is inferred from our own row. "Connected" meant
+    `is_active` was true and no expiry was on file — an absence of information
+    reading as good news. This is the only thing that actually checks.
+
+    A success also backfills `ig_username`, which is why a connection can show
+    as a bare numeric account id: we never had the name, only the id Instagram
+    handed back at OAuth.
+    """
+    from app.integrations.meta import verify_ig_login_token
+
+    user = AuthUser.query.get(current_user_id())
+    if user is None or user.role != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    conn = MetaConnection.query.get(conn_id)
+    if conn is None:
+        return jsonify({'error': 'Not found'}), 404
+    if not conn.ig_login_token:
+        return jsonify({'error': 'This connection has no Instagram Login token'}), 400
+
+    result = verify_ig_login_token(conn.ig_login_token)
+
+    if result['ok']:
+        conn.last_verified_at = datetime.utcnow()
+        if result.get('username'):
+            conn.ig_username = result['username']
+        if result.get('user_id') and not conn.ig_login_user_id:
+            conn.ig_login_user_id = result['user_id']
+        db.session.commit()
+        log_event("info", "auth_ig.verify_ok",
+                  f"Token verified for @{conn.ig_username or conn.ig_login_user_id}",
+                  payload={'connection_id': conn.id})
+    else:
+        # Deliberately NOT deactivating the row. A network blip is not proof the
+        # connection is dead, and silently flipping is_active would stop
+        # messaging on a transient error. The card reports the failure instead.
+        log_event("warning", "auth_ig.verify_failed",
+                  f"Token verification failed for connection {conn.id}: {result['error']}",
+                  payload={'connection_id': conn.id})
+
+    return jsonify({'result': result, 'connection': _connection_health(conn)}), 200
 
 
 @auth_ig_bp.route('/<int:conn_id>/disconnect', methods=['POST'])

@@ -44,6 +44,14 @@ export function refreshConnection(id) {
   }))
 }
 
+// Asks Instagram whether the token actually works. The only call on this page
+// that checks anything rather than reporting what our own row already said.
+export function verifyConnection(id) {
+  return handle(fetch(`${API_BASE}/auth/instagram/${id}/verify`, {
+    method: 'POST', headers: authHeaders(),
+  }))
+}
+
 export function disconnectConnection(id) {
   return handle(fetch(`${API_BASE}/auth/instagram/${id}/disconnect`, {
     method: 'POST', headers: authHeaders(),
