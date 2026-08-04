@@ -9,6 +9,12 @@ function authHeaders() {
 }
 
 const TESTS = [
+  // First in the list on purpose: when Instagram Login calls are failing with
+  // "Unsupported request", this is the one that tells you which URL shape it
+  // actually accepts, instead of another round of guessing.
+  { key: 'iglogin',        label: 'Instagram Login — URL probe',
+    desc: 'tries every URL shape against the stored token and reports which one Meta accepts',
+    path: '/meta-test/ig-login-probe' },
   { key: 'profile',        label: 'IG profile',        desc: 'username, followers, media count',           path: '/meta-test/profile' },
   { key: 'conversations',  label: 'List conversations', desc: 'recent IG DM threads (Advanced Access gate)', path: '/meta-test/conversations' },
   { key: 'conversation',   label: 'One conversation',   desc: 'messages in a thread — needs an ID',          path: '/meta-test/conversation', needsId: true },

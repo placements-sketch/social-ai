@@ -40,6 +40,102 @@ def _require_admin():
     return bool(user and user.role == 'admin' and user.status == 'active')
 
 
+@meta_test_bp.route('/api/meta-test/ig-login-probe', methods=['GET'])
+@jwt_required()
+def ig_login_probe():
+    """
+    Find the URL shape graph.instagram.com actually accepts for this token.
+
+    Two fixes have now been shipped against "Unsupported request - method
+    type: get" on guesses about what the API wants — first the version prefix,
+    then addressing the numeric account id instead of `me`. Both were reasoning
+    from indirect evidence and both were wrong. This stops guessing: it tries
+    every plausible shape against the real stored token and reports exactly
+    what Meta says to each, so the fix is chosen from data.
+
+    Read-only — every probe is a GET, nothing is written and nothing is sent.
+    """
+    if not _require_admin():
+        return jsonify({'error': 'Admin only'}), 403
+
+    from app.models import MetaConnection
+    from app.integrations.meta import IG_LOGIN_GRAPH, IG_LOGIN_API_VERSION
+
+    conn = (MetaConnection.query
+            .filter(MetaConnection.ig_login_token.isnot(None))
+            .order_by(MetaConnection.is_active.desc(), MetaConnection.id.desc())
+            .first())
+    if conn is None:
+        return jsonify({'error': 'No connection with an Instagram Login token'}), 404
+
+    token = conn.ig_login_token
+    acct = conn.ig_login_user_id or ''
+    V = IG_LOGIN_API_VERSION
+
+    # node, fields — `fields` matters: Instagram Login documents `user_id`,
+    # while the Graph convention is `id`. A wrong field name and a wrong node
+    # can produce similarly unhelpful errors, so both axes are varied.
+    variants = [
+        ('bare /me, no fields',            f'{IG_LOGIN_GRAPH}/me', {}),
+        ('/me fields=id,username',         f'{IG_LOGIN_GRAPH}/me', {'fields': 'id,username'}),
+        ('/me fields=user_id,username',    f'{IG_LOGIN_GRAPH}/me', {'fields': 'user_id,username'}),
+        (f'/{V}/me fields=user_id,username', f'{IG_LOGIN_GRAPH}/{V}/me', {'fields': 'user_id,username'}),
+        (f'/{V}/me fields=id,username',    f'{IG_LOGIN_GRAPH}/{V}/me', {'fields': 'id,username'}),
+    ]
+    if acct:
+        variants += [
+            ('bare /<id>, no fields',        f'{IG_LOGIN_GRAPH}/{acct}', {}),
+            ('/<id> fields=id,username',     f'{IG_LOGIN_GRAPH}/{acct}', {'fields': 'id,username'}),
+            ('/<id> fields=user_id,username', f'{IG_LOGIN_GRAPH}/{acct}', {'fields': 'user_id,username'}),
+            (f'/{V}/<id> fields=username',   f'{IG_LOGIN_GRAPH}/{V}/{acct}', {'fields': 'username'}),
+        ]
+    # If the stored token is actually a Facebook token, graph.instagram.com can
+    # never route it and this row is the one that will succeed.
+    variants.append(('graph.facebook.com /me',
+                     f'https://graph.facebook.com/{V}/me', {'fields': 'id,name'}))
+
+    results = []
+    for label, url, params in variants:
+        try:
+            r = requests.get(url, params={**params, 'access_token': token}, timeout=10)
+            try:
+                body = r.json()
+            except ValueError:
+                body = {'raw': (r.text or '')[:200]}
+            err = (body.get('error') or {})
+            results.append({
+                'variant': label,
+                'url': url,
+                'status': r.status_code,
+                'ok': r.ok,
+                'error': err.get('message'),
+                'code': err.get('code'),
+                'type': err.get('type'),
+                'data': {k: v for k, v in body.items() if k != 'error'} if r.ok else None,
+            })
+        except requests.RequestException as e:
+            results.append({'variant': label, 'url': url, 'status': 0,
+                            'ok': False, 'error': str(e)[:160]})
+
+    working = [r for r in results if r['ok']]
+    log_event('info' if working else 'error', 'meta_test.ig_login_probe',
+              f"{len(working)}/{len(results)} URL shapes accepted for "
+              f"connection {conn.id}",
+              payload={'working': [r['variant'] for r in working]})
+
+    return jsonify({
+        'connection_id': conn.id,
+        'is_active': conn.is_active,
+        'ig_login_user_id': acct or None,
+        'ig_username': conn.ig_username,
+        'token_len': len(token or ''),
+        'token_prefix': (token or '')[:4],
+        'api_version_tried': V,
+        'working': [r['variant'] for r in working],
+        'results': results,
+    }), 200
+
+
 def _proxy(url, params):
     """Call Graph with the server-side token, return (json, status)."""
     _, token = _get_meta_credentials()
