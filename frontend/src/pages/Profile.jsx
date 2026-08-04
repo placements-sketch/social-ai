@@ -142,8 +142,12 @@ export default function Profile() {
         </div>
 
         <div className="px-5 sm:px-7 pb-6">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-4 -mt-11 sm:-mt-12">
-            <div className="w-[88px] h-[88px] rounded-3xl bg-gray-900 text-white flex items-center justify-center text-3xl font-bold shrink-0 ring-4 ring-white dark:ring-[#0f0f0f] shadow-xl">
+          {/* Only the AVATAR overlaps the band. Pulling the whole row up took
+              the name and email with it, so they sat on top of the lime and
+              became unreadable — dark text on a bright field. The avatar is a
+              solid shape and is the one thing that should break the edge. */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+            <div className="w-[88px] h-[88px] -mt-11 sm:-mt-12 rounded-3xl bg-gray-900 text-white flex items-center justify-center text-3xl font-bold shrink-0 ring-4 ring-white dark:ring-[#0f0f0f] shadow-xl">
               {initial}
             </div>
             <div className="min-w-0 flex-1 sm:pb-1">

@@ -555,6 +555,24 @@ button:not(:disabled):active,
 
 /* Entrance animations — add .pop-in to a modal panel, .sheet-in to a bottom
    sheet or drawer, .fade-in to a backdrop. */
+/* Typing dots. `animate-bounce` throws each dot a third of its own height,
+   which at 7px reads as jitter rather than typing — and it is a big enough
+   movement that three of them in a small bubble is genuinely distracting in
+   peripheral vision while you are reading the thread above it. This lifts a
+   couple of pixels and dips the opacity, so the wave is legible without
+   pulling the eye. */
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0);      opacity: 0.45; }
+  30%           { transform: translateY(-3px);   opacity: 1; }
+}
+.animate-typing-dot {
+  animation: typing-dot 1.25s ease-in-out infinite;
+}
+/* Respect the setting: a looping animation is exactly what this is for. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-typing-dot { animation: none; opacity: 0.7; }
+}
+
 @keyframes pop-in {
   from { opacity: 0; transform: scale(0.94) translateY(8px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }

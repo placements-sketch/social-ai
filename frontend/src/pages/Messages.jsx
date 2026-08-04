@@ -1769,15 +1769,27 @@ const handleSend = async (retryOf = null) => {
             {aiTyping && (
               <div className="flex justify-end">
                 <div className="flex flex-col gap-1 items-end max-w-[70%]">
-                  <div className="flex items-center gap-1 px-1 text-xs">
-                    <Bot size={11} className="text-brand-500" />
-                    <span className="text-gray-400 font-medium">AI is typing…</span>
+                  <div className="flex items-center gap-1.5 px-1 text-xs">
+                    <Bot size={11} className="text-brand-500 shrink-0" />
+                    <span className="text-gray-400 font-medium">Claude is replying</span>
                   </div>
-                  <div className="bg-black text-white px-3.5 py-3 rounded-2xl rounded-tr-sm shadow-sm">
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  {/* Sized to a one-line bubble so the thread doesn't jump when
+                      the real message replaces it. */}
+                  <div className="bg-black text-white px-4 py-3 rounded-2xl rounded-tr-sm shadow-sm">
+                    <div className="flex items-center gap-1.5">
+                      {[0, 1, 2].map(i => (
+                        <span
+                          key={i}
+                          // bg-current, not bg-white/70. The old dots inherited
+                          // the dark remap of bg-white/70 — 8% white — which on
+                          // the lime bubble dark mode gives this element was
+                          // effectively invisible: an empty pill. Riding on the
+                          // text colour instead means they follow whatever the
+                          // bubble's foreground already is, in either theme.
+                          className="w-[7px] h-[7px] rounded-full bg-current animate-typing-dot"
+                          style={{ animationDelay: `${i * 160}ms` }}
+                        />
+                      ))}
                     </div>
                   </div>
                 </div>

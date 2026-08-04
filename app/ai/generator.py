@@ -489,12 +489,28 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
         # not on every turn. Override with VISION_RERANK_MODEL if needed.
         import os as _os
         model = _os.getenv("VISION_RERANK_MODEL") or "claude-sonnet-5"
+        # Prefilled with "{" so the reply STARTS as JSON.
+        #
+        # Asking for JSON in the prompt is a request, not a constraint: the model
+        # was opening with its visual analysis ("Looking at the customer's
+        # photo: **Customer's garment**: A loose, flowy kaftan…"), spending the
+        # token budget on prose and either truncating before the JSON or never
+        # reaching it. Both showed up as "No JSON in verdict" — one empty, one
+        # cut off mid-analysis — and every one of those failures silently
+        # discarded the visual comparison and left the reply guessing.
+        #
+        # Putting "{" in the assistant turn removes the choice. The budget is
+        # also raised, so a long deliberation cannot starve the answer.
         resp = client.messages.create(
-            model=model, max_tokens=700,
-            messages=[{"role": "user", "content": blocks}],
+            model=model, max_tokens=1200,
+            messages=[
+                {"role": "user", "content": blocks},
+                {"role": "assistant", "content": "{"},
+            ],
         )
 
-        raw = first_text(resp).strip()
+        # Put back the brace the prefill consumed.
+        raw = ("{" + first_text(resp)).strip()
         # The model sometimes adds commentary after the JSON, which breaks a bare
         # json.loads ("Extra data: line 4 ..."). Pull out the first object only.
         import re as _re
@@ -882,9 +898,13 @@ Customer's detected intents: {intents_str}
                 "  - state a price or any stock/size numbers\n"
                 "  - include a product link or URL\n"
                 "  - assert the product name as fact\n"
-                "Instead, name the likely match tentatively and ask them to confirm before you give "
-                "details — e.g. \"These look like our [product] — is that the one? Confirm and I'll "
-                "send you the price, sizes and link right away.\" Once they confirm, give full details."
+                "Do NOT ask them to confirm the identification — verifying our own stock is our "
+                "job, not the customer's, and 'is that the one?' hands it back to them.\n"
+                "Instead, name it as your best read and CARRY ON being useful in the same breath: "
+                "say what you think it is and that you're checking it, e.g. \"That looks like our "
+                "[product] — let me confirm the exact piece and I'll come back with price and "
+                "sizes.\" If they tell you it's wrong, offer the other candidates by name. Never "
+                "make the customer do the identifying."
             )
 
         # Vision re-rank confirmed the match — safe to be specific.
