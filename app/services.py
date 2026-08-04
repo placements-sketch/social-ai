@@ -735,9 +735,11 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # it and use that as the search phrase. Strongest signal — it handles
     # "is this available?" + a photo, where the text names no product.
     vision_desc = None   # referenced later even when no photo was sent
+    vision_attrs = {}    # garment type / colour, used to narrow the catalogue
     if image_urls:
         from app.ai.generator import describe_product_in_image
-        vision_desc = describe_product_in_image(image_urls)
+        vision_attrs = describe_product_in_image(image_urls) or {}
+        vision_desc = vision_attrs.get("phrase")
         if vision_desc:
             product_keyword = vision_desc
             keyword_source = "image"
@@ -834,7 +836,35 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
         # wide-leg; side-by-side photos can. A caption-sourced search gets the
         # same treatment when we have a picture to compare against.
         _img_verify = (keyword_source in ("image", "post_caption") and bool(image_urls))
-        matches = search_products(search_terms, limit=(12 if _img_verify else 3))
+
+        # Narrow by garment TYPE first, then rank — instead of ranking the whole
+        # catalogue by keyword overlap and hoping.
+        #
+        # "colourful dress with fringe" scores poorly against titles a
+        # merchandiser wrote, so with 7,000+ products the right item routinely
+        # missed the top 12 and vision never got to look at it. The customer
+        # then got a wrong product, or an honest "I can't place it" that made
+        # the assistant look useless. Filtering on the noun — dress, trousers,
+        # shoes — discards everything that is not even the right kind of thing
+        # before ranking begins, which is a far better use of the limit.
+        #
+        # The pool handed to vision is also much wider now (12 -> 40): comparing
+        # photos is the step that actually decides, and it was being starved.
+        gtype = (vision_attrs.get("type") or "").strip()
+        matches = []
+        if _img_verify and gtype:
+            typed_terms = [gtype] + [t for t in search_terms if t != gtype]
+            matches = search_products(typed_terms, limit=40, must_match=gtype)
+            if matches:
+                log_event("info", "services.image_search_narrowed",
+                          f"Narrowed to {len(matches)} '{gtype}' candidates before vision",
+                          payload={"type": gtype,
+                                   "colour": vision_attrs.get("colour"),
+                                   "candidates": len(matches)})
+
+        # No type, or nothing of that type in stock — fall back to plain ranking.
+        if not matches:
+            matches = search_products(search_terms, limit=(40 if _img_verify else 3))
 
         if _img_verify and matches:
             from app.ai.generator import verify_product_match
@@ -846,6 +876,25 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                     # — far better than quoting a confident wrong price.
                     context_data['image_match_failed'] = True
                     matches = []
+
+                    # Hand it to a person rather than interrogating the customer.
+                    # We looked at their photo against the catalogue and could
+                    # not place it; a colleague who knows the collection will
+                    # recognise it in seconds. Asking the customer to describe
+                    # or go and find our own product puts our job onto them.
+                    try:
+                        if inbound_record and inbound_record.conversation_id:
+                            from app.handoff import _trigger
+                            from app.models import Conversation as _C
+                            _conv = _C.query.get(inbound_record.conversation_id)
+                            if _conv:
+                                _trigger(_conv, reason="image_unmatched",
+                                         detail="Customer sent a photo we could not "
+                                                "match to any product")
+                    except Exception as e:
+                        # An escalation failure must not cost the customer a
+                        # reply — the AI still answers, just without a human.
+                        log_event("warning", "services.image_escalation_failed", str(e)[:200])
                 else:
                     if verdict.get("confidence") == "high":
                         # Vision confirmed this exact item. Pass ONLY it — leaving
@@ -1884,10 +1933,30 @@ def _patch_inbound_product_keyword(inbound_record, product_keyword: str):
 # Words that point at something without naming it. A message built only out of
 # these is REFERENTIAL: it refers to something already on screen — nearly always
 # the photo the customer sent a moment earlier, or the product we just quoted.
+# One list, used to build BOTH the pattern below and the weak-word set, because
+# a word that POINTS AT something cannot simultaneously NAME something. Keeping
+# them separate let "these" and "ones" count as product names: "are these still
+# available?" extracted ['are','these','still'], two of which were not in the
+# weak list, so the message was judged to name a product, the referential path
+# never ran, and no product context was loaded at all. The AI then had nothing
+# to talk about and asked the customer to describe our own stock.
+_REFERENTIAL_WORDS = (
+    "this", "that", "these", "those", "it", "them", "they", "same", "above",
+    "pic", "picture", "photo", "image", "one", "ones",
+)
+
 _REFERENTIAL_RE = re.compile(
-    r"\b(this|that|these|those|it|them|same|above|pic|picture|photo|image|one)\b",
+    r"\b(" + "|".join(_REFERENTIAL_WORDS) + r")\b",
     re.I,
 )
+
+# Answers and filler. A reply can be pure grammar — "nope", "no that's not it" —
+# and still be about the thing on screen. None of these can be a garment.
+_ANSWER_WORDS = {
+    "no", "nope", "nah", "not", "yes", "yeah", "yep", "yup", "ok", "okay",
+    "thanks", "thank", "the", "are", "is", "am", "was", "were", "be",
+    "thats", "its", "im", "dont", "doesnt", "isnt", "wasnt",
+}
 
 # Colours and sizes qualify a product but cannot BE one. "red" alone matches
 # every red item in the catalogue; paired with a remembered keyword it narrows.
@@ -1947,7 +2016,12 @@ def _message_names_a_product(text: str | None) -> bool:
         return False
     for term in _extract_product_keywords(text):
         t = term.strip().lower()
-        if t and t not in _QUALIFIER_WORDS and t not in _WEAK_KEYWORDS:
+        if (t
+                and t not in _QUALIFIER_WORDS
+                and t not in _WEAK_KEYWORDS
+                # Pointing words and bare answers are never product names.
+                and t not in _REFERENTIAL_WORDS
+                and t not in _ANSWER_WORDS):
             return True
     return False
 
@@ -1961,9 +2035,17 @@ def _is_referential(text: str | None, extracted: str | None = None) -> bool:
     """
     if not text or not text.strip():
         return True                     # image-only message names nothing
-    if not _REFERENTIAL_RE.search(text):
+
+    # Naming a product is what makes a message self-contained.
+    if _message_names_a_product(text):
         return False
-    return not _message_names_a_product(text)
+
+    # It names nothing. Requiring an explicit pointing word on top of that was
+    # too strict: "nope" and "what is the price" name no product and contain no
+    # pronoun, yet neither can be about anything except what is already on
+    # screen. Treating them as fresh subjects dropped the product context and
+    # left the assistant asking the customer what they were talking about.
+    return True
 
 
 def _qualifiers_in(text: str | None) -> list[str]:

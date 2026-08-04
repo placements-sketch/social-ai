@@ -283,12 +283,24 @@ def _fetch_image_b64(url: str):
         return None, None
 
 
-def describe_product_in_image(image_urls: list) -> str | None:
+def describe_product_in_image(image_urls: list) -> dict | None:
     """
-    Stage 2 vision: look at the customer's photo and return a short product
-    search phrase (type, colour, style) to feed the catalog lookup — e.g.
-    "tan leather mules". Returns None on any failure (pipeline continues
-    text-only). Uses the same Claude client/model as replies.
+    Stage 2 vision: look at the customer's photo and return the product's
+    attributes for the catalogue lookup.
+
+    Returns a dict — {name, type, colour, details, phrase} — or None on any
+    failure, in which case the pipeline continues text-only.
+
+    Returns the parts SEPARATELY, not just a phrase, and that is the point.
+    A description flattened into words has to be matched by ranking every one
+    of 7,000+ products by keyword overlap, and a phrase like "colourful dress
+    with fringe" ranks badly against titles written by a merchandiser. Garment
+    TYPE and COLOUR can instead be used to filter — throwing away everything
+    that is not even the right kind of item before any ranking happens.
+
+    Returned rather than stashed on the function: webhooks are handled on a
+    thread pool, so shared mutable state here would let two customers' photos
+    overwrite each other's attributes.
     """
     if not image_urls:
         return None
@@ -313,12 +325,20 @@ def describe_product_in_image(image_urls: list) -> str | None:
                 "FIRST: if the image contains readable text naming the product — a "
                 "screenshot of a product page, a post with the title written on it, a "
                 "price tag, a label — copy those exact words. A real product name beats "
-                "any description you could write, because it can be looked up directly.\n"
-                "THEN: add 2-5 keywords describing what you see (type, colour, style).\n\n"
-                "Reply with the words only, space separated. No sentences, no "
-                "punctuation, no explanation.\n"
-                "Example with visible text: Vivo Lani Maxi Dress Satin black white print\n"
-                "Example without:           tan leather mules"
+                "any description you could write, because it can be looked up directly.\n\n"
+                "Reply on ONE line in exactly this format:\n"
+                "  NAME | TYPE | COLOUR | DETAILS\n\n"
+                "  NAME    - the product name if it is written in the image, else -\n"
+                "  TYPE    - the single garment noun: dress, top, trousers, skirt, "
+                "jacket, shoes, bag, set, kaftan. One word. Never blank.\n"
+                "  COLOUR  - the one or two dominant colours, or 'multicolour' for a "
+                "print with no single dominant colour\n"
+                "  DETAILS - 2-4 further words: pattern, cut, fabric, trim\n\n"
+                "TYPE and COLOUR are used to narrow a catalogue of thousands, so be "
+                "literal and conventional with them — the word a shop would use.\n\n"
+                "Example: Vivo Lani Maxi Dress | dress | black white | satin print maxi\n"
+                "Example: - | mules | tan | leather pointed flat\n"
+                "Example: - | dress | multicolour | tie dye fringe midi"
             ),
         })
 
@@ -331,11 +351,34 @@ def describe_product_in_image(image_urls: list) -> str | None:
             max_tokens=80,
             messages=[{"role": "user", "content": blocks}],
         )
-        text = resp.content[0].text.strip().replace("\n", " ")[:160].strip()
+        text = resp.content[0].text.strip().replace("\n", " ")[:220].strip()
+
+        # Parsed into parts as well as returned whole. Callers that just want a
+        # search phrase keep working; the caller that can narrow the catalogue
+        # by garment type and colour now has them separately, which is the
+        # difference between ranking 7,000 products by fuzzy keyword and
+        # filtering to the few dozen that are even the right kind of thing.
+        parts = [p.strip() for p in text.split("|")]
+        while len(parts) < 4:
+            parts.append("")
+        name, gtype, colour, details = parts[0], parts[1], parts[2], parts[3]
+        if name.strip() in ("-", "—", ""):
+            name = ""
+
+        attrs = {
+            "name": name,
+            "type": gtype.lower(),
+            "colour": colour.lower(),
+            "details": details.lower(),
+            # What the old callers expect: one space-separated search phrase.
+            "phrase": " ".join(p for p in (name, gtype, colour, details) if p).strip(),
+        }
+
         log_event("info", "ai.vision.describe",
-                  f"Vision product description: {text!r}",
-                  payload={"description": text})
-        return text or None
+                  f"Vision product attributes: {attrs['phrase']!r} "
+                  f"(type={attrs['type']!r} colour={attrs['colour']!r})",
+                  payload={"raw": text, **attrs})
+        return attrs
     except Exception as e:
         log_event("warn", "ai.vision.describe_failed", str(e)[:200])
         return None
@@ -773,7 +816,18 @@ Customer's detected intents: {intents_str}
 - Never invent stock levels — use only the Shopify data above.
 - Never invent prices — use only the data above.
 - If you don't know something, say so and offer to find out.
-- Stay in character as a human shop assistant. Do not mention being an AI."""
+- Stay in character as a human shop assistant. Do not mention being an AI.
+- NEVER ask the customer to describe a product that is ours to know. If they
+  sent a photo, you have already seen it — asking "what colour is it?" or "is it
+  trousers or a skirt?" puts our job onto them and reads as though nobody looked.
+  When a suggestion is rejected ("not the ones", "no", "that's not it"), do NOT
+  ask for a description. Instead, in this order:
+    1. Offer the OTHER products from the catalogue data above by name — the
+       search returned more than one candidate and only the first was named.
+    2. If those are exhausted or there were none, say plainly that you can't
+       place it from the photo and offer to have a colleague check, or ask for
+       the shopzetu.com link. Asking for a LINK is fine; asking them to describe
+       our own stock is not."""
 
         # Vision directive — only when the customer actually sent a photo
         if image_urls:
@@ -812,13 +866,17 @@ Customer's detected intents: {intents_str}
         # Vision re-rank found nothing — admit it rather than guess.
         if context_data.get('image_match_failed'):
             system_prompt += (
-                "\n\n--- Product not found ---\n"
+                "\n\n--- Product not found — hand over to a colleague ---\n"
                 "You compared the customer's photo against the catalogue and NONE of the products "
                 "matched it. Do NOT name, price, or link any product, and do NOT guess at a similar "
-                "one. Say briefly that you can't place that exact piece from the photo, then ask them "
-                "for the product name or the shopzetu.com link so you can check it properly. You are "
-                "ALREADY in a DM with them — never tell them to 'DM us', check the bio, or contact "
-                "another channel. Keep it short and warm."
+                "one.\n"
+                "Do NOT ask the customer to identify it for you — no 'what colour is it', no "
+                "'is it a dress or a skirt', and do not ask them to go and find a link. They sent "
+                "a photo; identifying our own stock is our job, not theirs.\n"
+                "Instead: say warmly and briefly that you want to get them the right piece and are "
+                "bringing in a colleague who knows the collection, and that someone will come back "
+                "to them shortly. Then stop. You are ALREADY in a DM with them — never tell them to "
+                "'DM us', check the bio, or contact another channel."
             )
 
         # IG comment: the image is the POST, and its caption often names the item.

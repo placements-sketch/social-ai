@@ -148,12 +148,55 @@ def list_all_products() -> list[dict]:
     """
     return _real_list_all_products()
 
-def search_products(keyword, limit: int = 3) -> list[dict]:
+# A garment has one name to a customer and another to whoever wrote the product
+# title. Filtering on the literal word a photo suggests is worse than no filter
+# at all when the two disagree: asked for "trousers", a literal match threw away
+# every navy wide-leg PANT in the catalogue and returned army-green trousers
+# instead — the right kind of item, entirely the wrong ones, and worse than the
+# unfiltered ranking it replaced. Caught by running it against the real
+# catalogue rather than reasoning about it.
+_TYPE_SYNONYMS = [
+    {"trousers", "trouser", "pants", "pant", "slacks", "palazzo", "leggings"},
+    {"dress", "dresses", "gown", "frock", "kaftan", "kaftans"},
+    {"top", "tops", "blouse", "shirt", "tee", "t-shirt", "tank", "camisole"},
+    {"skirt", "skirts"},
+    {"jacket", "jackets", "blazer", "coat", "cardigan"},
+    {"shoes", "shoe", "heels", "sandals", "mules", "flats", "sneakers", "boots"},
+    {"bag", "bags", "purse", "handbag", "clutch", "tote"},
+    {"set", "sets", "co-ord", "coord", "two-piece"},
+    {"jumpsuit", "jumpsuits", "romper", "playsuit"},
+    {"shorts", "short"},
+]
+
+
+def _type_synonyms(word: str) -> set:
+    """Every catalogue word that means the same garment as `word`."""
+    w = (word or "").strip().lower()
+    if not w:
+        return set()
+    for group in _TYPE_SYNONYMS:
+        if w in group:
+            return set(group)
+    # Unknown type — match it and its singular, rather than nothing.
+    return {w, w[:-1]} if w.endswith('s') and len(w) > 3 else {w}
+
+
+def search_products(keyword, limit: int = 3, must_match: str = None) -> list[dict]:
     """
     Search the local ProductCache. Accepts either:
       - a single keyword string (matches across name/desc/variants/tags), OR
       - a list of keywords (products matching MORE terms rank higher).
     Returns up to `limit` matches, best first.
+
+    `must_match` is a hard filter, not a ranking hint: only products whose name
+    or tags contain it are eligible. Used with the garment type read off a
+    customer's photo, so a search for a dress cannot return trousers no matter
+    how well the other words happen to score. Ranking alone could not do this —
+    with thousands of products a strong colour or fabric match on the wrong
+    kind of item routinely outranked the right one.
+
+    If the filter matches nothing, returns empty rather than silently widening;
+    the caller decides whether to fall back.
     """
     if not keyword:
         return []
@@ -163,7 +206,24 @@ def search_products(keyword, limit: int = 3) -> list[dict]:
     if not terms:
         return []
 
-    return _cache_search_products(terms, limit=limit)
+    if not must_match:
+        return _cache_search_products(terms, limit=limit)
+
+    # Over-fetch, then filter — the ranking still decides the order within the
+    # products that are the right kind of thing.
+    needles = _type_synonyms(must_match)
+    candidates = _cache_search_products(terms, limit=max(limit * 8, 200))
+    kept = []
+    for p in candidates:
+        haystack = ' '.join([
+            str(p.get('name') or ''),
+            ' '.join(str(t) for t in (p.get('tags') or [])),
+        ]).lower()
+        if any(n in haystack for n in needles):
+            kept.append(p)
+        if len(kept) >= limit:
+            break
+    return kept
 
 
 def iter_all_order_ids():
