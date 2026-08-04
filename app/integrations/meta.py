@@ -131,9 +131,41 @@ def _ig_login_credentials(account_id: str | None = None):
     if conn is not None and conn.ig_login_token:
         return (conn.ig_login_user_id or "me"), conn.ig_login_token
 
+    # A DELIBERATE disconnect must actually disconnect.
+    #
+    # This fell through to IG_LOGIN_USER_TOKEN whenever no active connection was
+    # found — including immediately after an admin disconnected an account on
+    # purpose. The row went inactive, the UI said disconnected, and replies kept
+    # going out under an environment token nobody had looked at in weeks. That
+    # is the worst failure this system can have: messaging real customers from
+    # an account the operator believes is switched off.
+    #
+    # So the fallback now applies only where it was actually meant to — a
+    # deployment that predates the OAuth flow and has NO connection rows at all.
+    # Once a connection has ever existed, those rows are the source of truth and
+    # "none active" means none, not "look elsewhere".
+    try:
+        from app.models import MetaConnection
+        any_connection_ever = MetaConnection.query.first() is not None
+    except Exception:
+        # Can't tell — assume a connection exists, because the safe failure is
+        # "don't send" rather than "send as whoever the env says".
+        any_connection_ever = True
+
+    if any_connection_ever:
+        log_event("warning", "integrations.meta.no_active_connection",
+                  "No active Instagram connection — refusing to fall back to "
+                  "IG_LOGIN_USER_TOKEN. Connect an account to resume sending.",
+                  payload={"requested_account": account_id})
+        return None, None
+
     token = os.getenv("IG_LOGIN_USER_TOKEN")
     if not token:
         return None, None
+    log_event("warning", "integrations.meta.env_credentials_used",
+              "Sending with IG_LOGIN_USER_TOKEN from the environment — no "
+              "connection rows exist. This is the pre-OAuth fallback.",
+              payload={"env_user_id": os.getenv("IG_LOGIN_USER_ID")})
     return (os.getenv("IG_LOGIN_USER_ID") or "me"), token
 
 
