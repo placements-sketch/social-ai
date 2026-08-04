@@ -187,7 +187,20 @@ def callback():
                        'response_keys': sorted(body.keys())})
 
     # 2. Short-lived → long-lived (60 days)
+    # If this exchange fails we keep the SHORT-LIVED token, which lasts ONE
+    # HOUR. That is not a degraded mode — it is a connection that works for
+    # sixty minutes and then dies with "Session has expired", and because
+    # expires_at stays None the refresh job cannot help either: it renews
+    # tokens *nearing expiry*, and a token with no recorded expiry never
+    # qualifies. The card then reports "No expiry recorded" and a green badge.
+    #
+    # It failed silently before: a 400 does not raise, so the except below
+    # never fired and nothing was logged. That is exactly what happened when
+    # shopzetu was connected before it held a role on the app — the exchange
+    # was refused, the one-hour token was stored, and everything looked fine
+    # until it abruptly didn't.
     long_token, expires_at = short_token, None
+    exchange_ok = False
     try:
         r2 = requests.get(f"{IG_LOGIN_GRAPH}/access_token", params={
             'grant_type': 'ig_exchange_token',
@@ -197,10 +210,32 @@ def callback():
         b2 = r2.json() if r2.content else {}
         if b2.get('access_token'):
             long_token = b2['access_token']
+            exchange_ok = True
             if b2.get('expires_in'):
                 expires_at = datetime.utcnow() + timedelta(seconds=int(b2['expires_in']))
+        else:
+            log_event("error", "auth_ig.callback.long_lived_failed",
+                      f"Long-lived exchange refused ({r2.status_code}) — storing the "
+                      f"SHORT-LIVED token, which expires in about an hour: "
+                      f"{str(b2)[:220]}",
+                      payload={'status': r2.status_code, 'user_id': ig_user_id})
     except requests.RequestException as e:
-        log_event("warn", "auth_ig.callback.long_lived_failed", str(e))
+        log_event("error", "auth_ig.callback.long_lived_failed",
+                  f"Long-lived exchange failed, storing the short-lived token: {e}",
+                  payload={'user_id': ig_user_id})
+
+    if not exchange_ok:
+        # Refuse the connection rather than store an hour-long token that will
+        # look healthy and then strand the account. Reconnecting is cheap;
+        # discovering this an hour later is not.
+        return redirect(_frontend(
+            return_to, connected='0',
+            error=("Instagram issued only a short-lived token and refused to "
+                   "upgrade it, so the connection would stop working within the "
+                   "hour. This usually means the account does not yet hold a "
+                   "role on the Meta app — add it under Roles → Instagram "
+                   "Testers, accept the invite from that account, then connect "
+                   "again.")))
 
     # 3. Who did we just connect?
     #
