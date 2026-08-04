@@ -534,7 +534,20 @@ export default function Messages() {
           if (!prev) return data.conversation
           const newMsgs = data.conversation.messages || []
           const oldMsgs = prev.messages || []
-          if (newMsgs.length < oldMsgs.length) return prev
+
+          // Keep what we have only if the server response is genuinely STALE —
+          // meaning it is missing a message we already hold — not merely
+          // shorter. This was `newMsgs.length < oldMsgs.length`, which is the
+          // same test only while the local list is free of duplicates. Once a
+          // duplicate crept in, the local list stayed permanently longer, the
+          // guard fired on every poll, and the server was never allowed to
+          // correct it. Comparing ids cannot be fooled that way: a duplicate is
+          // the same id twice and collapses into the Set, so a healthy response
+          // is accepted and the extra row disappears on the next tick.
+          const oldIds = new Set(oldMsgs.map(m => m.id).filter(id => id != null))
+          const newIds = new Set(newMsgs.map(m => m.id).filter(id => id != null))
+          const responseIsStale = [...oldIds].some(id => !newIds.has(id))
+          if (responseIsStale) return prev
 
           // Detect new messages — find any NEW inbound that wasn't there before.
           // We can't just check the last message because the poll might catch
@@ -885,11 +898,22 @@ const handleSend = async (retryOf = null) => {
       // Canonical: sendReply(id, content, sender='human')
       // -> { message, conversation }
       const data = await sendReply(activeConv.id, outgoing, 'human', ctx?.id ?? null)
-      setActiveConv(c => ({
-        ...c,
-        ...data.conversation,
-        messages: [...(c.messages || []), data.message],
-      }))
+      setActiveConv(c => {
+        // Append only if the poll hasn't already brought this message in.
+        // The thread refetches every few seconds, so a poll landing between
+        // the server saving the reply and this setState leaves the message
+        // already present — and appending it again showed the agent two
+        // identical outbound rows for a single message that Instagram, quite
+        // correctly, only ever received once.
+        const existing = c.messages || []
+        const already = data.message?.id != null
+          && existing.some(m => m.id === data.message.id)
+        return {
+          ...c,
+          ...data.conversation,
+          messages: already ? existing : [...existing, data.message],
+        }
+      })
       // Reflect the new last message + status in the list.
       setConversations(prev => prev.map(c =>
         c.id === activeConv.id

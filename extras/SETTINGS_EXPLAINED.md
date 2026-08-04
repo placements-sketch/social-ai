@@ -312,3 +312,87 @@ which is what every caller already assumed it meant.
 **"Did any of this need a database change?"**
 No. Every setting lives in the existing JSON blob and every permission fix is
 code. There is no SQL step for this page.
+
+---
+
+# Addendum — findings after the original pass
+
+Everything above still holds. These came out of later work on the same page and
+change some of its conclusions.
+
+## 1. The Discord "not delivering" badge was wrong
+
+The header badge I added judged delivery from the form field alone. But
+`discord_config()` resolves the webhook from **settings OR the
+`DISCORD_WEBHOOK_URL` environment variable**, and this deployment sets it by
+env — so the field is legitimately blank while alerts are going out fine.
+
+The badge would have reported "not delivering" on a healthy system, which is
+the same category of mistake as the diagnostics card that could only say "fine",
+just inverted.
+
+`GET /api/settings` now returns a `resolved` block computed server-side:
+
+```json
+"resolved": { "discord_delivering": true, "discord_url_source": "env" }
+```
+
+The page reports that instead of re-deriving it badly, and the webhook field
+says *"Using the server's environment-configured webhook"* so an empty box does
+not read as broken.
+
+**The lesson worth keeping:** a UI must not re-implement a rule the server
+already owns. It had two of the three inputs and got the answer wrong.
+
+## 2. CORS falls back instead of failing closed
+
+`CORS_ORIGINS` unset meant every browser request was rejected, and the only
+signal was one warning line at boot. It now falls back to `FRONTEND_BASE_URL` /
+`FRONTEND_URL`, and logs which source it used:
+
+```
+CORS origins (FRONTEND_BASE_URL / FRONTEND_URL): https://…
+```
+
+If nothing resolves at all, that is now an **error**, not a warning — an API
+that rejects every request deserves louder than a warning.
+
+## 3. Channels that cannot send cannot be enabled
+
+`facebook_dm`, `facebook_comment`, `whatsapp` and `tiktok_*` have stub
+dispatchers: inbound is accepted and stored, replies are logged and never
+delivered. Enabling one means customers message a channel nobody can answer.
+
+`SENDABLE_CHANNELS` now lives beside `_dispatch_reply` — the code that actually
+knows — and is imported by `channels.py`. `PATCH /channels/<id>` returns **409**
+for anything outside it, and the toggle renders as unavailable rather than
+erroring on click. `Channel.to_dict()` exposes `can_send` so the UI reads the
+answer rather than hardcoding a list that would drift.
+
+Existing rows already enabled in the database are a separate matter — see
+**Step 18** in `PRODUCTION_CHANGES.md`.
+
+## 4. Two more settings surfaces gained real guards
+
+Both were the same shape as the channels finding in the original pass — the
+link was hidden, the action was not prevented:
+
+- **`app/customers.py`** — ten routes with `@jwt_required()` and no role check.
+  Any agent could read the full customer list with gross lifetime spend, or
+  `POST /customers/sync` to start a full Shopify sync. Reads are now
+  admin+supervisor, writes admin.
+- **`/logs/feed?raw=true`** — opted out of the source allowlist with no role
+  check, handing a supervisor the same rows `/logs/system` refuses them. Now
+  admin-only, and *ignored* rather than rejected for others so a stray query
+  parameter cannot blank the page.
+
+## 5. Verify what is resolved, not what is stored
+
+The pattern behind items 1 and 2, and worth stating on its own: several bugs on
+this page came from a caller re-deriving a value the server resolves from
+multiple sources. Settings + environment, form field + env fallback, requested
+scopes + granted scopes. In each case the partial view looked authoritative and
+was wrong.
+
+Where a value has more than one source, the resolver returns the answer and
+callers report it.

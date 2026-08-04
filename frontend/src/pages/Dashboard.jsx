@@ -1003,7 +1003,10 @@ export default function Dashboard() {
 
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
-              <CartesianGrid stroke="rgba(0,0,0,0.05)" vertical={false} strokeDasharray="0" />
+              {/* Black at 5% is invisible on the dark theme — these are inline
+                  SVG props, so the dark-mode class remap cannot reach them.
+                  A white wash reads in both. */}
+              <CartesianGrid stroke="rgba(127,127,127,0.18)" vertical={false} strokeDasharray="0" />
               <XAxis
                 dataKey="time"
                 tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
@@ -1014,18 +1017,34 @@ export default function Dashboard() {
                 tick={{ fontSize: 12, fill: '#a1a1aa', fontFamily: 'Quicksand' }}
                 axisLine={false}
                 tickLine={false}
+                // Message counts are whole. Without this a peak of 3 produced
+                // ticks at 0.75 / 1.5 / 2.25 — three quarters of a message.
+                allowDecimals={false}
+                // Floor at zero. Nothing here can be negative, so the axis
+                // should never imply it is.
+                domain={[0, 'auto']}
               />
               <Tooltip content={<CustomTooltip />} />
               {chartSeries.map(({ dataKey, name, stroke, dash }) => (
                 <Line
                   key={dataKey}
-                  type="natural"
+                  // monotone, NOT natural. A natural cubic spline is fitted for
+                  // smoothness and overshoots between points — it drew Instagram
+                  // below zero between Sat and Sun, and above the top gridline
+                  // and outside the plot near Mon. Both are values that never
+                  // happened; you cannot receive minus one message. Monotone
+                  // interpolation is guaranteed never to exceed the range of the
+                  // points it joins, so the curve stays inside the data.
+                  type="monotone"
                   dataKey={dataKey}
                   name={name}
                   stroke={stroke}
                   strokeWidth={2}
                   strokeDasharray={dash}
-                  dot={false}
+                  // A smoothed line through four daily totals hides which points
+                  // are measurements, so the eye reads the curve's peak as the
+                  // value even when it sits between two days.
+                  dot={{ r: 2.5, fill: stroke, strokeWidth: 0 }}
                   activeDot={{ r: 6 }}
                 />
               ))}
