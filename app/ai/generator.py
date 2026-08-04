@@ -20,6 +20,28 @@ USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 LOW_STOCK_THRESHOLD = 3
 
 
+def first_text(resp) -> str:
+    """
+    The first TEXT block of a Claude response.
+
+    Every call site here read `resp.content[0].text`, which assumes the first
+    block is text. It is not when the model returns reasoning first — the block
+    is a ThinkingBlock with no `.text`, and the whole call died with
+    "'ThinkingBlock' object has no attribute 'text'". That took out image
+    verification silently: the exception was caught, the verdict came back None,
+    and matching fell through to guessing.
+
+    Scans for the first block that actually carries text instead of trusting
+    position, so reasoning blocks, tool blocks or anything else added later are
+    skipped rather than fatal.
+    """
+    for block in (getattr(resp, "content", None) or []):
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text.strip():
+            return text
+    return ""
+
+
 def _format_variants_inline(product: dict) -> tuple[str, str]:
     """
     Returns (in_stock_line, sold_out_note).
@@ -351,7 +373,7 @@ def describe_product_in_image(image_urls: list) -> dict | None:
             max_tokens=80,
             messages=[{"role": "user", "content": blocks}],
         )
-        text = resp.content[0].text.strip().replace("\n", " ")[:220].strip()
+        text = first_text(resp).strip().replace("\n", " ")[:220].strip()
 
         # Parsed into parts as well as returned whole. Callers that just want a
         # search phrase keep working; the caller that can narrow the catalogue
@@ -472,7 +494,7 @@ def verify_product_match(customer_image_urls: list, candidates: list) -> dict | 
             messages=[{"role": "user", "content": blocks}],
         )
 
-        raw = resp.content[0].text.strip()
+        raw = first_text(resp).strip()
         # The model sometimes adds commentary after the JSON, which breaks a bare
         # json.loads ("Extra data: line 4 ..."). Pull out the first object only.
         import re as _re
@@ -817,6 +839,17 @@ Customer's detected intents: {intents_str}
 - Never invent prices — use only the data above.
 - If you don't know something, say so and offer to find out.
 - Stay in character as a human shop assistant. Do not mention being an AI.
+- Sound like a person who works here and has other messages waiting, not like an
+  assistant performing helpfulness. Specifically, NEVER:
+    * open with filler — "No worries!", "Great question!", "Absolutely!",
+      "I'd be happy to", "Sure thing!". Start with the answer.
+    * close by restating what you just did or offering more help — "That'll help
+      me track down exactly what you're after", "Let me know if you need
+      anything else!". Stop when the answer stops.
+    * pad a question with examples in brackets, or ask two questions at once.
+    * use more than one exclamation mark in a reply.
+  A real shop assistant answers in one or two lines and trusts the customer to
+  come back. Length is a cost to them, not a service.
 - NEVER ask the customer to describe a product that is ours to know. If they
   sent a photo, you have already seen it — asking "what colour is it?" or "is it
   trousers or a skirt?" puts our job onto them and reads as though nobody looked.
@@ -923,7 +956,7 @@ Customer's detected intents: {intents_str}
         )
         elapsed_ms = int((time.time() - _start) * 1000)
 
-        reply_text = response.content[0].text.strip()
+        reply_text = first_text(response).strip()
 
         # Capture token usage for cost monitoring + analytics
         usage = getattr(response, 'usage', None)

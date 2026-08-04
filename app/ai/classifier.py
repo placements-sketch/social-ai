@@ -13,6 +13,7 @@ import json
 
 from app.utils.intent import detect_intents
 from app.utils.logger import log_event
+from app.ai.generator import first_text
 
 USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 
@@ -79,7 +80,7 @@ def classify_message(message: str, history=None) -> dict:
             system=_SYSTEM,
             messages=msgs,
         )
-        raw = resp.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+        raw = first_text(resp).strip().replace("```json", "").replace("```", "").strip()
         data = json.loads(raw)
 
         intents = [i for i in data.get("intents", []) if i in VALID_INTENTS] or ["unknown"]
