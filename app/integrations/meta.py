@@ -282,21 +282,45 @@ def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict 
         url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{igsid}"
     if not token or not igsid:
         return None
-    try:
-        r = requests.get(url, params={
-            "fields": "name,username,profile_pic",
-            "access_token": token,
-        }, timeout=8)
-        if r.status_code >= 400:
+
+    # Narrowing field sets, not one all-or-nothing request.
+    #
+    # Asking for name,username,profile_pic came back 500 / OAuthException
+    # code 1 ("An unknown error has occurred") — Meta's catch-all, which says
+    # nothing about WHICH field it objected to. Losing the whole profile
+    # because one optional field is unavailable is the wrong trade: `username`
+    # is the only one anything actually renders, and without it the customer
+    # shows in the inbox and the activity feed as a bare 17-digit IGSID.
+    #
+    # So: ask for everything, and on failure fall back to the field we need.
+    for fields in ("name,username,profile_pic", "username"):
+        try:
+            r = requests.get(url, params={
+                "fields": fields,
+                "access_token": token,
+            }, timeout=8)
+        except requests.RequestException as e:
             log_event("warning", "integrations.meta.username_lookup",
-                      f"Username lookup failed ({r.status_code}): {(r.text or '')[:200]}",
-                      payload={"igsid": igsid})
+                      f"Username lookup exception: {e}", payload={"igsid": igsid})
             return None
-        return r.json() or None
-    except requests.RequestException as e:
-        log_event("warning", "integrations.meta.username_lookup",
-                  f"Username lookup exception: {e}", payload={"igsid": igsid})
-        return None
+
+        if r.status_code < 400:
+            data = r.json() or None
+            if data and fields == "username":
+                log_event("info", "integrations.meta.username_lookup_narrowed",
+                          "Full profile lookup failed but username resolved — "
+                          "one of name/profile_pic is unavailable for this token",
+                          payload={"igsid": igsid})
+            return data
+
+        # Only worth retrying if there is a narrower attempt left.
+        level = "warning" if fields == "username" else "info"
+        log_event(level, "integrations.meta.username_lookup",
+                  f"Username lookup failed ({r.status_code}) for fields=[{fields}]: "
+                  f"{(r.text or '')[:200]}",
+                  payload={"igsid": igsid, "fields": fields})
+
+    return None
 
 def send_instagram_reply(recipient_id: str, text: str,
                          account_id: str | None = None) -> dict | None:

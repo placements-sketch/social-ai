@@ -1265,3 +1265,76 @@ SELECT max(created_at) AS newest_inbound, count(*) AS last_hour
 If subscription still fails, the response body is logged verbatim under
 `integrations.meta.ig_subscribe` — a rejected field name shows up there and
 nowhere else.
+
+---
+
+### Step 21 — Correction to Step 20: the real cause was the tester role
+
+**Step 20 diagnosed this wrong. Read this instead; Step 20 stays as written
+because this file is append-only.**
+
+Step 20 blamed the URL shape — `me` versus the numeric account id — for:
+
+```
+Unsupported request - method type: post   (webhook subscribe)
+Unsupported request - method type: get    (token verify)
+```
+
+That was wrong. A probe added at **Meta Diagnostics → Instagram Login — URL
+probe** fired the real token at ten URL shapes. Before the fix, all nine
+Instagram ones failed identically; afterwards, all nine succeeded. When every
+shape fails the same way, the shape is not the variable.
+
+**The actual cause.** While a Meta app is in **Development mode**, only
+Instagram accounts holding a role on it — admin, developer or **tester** — can
+be used through the API. OAuth still completes and a valid token is still
+issued; every subsequent API call is refused. Meta reports that as "Unsupported
+request", which reads like a malformed URL and is really "not permitted".
+
+`@mileszetu` worked throughout because it already held a role. `@shopzetu` did
+not. Same code, same app id, same URLs.
+
+**The fix is in the Meta dashboard, not the codebase:**
+Roles → **Instagram Testers** → add the account, then accept the invite from
+that account's Instagram settings (Settings → Website permissions → Tester
+invites). Then press **Verify** on the connection.
+
+Two changes from Step 20 are still in place and still worth having — an
+unversioned retry and numeric-id addressing — but they are belt-and-braces, not
+the fix. They cost one extra request only on that specific error.
+
+**What the probe did find that mattered.** Asking for `fields=user_id` showed
+two different ids on the same account:
+
+| field | example | meaning |
+|---|---|---|
+| `id` | `37355381327440609` | app-scoped — the only one we stored |
+| `user_id` | `17841412308701394` | **IG Business Account id** |
+
+Webhooks are keyed on the business id and `_connection_for()` matches on
+`ig_business_account_id`, which the Instagram Login flow never populated — so
+every delivery fell through to "most recent active connection". Correct by
+accident with one account, silently wrong with two. Both the OAuth callback and
+Verify now store it.
+
+Also corrected while in there: `conn.scopes` recorded what we *requested*
+rather than what Meta *granted* (the exchange response carries `permissions`),
+and `last_verified_at` was stamped at connect time, so a connection looked
+verified simply because it existed.
+
+**Confirm inbound is actually flowing:**
+
+```sql
+SELECT max(created_at) AS newest_inbound,
+       count(*) FILTER (WHERE created_at > now() - interval '1 hour') AS last_hour
+  FROM messages
+ WHERE direction = 'inbound';
+
+-- Should now be populated for the active connection.
+SELECT id, ig_username, ig_login_user_id, ig_business_account_id,
+       last_verified_at, is_active
+  FROM meta_connections ORDER BY id;
+```
+
+Remember the app is still in Development mode: a DM will only arrive from an
+account that also holds a role. Test with one that does.
