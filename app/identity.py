@@ -94,7 +94,15 @@ def candidate_ids(*texts):
     return found
 
 
-def display_for_external_id(external_id):
+PLATFORM_LABELS = {
+    'instagram': 'Instagram user',
+    'facebook':  'Facebook user',
+    'tiktok':    'TikTok user',
+    'whatsapp':  'WhatsApp user',
+}
+
+
+def display_for_external_id(external_id, channel=None):
     """
     What to show when we have no username: "Instagram user · 4283".
 
@@ -115,7 +123,11 @@ def display_for_external_id(external_id):
     # Only long platform ids get this treatment. A phone number or a handle
     # someone typed is already readable and must pass through untouched.
     if ext.isdigit() and len(ext) >= 15:
-        return f'Instagram user · {ext[-4:]}'
+        # Named after the platform it actually came from. Facebook PSIDs are
+        # the same 17-digit shape as Instagram IGSIDs, so a hardcoded
+        # "Instagram user" mislabelled every Facebook customer — telling an
+        # agent the wrong app to open if they wanted to check the thread.
+        return f'{PLATFORM_LABELS.get((channel or "").split("_")[0], "Customer")} · {ext[-4:]}'
     return ext
 
 

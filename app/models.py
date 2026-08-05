@@ -184,7 +184,7 @@ class User(db.Model):
         if self.name:
             return self.name
         from app.identity import display_for_external_id
-        return display_for_external_id(self.external_id)
+        return display_for_external_id(self.external_id, self.channel)
 
     def to_dict(self):
         return {
