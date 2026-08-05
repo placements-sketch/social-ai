@@ -459,3 +459,21 @@ endpoint but computed *before* any filter is applied. "You have work waiting"
 must not change because someone clicked a chip inside the inbox — those are two
 different questions, and conflating them would make the badge lie in the other
 direction.
+
+### The handler badge names the person
+
+`Human Agent` was the same word whether someone had claimed a conversation or
+nobody had — so an unclaimed thread sat in the queue wearing a badge saying an
+agent was on it. It now reads:
+
+| State | Badge |
+|---|---|
+| Claimed | the agent's **first name** — `Brian` |
+| Nobody has it | `Unclaimed` (suppressed in the list row, where `In queue` beside it already says so) |
+| AI handling | `AI` — was `Claude`, which is the vendor's name, not the role |
+| Closed | `Resolved` |
+
+Message bubbles name the sender too, for the same reason: in a thread three
+agents have touched, "Agent · 14:20" three times hides who said what, which is
+the one thing you opened the history to find out. Older messages sent before we
+recorded a sender still fall back to `Agent`.

@@ -127,15 +127,39 @@ const STATUS_FILTERS = [
   { key: 'resolved',  label: 'Resolved',   dot: 'bg-gray-400'  },
 ]
 
-const handlerBadge = (conv) => {
+// First name only. "Brian" is what a colleague is called; "Brian Otieno" is
+// what a form field is called, and neither the full name nor an email fits in a
+// badge this size.
+const firstName = (person) => {
+  if (!person) return null
+  const full = (person.full_name || '').trim()
+  if (full) return full.split(/\s+/)[0]
+  // No name on the account — the email's local part is still a person, where
+  // "Unknown" would be a dead end.
+  const local = (person.email || '').split('@')[0]
+  return local ? local.charAt(0).toUpperCase() + local.slice(1) : null
+}
+
+// `terse` drops the "Unclaimed" case, for the list row where the attention
+// badge beside it already says "In queue" — two chips saying the same thing is
+// noise, not emphasis.
+const handlerBadge = (conv, { terse = false } = {}) => {
   const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
   if (conv.status === 'resolved') {
     return <span className={`${baseClass} bg-gray-100 text-gray-600`}>Resolved</span>
   }
   if (!conv.ai_enabled) {
-    return <span className={`${baseClass} bg-amber-100 text-amber-700`}>Human Agent</span>
+    // Who has it, by name. "Human Agent" was the same word whether someone had
+    // claimed the conversation or nobody had — so an unclaimed thread sat in
+    // the queue wearing a badge that said an agent was on it. The two states
+    // are now visibly different, which is the whole point of the badge.
+    const who = firstName(conv.assignee)
+    if (who) return <span className={`${baseClass} bg-amber-100 text-amber-700`}>{who}</span>
+    return terse
+      ? null
+      : <span className={`${baseClass} bg-red-100 text-red-700`}>Unclaimed</span>
   }
-  return <span className={`${baseClass} bg-brand-100 text-brand-700`}>Claude</span>
+  return <span className={`${baseClass} bg-brand-100 text-brand-700`}>AI</span>
 }
 
 // ── Per-comment post preview ──────────────────────────────────────
@@ -1104,7 +1128,11 @@ const handleSend = async (retryOf = null) => {
               {label}
               {count > 0 && (
                 <span className={clsx(
-                  'text-[10px] font-bold tabular-nums px-1 rounded',
+                  // Circle, not a rounded square. min-w + aspect keeps it round
+                  // at one digit and lets it become a pill at three, rather than
+                  // clipping — 8 and 128 both have to fit.
+                  'text-[10px] font-bold tabular-nums leading-none rounded-full',
+                  'min-w-[16px] h-[16px] px-1 inline-flex items-center justify-center',
                   platformFilter === key ? 'bg-black/15' : 'bg-gray-200 text-gray-500'
                 )}>{count}</span>
               )}
@@ -1360,7 +1388,7 @@ const handleSend = async (retryOf = null) => {
                       {attn.badge}
                     </span>
                   )}
-                  {handlerBadge(conv)}
+                  {handlerBadge(conv, { terse: true })}
                   {conv.unread_count > 0 && (
                     <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-brand-500 text-black text-[10px] font-bold flex items-center justify-center shrink-0">
                       {conv.unread_count > 99 ? '99+' : conv.unread_count}
@@ -1751,7 +1779,14 @@ const handleSend = async (retryOf = null) => {
                     {msg.from === 'ai'    && <Bot size={11} className="text-brand-500" />}
                     {msg.from === 'human' && <UserCheck size={11} className="text-amber-500" />}
                     <span className="text-gray-400 font-medium truncate">
-                      {msg.from === 'user' ? 'Customer' : msg.from === 'ai' ? 'AI' : 'Agent'}
+                      {/* The person, not their job title. In a thread three
+                          agents have touched, "Agent" three times hides who
+                          said what — which is exactly what you are reading the
+                          history to find out. Falls back to "Agent" for older
+                          messages sent before we recorded the sender. */}
+                      {msg.from === 'user' ? 'Customer'
+                        : msg.from === 'ai' ? 'AI'
+                        : (firstName(msg.sender_user) || 'Agent')}
                       {' · '}{msg.created_at ? formatTimeOfDay(msg.created_at) : msg.time}
                     </span>
                   </div>
@@ -1970,7 +2005,9 @@ const handleSend = async (retryOf = null) => {
                 <div className="px-3 md:px-4 pt-2 pb-1.5 flex items-start gap-2 border-l border-brand-500 bg-brand-50/40 mx-2 sm:mx-3 md:mx-4 mt-2 rounded-tr-md">
                   <div className="flex-1 min-w-0">
                     <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wide mb-0.5">
-                      Replying to {replyContext.from === 'user' ? 'Customer' : replyContext.from === 'ai' ? 'AI' : 'Agent'}
+                      Replying to {replyContext.from === 'user' ? 'Customer'
+                        : replyContext.from === 'ai' ? 'AI'
+                        : (firstName(replyContext.sender_user) || 'Agent')}
                     </p>
                     <p className="text-xs text-gray-700 truncate">
                       {replyContext.text}
