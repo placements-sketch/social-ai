@@ -89,6 +89,205 @@ def _issue_session(user, method='password'):
     return jsonify({'token': token, 'user': user.to_dict()}), 200
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SIGN IN WITH A ONE-TIME CODE
+#
+# Same door as the password, different key. The rules are identical and
+# deliberately so: the account must already exist, it must be active, and the
+# session issued is the same one — see _issue_session().
+# ─────────────────────────────────────────────────────────────────────────────
+
+OTP_LENGTH = 6
+OTP_TTL_MINUTES = 10          # long enough for a slow inbox, short enough to matter
+OTP_MAX_ATTEMPTS = 5          # wrong guesses before the code is burned
+OTP_RESEND_COOLDOWN_SECONDS = 60
+
+
+def _hash_otp(code):
+    import bcrypt
+    return bcrypt.hashpw(code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+
+def _check_otp(code, hashed):
+    import bcrypt
+    try:
+        return bcrypt.checkpw(code.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
+
+
+def _clear_otp(user):
+    user.otp_hash = None
+    user.otp_expires = None
+    user.otp_attempts = 0
+
+
+def _otp_email_html(name, code, minutes):
+    return (
+        '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">'
+        '<h2 style="color:#1a1a2e;margin:0 0 8px">Your sign-in code</h2>'
+        f'<p style="color:#555;font-size:14px;line-height:1.6">Hi {name or "there"}, '
+        'use this code to sign in to Shop Zetu Social AI.</p>'
+        f'<p style="margin:24px 0;font-size:34px;font-weight:bold;letter-spacing:10px;'
+        f'color:#1a1a2e;text-align:center">{code}</p>'
+        f'<p style="color:#555;font-size:13px;line-height:1.6">It expires in {minutes} minutes '
+        'and can only be used once.</p>'
+        '<p style="color:#999;font-size:12px;line-height:1.6">If you did not try to sign in, '
+        'ignore this email and tell your administrator — someone has your email address '
+        'and is trying to use it.</p>'
+        '<p style="color:#bbb;font-size:11px;margin-top:24px">Shop Zetu · Social AI Assistant</p></div>'
+    )
+
+
+def _otp_email_text(name, code, minutes):
+    return (
+        f"Hi {name or 'there'},\n\n"
+        f"Your Shop Zetu sign-in code is: {code}\n\n"
+        f"It expires in {minutes} minutes and can only be used once.\n\n"
+        "If you did not try to sign in, ignore this email and tell your administrator.\n"
+    )
+
+
+@auth_bp.route('/otp/request', methods=['POST'])
+@limiter.limit("8 per hour")
+def request_otp():
+    """
+    Email a one-time sign-in code.
+
+    Request body: { "email": "..." }
+
+    ALWAYS returns the same success response, whether or not the address has an
+    account, is deactivated, or is on cooldown. This endpoint is unauthenticated
+    and anyone can type any address into it — so a truthful "no account here"
+    would turn it into a tool for discovering who works at the company, which is
+    the first step of a phishing campaign. The person who genuinely owns the
+    address learns everything they need from the inbox.
+
+    (The password-reset endpoint above takes the same position, for the same
+    reason.)
+    """
+    from app.utils.email import send_email
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').lower().strip()
+
+    generic = jsonify({
+        'message': f'If that address has an account, a sign-in code is on its way. '
+                   f'It expires in {OTP_TTL_MINUTES} minutes.',
+        'expires_in_minutes': OTP_TTL_MINUTES,
+    }), 200
+
+    if not email or not is_valid_email(email):
+        return generic
+
+    user = AuthUser.query.filter_by(email=email).first()
+    if not user or user.status != 'active':
+        return generic
+
+    now = datetime.utcnow()
+
+    # Per-account cooldown. The rate limit above is keyed on IP, which does
+    # nothing to stop someone flooding a colleague's inbox from a phone — and
+    # an inbox full of codes is both a nuisance and cover for a phishing mail
+    # that looks like one more of them.
+    if user.otp_sent_at and (now - user.otp_sent_at).total_seconds() < OTP_RESEND_COOLDOWN_SECONDS:
+        return generic
+
+    import secrets
+    code = f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
+
+    user.otp_hash = _hash_otp(code)
+    user.otp_expires = now + timedelta(minutes=OTP_TTL_MINUTES)
+    user.otp_attempts = 0          # a new code starts with a full budget
+    user.otp_sent_at = now
+    db.session.commit()
+
+    sent = send_email(
+        user.email,
+        f'{code} is your Shop Zetu sign-in code',
+        _otp_email_html(user.full_name, code, OTP_TTL_MINUTES),
+        _otp_email_text(user.full_name, code, OTP_TTL_MINUTES),
+    )
+
+    if not sent:
+        # Do not leave a live code attached to an account nobody can read. The
+        # response stays generic either way, but the log is how we find out the
+        # mailer is down rather than hearing it from a locked-out user.
+        _clear_otp(user)
+        user.otp_sent_at = None
+        db.session.commit()
+        from app.utils.logger import log_event
+        log_event('error', 'auth.otp.email_failed',
+                  f'Could not deliver sign-in code to {email}')
+
+    log_audit(user.id, 'request_otp', resource_type='user', resource_id=str(user.id))
+    return generic
+
+
+@auth_bp.route('/otp/verify', methods=['POST'])
+@limiter.limit("20 per hour")
+def verify_otp():
+    """
+    Exchange a code for a session.
+
+    Request body: { "email": "...", "code": "123456" }
+
+    Unlike /otp/request this one is specific about failures, because by now the
+    person is holding a code and the reason decides what they do next: retype
+    it, or ask for a new one. Being vague here would leave someone retyping a
+    code that expired ten minutes ago.
+
+    It still never confirms whether an address has an account — an unknown
+    email gets the same answer as a wrong code.
+    """
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').lower().strip()
+    code = re.sub(r'\D', '', data.get('code') or '')   # tolerate "123 456"
+
+    if not email or not code:
+        return jsonify({'error': 'Email and code are required'}), 400
+
+    user = AuthUser.query.filter_by(email=email).first()
+    wrong = jsonify({'error': 'That code is not right. Check it and try again.'}), 401
+
+    if not user or not user.otp_hash or not user.otp_expires:
+        return wrong
+
+    if user.otp_expires < datetime.utcnow():
+        _clear_otp(user)
+        db.session.commit()
+        return jsonify({'error': 'That code has expired. Request a new one.'}), 401
+
+    if user.otp_attempts >= OTP_MAX_ATTEMPTS:
+        _clear_otp(user)
+        db.session.commit()
+        return jsonify({'error': 'Too many incorrect attempts. Request a new code.'}), 429
+
+    if not _check_otp(code, user.otp_hash):
+        user.otp_attempts += 1
+        remaining = OTP_MAX_ATTEMPTS - user.otp_attempts
+        if remaining <= 0:
+            _clear_otp(user)
+            db.session.commit()
+            return jsonify({'error': 'Too many incorrect attempts. Request a new code.'}), 429
+        db.session.commit()
+        return jsonify({
+            'error': f'That code is not right. {remaining} attempt'
+                     f'{"" if remaining == 1 else "s"} left.'
+        }), 401
+
+    # Correct — but the code proving who they are does not decide whether they
+    # are allowed in. Deactivation is checked here exactly as on the password
+    # path, or an emailed code would become the way around offboarding.
+    if user.status != 'active':
+        _clear_otp(user)
+        db.session.commit()
+        return jsonify({'error': 'User account is not active'}), 403
+
+    _clear_otp(user)               # single use — burn it before issuing anything
+    return _issue_session(user, method='otp')
+
+
 @auth_bp.route('/login', methods=['POST'])
 @limiter.limit("10 per minute")
 def login():

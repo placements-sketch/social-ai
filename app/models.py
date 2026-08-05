@@ -42,6 +42,22 @@ class AuthUser(db.Model):
     reset_token_hash    = db.Column(db.String(64), nullable=True)
     reset_token_expires = db.Column(db.DateTime, nullable=True)
 
+    # ── Sign-in by emailed one-time code ─────────────────────────────────
+    # bcrypt, not sha256 like the reset token above, and the difference
+    # matters. A reset token is 32 random bytes: sha256 of it is unguessable.
+    # A login code is six digits — one million possibilities — so a fast hash
+    # is reversible in under a second by anyone who can read this table. bcrypt
+    # makes that guess cost ~100ms, which is the whole defence.
+    otp_hash        = db.Column(db.String(255), nullable=True)
+    otp_expires     = db.Column(db.DateTime, nullable=True)
+    # Wrong guesses against the CURRENT code. Without this a six-digit code is
+    # trivially brute-forced online: a million requests is minutes of scripting.
+    otp_attempts    = db.Column(db.Integer, nullable=False, default=0)
+    # When we last sent one, for the resend cooldown. Per-account, because a
+    # per-IP rate limit does nothing against someone spamming a colleague's
+    # inbox from a phone.
+    otp_sent_at     = db.Column(db.DateTime, nullable=True)
+
     audit_logs      = db.relationship("AuditLog", backref="user", lazy=True)
 
     def set_password(self, password):

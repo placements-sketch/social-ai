@@ -31,13 +31,44 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const { login } = useAuth()
+  const { login, loginWithCode } = useAuth()
   const navigate = useNavigate()
   const emailRef = useRef(null)
+  const codeRef = useRef(null)
+
+  // 'password' | 'code'. Password stays the default: it is what everyone
+  // already has, and a code costs a round trip through an inbox.
+  const [mode, setMode] = useState('password')
+  const [codeSent, setCodeSent] = useState(false)
+  const [code, setCode] = useState('')
+  const [notice, setNotice] = useState('')
+  // Seconds until "Send again" is live. Mirrors the server's cooldown so the
+  // button is disabled rather than silently doing nothing — the server's reply
+  // is identical whether it sent a code or refused, by design.
+  const [cooldown, setCooldown] = useState(0)
 
   // Land in the first field. On a screen whose only purpose is a two-field
   // form, making people click first is friction for nothing.
   useEffect(() => { emailRef.current?.focus() }, [])
+
+  // And into the code box the moment it appears — the person is coming back
+  // from their inbox with six digits in their head.
+  useEffect(() => { if (codeSent) codeRef.current?.focus() }, [codeSent])
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setTimeout(() => setCooldown((s) => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [cooldown])
+
+  const switchMode = (next) => {
+    setMode(next)
+    setError('')
+    setNotice('')
+    setCode('')
+    setCodeSent(false)
+    setPassword('')
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -48,6 +79,45 @@ export default function Login() {
       navigate('/dashboard')
     } else {
       setError('That email and password combination did not match an account.')
+    }
+    setIsLoading(false)
+  }
+
+  const handleRequestCode = async (e) => {
+    e?.preventDefault()
+    setError('')
+    setIsLoading(true)
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not send a code. Try again.')
+      // The server deliberately answers the same way whether or not the address
+      // has an account, so this screen must not claim a code "has been sent" —
+      // it says what it can honestly say and moves on to the code box either
+      // way. Anything else would leak who has an account here.
+      setCodeSent(true)
+      setCooldown(60)
+      setNotice(data.message || 'If that address has an account, a code is on its way.')
+    } catch (err) {
+      setError(err.message)
+    }
+    setIsLoading(false)
+  }
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault()
+    setError('')
+    setIsLoading(true)
+    const { ok, error: msg } = await loginWithCode(email, code)
+    if (ok) navigate('/dashboard')
+    else {
+      setError(msg || 'Sign-in failed.')
+      setCode('')
+      codeRef.current?.focus()
     }
     setIsLoading(false)
   }
@@ -134,14 +204,115 @@ export default function Login() {
             )}
           </div>
 
-          {/* Google sits ABOVE the form because it is the faster path for the
-              people who have it, and below-the-form placement reads as a
-              fallback. It renders into a div Google owns — its button is
-              iframe-based and cannot be restyled, so the divider carries the
-              visual join instead.
+          {notice && !error && (
+            <div className="mt-6 flex items-start gap-2.5 rounded-xl border border-brand-500/25 bg-brand-500/10 px-3.5 py-3">
+              <Mail size={15} className="text-brand-500 shrink-0 mt-px" />
+              <p className="text-xs text-brand-100 leading-relaxed">{notice}</p>
+            </div>
+          )}
 
-              Nothing here gates the password form: if Google is unconfigured,
-              blocked, or slow, this whole block is simply absent. */}
+          {/* ── Sign in with an emailed code ──────────────────────────────
+              Two steps in one form rather than two routes: the email is
+              already typed, and pushing it through a URL would mean carrying
+              it in a query string where it lands in browser history and server
+              logs. */}
+          {mode === 'code' && (
+            <form onSubmit={codeSent ? handleVerifyCode : handleRequestCode} className="mt-6 space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-xs font-semibold text-white/60 mb-1.5">
+                  Email address
+                </label>
+                <div className="relative">
+                  <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                  <input
+                    id="email"
+                    ref={emailRef}
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@shopzetu.com"
+                    autoComplete="email"
+                    className={field}
+                    required
+                    // Locked once the code is out. Changing the address here
+                    // would verify a code against an account it was never sent
+                    // to, and the failure would read as a wrong code.
+                    disabled={isLoading || codeSent}
+                  />
+                </div>
+              </div>
+
+              {codeSent && (
+                <div>
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <label htmlFor="code" className="block text-xs font-semibold text-white/60">
+                      6-digit code
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRequestCode}
+                      disabled={cooldown > 0 || isLoading}
+                      className="text-[11px] font-semibold text-white/40 hover:text-brand-500 transition-colors disabled:hover:text-white/40 disabled:opacity-60"
+                    >
+                      {cooldown > 0 ? `Send again in ${cooldown}s` : 'Send again'}
+                    </button>
+                  </div>
+                  <input
+                    id="code"
+                    ref={codeRef}
+                    // Not type="number": it brings spinners, drops leading
+                    // zeros, and a code beginning 0 is one in ten of them.
+                    type="text"
+                    inputMode="numeric"
+                    // Lets the phone and desktop browsers offer the code
+                    // straight from the email rather than making people retype.
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    maxLength={6}
+                    className={
+                      'w-full px-4 py-3 rounded-xl bg-white/[0.04] text-white border border-white/10 ' +
+                      'text-center text-2xl font-bold tracking-[0.5em] indent-[0.5em] tabular-nums ' +
+                      'placeholder-white/15 transition-colors focus:outline-none ' +
+                      'focus:border-brand-500/60 focus:bg-white/[0.06] disabled:opacity-50'
+                    }
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? 'login-error' : undefined}
+                    required
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setCodeSent(false); setCode(''); setNotice(''); setError('') }}
+                    className="mt-2 text-[11px] font-semibold text-white/35 hover:text-white/70 transition-colors"
+                  >
+                    Use a different email address
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading || !email || (codeSent && code.length < 6)}
+                className="group w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-brand-500 py-3 text-sm font-bold text-black transition-all hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-brand-500"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    {codeSent ? 'Checking…' : 'Sending…'}
+                  </>
+                ) : (
+                  <>
+                    {codeSent ? 'Sign in' : 'Email me a code'}
+                    <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {mode === 'password' && (
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label htmlFor="email" className="block text-xs font-semibold text-white/60 mb-1.5">
@@ -225,6 +396,25 @@ export default function Login() {
               )}
             </button>
           </form>
+          )}
+
+          {/* The other way in. A link rather than a second big button: both are
+              full sign-in paths, but only one is needed at a time, and two
+              equal-weight buttons would make the choice look consequential
+              when it is not. */}
+          <div className="mt-5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-white/[0.07]" />
+            <button
+              type="button"
+              onClick={() => switchMode(mode === 'password' ? 'code' : 'password')}
+              className="text-[11px] font-semibold text-white/40 hover:text-brand-500 transition-colors"
+            >
+              {mode === 'password'
+                ? 'Email me a sign-in code instead'
+                : 'Use your password instead'}
+            </button>
+            <span className="h-px flex-1 bg-white/[0.07]" />
+          </div>
 
           <p className="mt-8 pt-6 border-t border-white/[0.07] text-[11px] text-white/25 text-center">
             Authorised personnel only. Activity on this platform is logged.

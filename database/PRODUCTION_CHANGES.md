@@ -1423,3 +1423,39 @@ looks wrong, `ROLLBACK;` instead — nothing is lost.
 **After this, the empty state earns its keep:** clicking TikTok shows "TikTok
 isn't connected yet" instead of four invented conversations, and the platform
 chips describe only traffic that actually arrived.
+
+---
+
+### Step 23 — Sign in with a code emailed to you
+
+Adds a second way in beside the password. Four columns on `auth_users`, no new
+table — a code belongs to exactly one account and there is only ever one live at
+a time, so a row per account is the whole story.
+
+```sql
+ALTER TABLE auth_users
+  ADD COLUMN IF NOT EXISTS otp_hash     VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS otp_expires  TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS otp_attempts INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS otp_sent_at  TIMESTAMP;
+
+-- Expect four rows.
+SELECT column_name, data_type, is_nullable, column_default
+  FROM information_schema.columns
+ WHERE table_name = 'auth_users' AND column_name LIKE 'otp%'
+ ORDER BY column_name;
+```
+
+**`otp_hash` is bcrypt, not sha256 like `reset_token_hash` beside it.** That
+difference is deliberate and worth being able to explain. A reset token is 32
+random bytes — sha256 of it is unguessable. A login code is six digits: one
+million possibilities, which a fast hash reverses in under a second for anyone
+who can read this table. bcrypt makes each guess cost ~100ms.
+
+**No new environment variables.** Delivery reuses the Brevo HTTP API that
+already sends password-reset mail (`BREVO_API_KEY`, `SMTP_FROM`). If password
+resets arrive today, codes will too. If they do not, both are broken for the
+same reason.
+
+**Nothing is removed and nothing changes for existing users.** Passwords keep
+working exactly as before; this is an additional door, not a replacement.
