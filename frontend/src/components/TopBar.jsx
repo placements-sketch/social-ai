@@ -184,6 +184,32 @@ function markToasted(ids) {
   } catch { /* quota or parse — non-fatal */ }
 }
 
+// Which sales have already been celebrated in this browser.
+//
+// The celebration fired on any UNREAD conversion notification, and unread stays
+// true until someone opens the bell — so every page refresh re-celebrated the
+// same sale, forever. "Unread" describes the bell; it was never a record of
+// whether the animation had played.
+//
+// localStorage rather than component state, because the whole problem is that
+// state resets on refresh. Bounded to the last 50 so it cannot grow unchecked.
+const CELEBRATED_KEY = 'celebratedSaleIds'
+
+function alreadyCelebrated(id) {
+  try {
+    return (JSON.parse(localStorage.getItem(CELEBRATED_KEY)) || []).includes(id)
+  } catch { return false }   // unreadable storage → celebrate, never crash
+}
+
+function markCelebrated(id) {
+  try {
+    const list = JSON.parse(localStorage.getItem(CELEBRATED_KEY)) || []
+    if (!list.includes(id)) {
+      localStorage.setItem(CELEBRATED_KEY, JSON.stringify([...list, id].slice(-50)))
+    }
+  } catch { /* private mode — it just celebrates again, which is survivable */ }
+}
+
 export default function TopBar({ onMenuClick }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -324,7 +350,8 @@ export default function TopBar({ onMenuClick }) {
           const freshSale = newList
             .filter(n => n.type === 'conversion_attributed' && !n.read)
             .sort((a, b) => (b.id || 0) - (a.id || 0))[0]
-          if (freshSale) {
+          if (freshSale && !alreadyCelebrated(freshSale.id)) {
+            markCelebrated(freshSale.id)
             setCelebration({
               id: freshSale.id,
               amount: (freshSale.title || '').split('—').pop().trim(),
@@ -368,7 +395,8 @@ export default function TopBar({ onMenuClick }) {
           // A link the assistant sent turned into an order. Celebrated instead
           // of toasted — this is the one notification that is good news, and
           // burying it in the same grey card as "sync failed" wastes it.
-          if (n.type === 'conversion_attributed' && isUnread) {
+          if (n.type === 'conversion_attributed' && isUnread && !alreadyCelebrated(n.id)) {
+            markCelebrated(n.id)
             setCelebration({ id: n.id, amount: (n.title || '').split('—').pop().trim() })
           }
 
