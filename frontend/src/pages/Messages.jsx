@@ -14,7 +14,7 @@ import {
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { useAuth } from '../context/AuthContext'
-import { parseBackendTime, formatTimeOfDay, formatTimeAgo } from '../utils/time'
+import { parseBackendTime, formatTimeOfDay, formatTimeAgo, formatDateAgo } from '../utils/time'
 
 const FbIcon = () => (
   <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[9px]"
@@ -1486,7 +1486,13 @@ const handleSend = async (retryOf = null) => {
                   {attn?.badge && (
                     <span className={clsx(
                       'text-[11px] font-bold px-1.5 py-0.5 rounded-md',
-                      attn.urgent ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      // Green, not red. "Urgent" means look at this now — it
+                      // does not have to mean something has gone wrong, and a
+                      // customer with their wallet out is the best kind of
+                      // urgent there is.
+                      attn.good ? 'bg-brand-100 text-brand-700'
+                        : attn.urgent ? 'bg-red-100 text-red-700'
+                        : 'bg-amber-100 text-amber-700'
                     )}>
                       {attn.badge}
                     </span>
@@ -2100,6 +2106,40 @@ const handleSend = async (retryOf = null) => {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Who closed this, and when.
+                A resolved conversation just stopped mid-thread with nothing to
+                say it was finished on purpose — you had to notice the status
+                chip in the header and take it on faith. Reading back through a
+                thread weeks later, "who decided this was done?" is one of the
+                first questions asked, and the answer was already stored in the
+                conversation; it simply was not shown anywhere. */}
+            {activeConv?.status === 'resolved' && (
+              <div className="flex items-center gap-3 pt-2 pb-1">
+                <span className="h-px flex-1 bg-emerald-200" />
+                <span className="flex flex-col items-center gap-0.5 shrink-0">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1">
+                    <CheckCircle2 size={12} className="text-emerald-600" />
+                    <span className="text-[11px] font-bold text-emerald-800">
+                      Resolved{activeConv.resolver ? ` by ${firstName(activeConv.resolver)}` : ''}
+                    </span>
+                  </span>
+                  {(activeConv.resolver?.email || activeConv.resolved_at) && (
+                    <span className="text-[11px] text-gray-400">
+                      {/* Date AND time. "Today" alone is useless a week later,
+                          and the exact moment is what gets quoted back when
+                          someone asks why a customer was closed off. */}
+                      {[activeConv.resolver?.email,
+                        activeConv.resolved_at
+                          ? `${formatDateAgo(activeConv.resolved_at)} at ${formatTimeOfDay(activeConv.resolved_at)}`
+                          : null]
+                        .filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </span>
+                <span className="h-px flex-1 bg-emerald-200" />
               </div>
             )}
 

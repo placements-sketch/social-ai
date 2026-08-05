@@ -19,23 +19,26 @@ USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 
 VALID_INTENTS = {
     "greeting", "stock_inquiry", "price_inquiry", "product_inquiry",
-    "delivery_inquiry", "order_status", "complaint", "unknown",
+    "delivery_inquiry", "order_status", "complaint", "order_request", "unknown",
 }
-VALID_HANDOFF_REASONS = {"explicit_human_request", "abuse", "frustration", "complaint"}
+VALID_HANDOFF_REASONS = {"explicit_human_request", "abuse", "frustration",
+                         "complaint", "ready_to_order"}
 
 _SYSTEM = """You classify inbound customer messages for a Kenyan fashion & beauty store's support assistant. Reply with ONLY a JSON object — no prose, no code fences.
 
 Schema:
 {"intents": [ ... ], "handoff": {"should": true|false, "reason": "explicit_human_request"|"abuse"|"frustration"|"complaint"|null}}
 
-Allowed intents: greeting, stock_inquiry, price_inquiry, product_inquiry, delivery_inquiry, order_status, complaint, unknown.
+Allowed intents: greeting, stock_inquiry, price_inquiry, product_inquiry, delivery_inquiry, order_status, complaint, order_request, unknown.
 
 Intent guidance:
 - Include EVERY intent that applies (a message can have several).
 - Read meaning, not keywords: "you restock the tan mules?" -> ["stock_inquiry","product_inquiry"].
 - Use "unknown" ONLY when nothing else fits.
+- order_request: they want to BUY, and want us to handle it rather than checking out on the website. "How do I order?", "I want to buy this", "can you place the order for me", "how do I pay", "I'll take it". This is someone with their wallet out — not merely asking about a product. Price and stock questions on their own are NOT order_request.
 
 Handoff — set should=true ONLY when a human is genuinely needed:
+- ready_to_order: intent order_request applies — they want to place an order through us. A person has to take it from here, so hand off.
 - explicit_human_request: they want a person ("get me a human", "can I talk to someone", "is anyone real").
 - abuse: insults, hostility, threats, profanity aimed at the store ("you're stupid").
 - frustration: STRONG frustration / clear escalation demand ("this is unacceptable", angrily demanding a refund).

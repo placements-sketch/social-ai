@@ -34,7 +34,10 @@ HANDOFF_KEYWORDS = [
 ]
 
 # Intents from detect_intents() that escalate.
-HANDOFF_INTENTS = {"complaint"}
+# A customer ready to order is escalated for a different reason from a customer
+# with a problem: nothing is wrong, but nobody can take the order except a
+# person. Handing it to a human IS the service, not a failure of the AI.
+HANDOFF_INTENTS = {"complaint", "order_request"}
 
 # Bridging reply. Hard-coded for now — wired to AISettings in a later milestone.
 BRIDGING_REPLY = (
@@ -79,13 +82,29 @@ def check_handoff(message: str, intents: list[str], conversation: Conversation,
 
     return None
 
-def _bridging_reply_for(reason: str, detail: str) -> str:
+def _bridging_reply_for(reason: str, detail: str, channel: str | None = None) -> str:
     """
     Short, human handoff line based on WHY we're escalating. Defaults to the
     standard BRIDGING_REPLY; only overrides where that tone doesn't fit —
     e.g. abuse, where a warm "we appreciate your patience" can read as tone-deaf.
     """
     key = (detail or "").lower()
+    if key in ("order_request", "ready_to_order"):
+        # Both versions ask for the same three things, so the agent picking this
+        # up already has the size and location instead of starting the exchange
+        # from scratch — one less round trip while the customer is still keen.
+        #
+        # But WHERE they are changes the instruction completely. Under a public
+        # comment we have to move them to DMs; if they are already in the DM,
+        # "send us a DM" is nonsense and reads as a bot that has not noticed
+        # where it is. Same request, two openings.
+        if (channel or "").endswith("_comment"):
+            return ("Hi! Simply send us a DM with the item you'd like, your "
+                    "preferred size, and your location, and we'll assist you "
+                    "with your order.")
+        return ("Lovely! Just send us the item you'd like, your preferred "
+                "size, and your location, and someone from our team will take "
+                "it from here.")
     if key == "abuse":
         return ("I hear you, and I want to get this sorted properly. "
                 "Let me bring in someone from our team to help you directly — one moment.")
@@ -102,7 +121,16 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     now = datetime.utcnow()
     conversation.ai_enabled = False
     conversation.status = "human_override"
-    conversation.handoff_reason = reason
+    # "Ready to order" is recorded as its own reason rather than the generic
+    # "intent". The inbox has to be able to tell an escalation that is GOOD NEWS
+    # — someone wants to buy — from one that means something went wrong, and
+    # only `reason` reaches the conversation row; `detail` lives in the log
+    # where no badge can see it. Everything else keeps its existing value.
+    conversation.handoff_reason = (
+        'ready_to_order'
+        if (detail or '').lower() in ('order_request', 'ready_to_order')
+        else reason
+    )
     conversation.updated_at = now
     # Stamp WHEN, so analytics can count escalations that happened in a window
     # rather than conversations that merely have one in their history.
@@ -218,7 +246,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     return {
         "reason": reason,
         "detail": detail,
-        "bridging_reply": _bridging_reply_for(reason, detail),
+        "bridging_reply": _bridging_reply_for(reason, detail, conversation.channel),
     }
 
 
