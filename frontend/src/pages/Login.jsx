@@ -75,7 +75,7 @@ export default function Login() {
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(38rem 38rem at 15% 95%, rgba(199,234,70,0.16), transparent 60%)',
+              'radial-gradient(38rem 38rem at 15% 95%, rgba(153, 230, 0,0.16), transparent 60%)',
           }}
         />
 

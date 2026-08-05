@@ -138,7 +138,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
       style={{
         background: 'linear-gradient(180deg, #111111 0%, #0d0d0d 100%)',
         borderTop: '1px solid rgba(255,255,255,0.06)',
-        borderLeft: '1px solid #c7ea46',
+        borderLeft: '1px solid #99e600',
         minHeight: 0,
         maxHeight: '100vh',
       }}
@@ -218,7 +218,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                         // Hierarchy now comes from the active item's lime fill
                         // and weight, not from dimming everything else.
                         isActive
-                          ? 'bg-brand-500 text-[#0a0a0a] font-semibold shadow-[0_0_20px_rgba(199,234,70,0.25)]'
+                          ? 'bg-brand-500 text-[#0a0a0a] font-semibold shadow-[0_0_20px_rgba(153, 230, 0,0.25)]'
                           : 'text-gray-100 hover:text-white hover:bg-white/[0.09]'
                       )
                     }

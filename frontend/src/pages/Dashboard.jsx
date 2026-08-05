@@ -726,7 +726,7 @@ export default function Dashboard() {
     : [
         { dataKey: selectedChannel,             name: 'Inbound',      stroke: CHANNEL_META[selectedChannel].color, dash: undefined },
         { dataKey: `${selectedChannel}_ai`,     name: 'AI replies',   stroke: CHANNEL_META[selectedChannel].color, dash: '4 2' },
-        { dataKey: `${selectedChannel}_human`,  name: 'Human replies', stroke: '#c7ea46',                          dash: '8 4' },
+        { dataKey: `${selectedChannel}_human`,  name: 'Human replies', stroke: '#99e600',                          dash: '8 4' },
       ]
 
   const exportMeta = () => ({
@@ -1479,7 +1479,7 @@ export default function Dashboard() {
                           <div className="mb-3">
                             <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-100">
                               <div style={{ width: `${aiShare}%`, background: meta.color }} />
-                              <div style={{ width: `${100 - aiShare}%`, background: '#c7ea46' }} />
+                              <div style={{ width: `${100 - aiShare}%`, background: '#99e600' }} />
                             </div>
                             <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500 tabular-nums">
                               {/* Spelled out as REPLIES because the block

@@ -16,7 +16,7 @@ import { Sparkles } from 'lucide-react'
 
 // Brand lime through to warm, so it reads as ours rather than generic party
 // confetti.
-const COLOURS = ['#c7ea46', '#d6f278', '#a6c62f', '#ffd166', '#f4978e', '#ffffff']
+const COLOURS = ['#99e600', '#c9ff5c', '#81c200', '#ffd166', '#f4978e', '#ffffff']
 
 function Piece({ i }) {
   // Spread across the width, with per-piece drift, spin and delay so the fall
@@ -66,14 +66,14 @@ export default function Celebration({ trigger, amount }) {
 
       <div className="absolute inset-x-0 top-24 flex justify-center px-4">
         <div className="celebrate-banner flex items-center gap-2.5 rounded-2xl px-5 py-3 shadow-2xl"
-             style={{ background: 'rgba(18,18,20,0.94)', border: '1px solid rgba(199,234,70,0.35)' }}>
-          <Sparkles size={18} style={{ color: '#c7ea46' }} className="shrink-0" />
+             style={{ background: 'rgba(18,18,20,0.94)', border: '1px solid rgba(153, 230, 0,0.35)' }}>
+          <Sparkles size={18} style={{ color: '#99e600' }} className="shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-bold" style={{ color: '#fff' }}>
               The assistant made a sale
             </p>
             {amount && (
-              <p className="text-xs tabular-nums" style={{ color: '#c7ea46' }}>{amount}</p>
+              <p className="text-xs tabular-nums" style={{ color: '#99e600' }}>{amount}</p>
             )}
           </div>
         </div>

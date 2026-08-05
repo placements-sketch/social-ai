@@ -5,19 +5,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Shop Zetu lime. 500 is the exact brand value (#c7ea46) so the
+        // Shop Zetu lime. 500 is the exact brand value (#99e600) so the
         // existing brand-500 usages land on-brand without being touched.
         brand: {
-          50:  '#f9fdec',
-          100: '#f1fbd2',
-          200: '#e4f7a8',
-          300: '#d6f278',
-          400: '#cdee57',
-          500: '#c7ea46',
-          600: '#a6c62f',
-          700: '#819a24',
-          800: '#64751f',
-          900: '#4b581c',
+          50:  '#f8feeb',
+          100: '#edfdce',
+          200: '#dcfb9d',
+          300: '#c9ff5c',
+          400: '#b4ff1f',
+          500: '#99e600',
+          600: '#81c200',
+          700: '#669900',
+          800: '#527a00',
+          900: '#416100',
         },
         sidebar: '#0a0a0a',
         // Dark surfaces, referenced by the theme layer in index.css.

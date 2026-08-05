@@ -35,7 +35,7 @@ html, body, #root {
   --text-muted:  #6b7280;
   --topbar-bg:   rgba(255, 255, 255, 0.6);
   --topbar-line: rgba(0, 0, 0, 0.06);
-  --brand:       #c7ea46;
+  --brand:       #99e600;
   --toggle-on:   #000000;
   --toggle-off:  #e5e7eb;
 }
@@ -49,8 +49,8 @@ html, body, #root {
   --text-muted:  #a3a3a3;
   --topbar-bg:   rgba(10, 10, 10, 0.5);
   --topbar-line: rgba(255, 255, 255, 0.08);
-  --brand:       #c7ea46;
-  --toggle-on:   #c7ea46;
+  --brand:       #99e600;
+  --toggle-on:   #99e600;
   --toggle-off:  #333333;
 
   /* Dark grey, not near-black: at 22,22,22 the cards read as holes cut in the
@@ -334,7 +334,7 @@ input:-webkit-autofill:active {
    #1f2937 — a lighter navy, which is what a navy button should do. */
 .dark .bg-black:hover,
 .dark .bg-black.hover\:bg-gray-800:hover,
-.dark .bg-black.hover\:bg-gray-900:hover { background-color: #b4d93a; }
+.dark .bg-black.hover\:bg-gray-900:hover { background-color: #81c200; }
 
 /* Tinted badges — the *-50 tints render near-white on dark, so soften them to
    translucent washes and lift the paired text into readable range. */
@@ -368,7 +368,7 @@ input:-webkit-autofill:active {
 .dark .card:hover { border-color: #333333; }
 
 .dark .btn-primary          { background-color: var(--brand); color: #0a0a0a; }
-.dark .btn-primary:hover    { background-color: #b4d93a; }
+.dark .btn-primary:hover    { background-color: #81c200; }
 .dark .btn-secondary        { background-color: var(--surface-2); color: #e5e5e5; }
 .dark .btn-secondary:hover  { background-color: #2a2a2a; }
 .dark .btn-ghost            { color: var(--text-muted); }
@@ -387,7 +387,7 @@ input:-webkit-autofill:active {
 .dark .section-title  { color: var(--text-muted); }
 .dark .accent-line    { background-color: var(--brand); }
 
-/* Brand text. brand-600 (#a6c62f) is chosen for contrast on white; on a dark
+/* Brand text. brand-600 (#81c200) is chosen for contrast on white; on a dark
    surface it's muddy, so lift it to the pure brand value. */
 /* Links inside message bubbles.
    The AI bubble is bg-black in light mode and flips to brand lime in dark mode
@@ -406,13 +406,13 @@ input:-webkit-autofill:active {
 .link-on-agent:hover { color: #bae6fd; }
 
 .dark .text-brand-600 { color: var(--brand); }
-.dark .text-brand-700 { color: #d6f278; }
-.dark .bg-brand-50    { background-color: rgba(199, 234, 70, 0.12); }
-.dark .bg-brand-100   { background-color: rgba(199, 234, 70, 0.18); }
+.dark .text-brand-700 { color: #c9ff5c; }
+.dark .bg-brand-50    { background-color: rgba(153, 230, 0, 0.12); }
+.dark .bg-brand-100   { background-color: rgba(153, 230, 0, 0.18); }
 
 /* Focus rings pick up the brand instead of grey */
 .dark .focus\:ring-gray-400:focus,
-.dark .focus\:ring-gray-300:focus { --tw-ring-color: rgba(199, 234, 70, 0.45); }
+.dark .focus\:ring-gray-300:focus { --tw-ring-color: rgba(153, 230, 0, 0.45); }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb        { background: #2e2e2e; }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover  { background: #404040; }
@@ -430,15 +430,15 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(55rem 55rem at 10% -15%, rgba(199, 234, 70, 0.07), transparent 60%),
-    radial-gradient(45rem 45rem at 105% 5%,  rgba(199, 234, 70, 0.05), transparent 55%),
+    radial-gradient(55rem 55rem at 10% -15%, rgba(153, 230, 0, 0.07), transparent 60%),
+    radial-gradient(45rem 45rem at 105% 5%,  rgba(153, 230, 0, 0.05), transparent 55%),
     radial-gradient(40rem 40rem at 50% 115%, rgba(255, 255, 255, 0.03), transparent 60%);
 }
 
 .dark body::before {
   background:
-    radial-gradient(55rem 55rem at 10% -15%, rgba(199, 234, 70, 0.13), transparent 60%),
-    radial-gradient(45rem 45rem at 105% 5%,  rgba(199, 234, 70, 0.07), transparent 55%),
+    radial-gradient(55rem 55rem at 10% -15%, rgba(153, 230, 0, 0.13), transparent 60%),
+    radial-gradient(45rem 45rem at 105% 5%,  rgba(153, 230, 0, 0.07), transparent 55%),
     radial-gradient(40rem 40rem at 50% 115%, rgba(255, 255, 255, 0.04), transparent 60%);
 }
 
@@ -510,7 +510,7 @@ body::before {
 
 .dark .card:hover,
 .dark .stat-card:hover {
-  border-color: rgba(199, 234, 70, 0.22);
+  border-color: rgba(153, 230, 0, 0.22);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 44px rgba(0, 0, 0, 0.55);
 }
 
@@ -655,8 +655,8 @@ button:not(:disabled):active,
 .dark .border-green-200  { border-color: rgba(34, 197, 94, 0.30); }
 .dark .border-blue-200   { border-color: rgba(59, 130, 246, 0.30); }
 .dark .border-purple-200 { border-color: rgba(168, 85, 247, 0.30); }
-.dark .border-brand-100  { border-color: rgba(199, 234, 70, 0.22); }
-.dark .border-brand-300  { border-color: rgba(199, 234, 70, 0.35); }
+.dark .border-brand-100  { border-color: rgba(153, 230, 0, 0.22); }
+.dark .border-brand-300  { border-color: rgba(153, 230, 0, 0.35); }
 
 /* divide-gray-100 and -200 were remapped; -50 was missed. It separates the rows
    on the System Logs table, so in dark mode every log row was divided by a
@@ -719,7 +719,7 @@ button:not(:disabled):active,
 .dark .bg-blue-50    { background-color: rgba(59, 130, 246, 0.12); }
 .dark .bg-blue-100   { background-color: rgba(59, 130, 246, 0.18); }
 .dark .bg-purple-50  { background-color: rgba(168, 85, 247, 0.12); }
-.dark .bg-brand-200  { background-color: rgba(199, 234, 70, 0.30); }
+.dark .bg-brand-200  { background-color: rgba(153, 230, 0, 0.30); }
 
 /* Translucent white washes — on dark these are haze, not highlight. Rebuild
    them from white at much lower alpha so they read as a lift, not a panel. */
@@ -759,9 +759,9 @@ button:not(:disabled):active,
 
 /* ── Make the lime pop ───────────────────────────────────────────────────────
    Brightness alone doesn't read as "pop" on dark — contrast and bloom do. The
-   hex stays #c7ea46; what changes is that brand elements now cast light.    */
+   hex stays #99e600; what changes is that brand elements now cast light.    */
 .dark {
-  --brand-glow: 0 0 0 1px rgba(199, 234, 70, 0.22), 0 6px 22px rgba(199, 234, 70, 0.28);
+  --brand-glow: 0 0 0 1px rgba(153, 230, 0, 0.22), 0 6px 22px rgba(153, 230, 0, 0.28);
 }
 
 /* Primary actions bloom */
@@ -771,39 +771,39 @@ button:not(:disabled):active,
 }
 .dark .btn-primary:hover,
 .dark .bg-black:hover {
-  background-color: #d4f25c;
-  box-shadow: 0 0 0 1px rgba(199, 234, 70, 0.35), 0 8px 30px rgba(199, 234, 70, 0.42);
+  background-color: #b8ff29;
+  box-shadow: 0 0 0 1px rgba(153, 230, 0, 0.35), 0 8px 30px rgba(153, 230, 0, 0.42);
 }
 
 /* Brand text sits brighter than the raw swatch so it separates from the glow */
 .dark .text-brand-500,
 .dark .text-brand-600,
-.dark .text-brand-700 { color: #d4f25c; }
+.dark .text-brand-700 { color: #b8ff29; }
 
 /* Brand tints carry more weight and a defined edge */
-.dark .bg-brand-50  { background-color: rgba(199, 234, 70, 0.16); }
-.dark .bg-brand-100 { background-color: rgba(199, 234, 70, 0.24); }
+.dark .bg-brand-50  { background-color: rgba(153, 230, 0, 0.16); }
+.dark .bg-brand-100 { background-color: rgba(153, 230, 0, 0.24); }
 .dark .bg-brand-500,
 .dark .bg-brand-600 { background-color: var(--brand); color: #0a0a0a; }
 .dark .border-brand-200,
-.dark .border-brand-500 { border-color: rgba(199, 234, 70, 0.45); }
+.dark .border-brand-500 { border-color: rgba(153, 230, 0, 0.45); }
 
 /* Accents and status dots glow */
 .dark .accent-line {
   background-color: var(--brand);
-  box-shadow: 0 0 12px rgba(199, 234, 70, 0.55);
+  box-shadow: 0 0 12px rgba(153, 230, 0, 0.55);
 }
 .dark .badge-primary {
-  background-color: rgba(199, 234, 70, 0.16);
-  color: #d4f25c;
+  background-color: rgba(153, 230, 0, 0.16);
+  color: #b8ff29;
 }
 
 /* Stronger ambient lime so the glass has real colour to refract */
 .dark body::before {
   background:
-    radial-gradient(55rem 55rem at 10% -15%, rgba(199, 234, 70, 0.20), transparent 62%),
-    radial-gradient(45rem 45rem at 105% 5%,  rgba(199, 234, 70, 0.11), transparent 58%),
-    radial-gradient(40rem 40rem at 50% 115%, rgba(199, 234, 70, 0.07), transparent 60%);
+    radial-gradient(55rem 55rem at 10% -15%, rgba(153, 230, 0, 0.20), transparent 62%),
+    radial-gradient(45rem 45rem at 105% 5%,  rgba(153, 230, 0, 0.11), transparent 58%),
+    radial-gradient(40rem 40rem at 50% 115%, rgba(153, 230, 0, 0.07), transparent 60%);
 }
 
 /* ── Opacity-modifier variants ───────────────────────────────────────────────
@@ -815,7 +815,7 @@ button:not(:disabled):active,
 .dark .bg-gray-50\/60,
 .dark .bg-gray-50\/80  { background-color: rgba(255, 255, 255, 0.04); }
 .dark .bg-gray-200\/60 { background-color: rgba(255, 255, 255, 0.06); }
-.dark .bg-blue-50\/30  { background-color: rgba(199, 234, 70, 0.07); }
+.dark .bg-blue-50\/30  { background-color: rgba(153, 230, 0, 0.07); }
 .dark .bg-red-500\/10  { background-color: rgba(239, 68, 68, 0.12); }
 .dark .bg-red-500\/20  { background-color: rgba(239, 68, 68, 0.20); }
 
@@ -833,7 +833,7 @@ button:not(:disabled):active,
 .dark .hover\:bg-white\/20:hover    { background-color: rgba(255, 255, 255, 0.06); }
 .dark .hover\:bg-red-50:hover,
 .dark .hover\:bg-red-100:hover      { background-color: rgba(239, 68, 68, 0.16); }
-.dark .hover\:bg-brand-50:hover     { background-color: rgba(199, 234, 70, 0.16); }
+.dark .hover\:bg-brand-50:hover     { background-color: rgba(153, 230, 0, 0.16); }
 
 /* Kill the last of the flat greys: neutral chips and dividers pick up the
    surface tone instead of sitting as grey slabs. */
@@ -850,7 +850,7 @@ button:not(:disabled):active,
 .dark .bg-gray-400 { background-color: rgba(255, 255, 255, 0.22); }
 .dark .bg-gray-500 { background-color: rgba(255, 255, 255, 0.30); }
 .dark .bg-gray-800 { background-color: rgba(255, 255, 255, 0.07); }
-.dark .bg-brand-50\/40 { background-color: rgba(199, 234, 70, 0.10); }
+.dark .bg-brand-50\/40 { background-color: rgba(153, 230, 0, 0.10); }
 
 /* ── Hairline borders ────────────────────────────────────────────────────────
    Nothing thicker than 1px, anywhere. Thick borders read as bulky and fight
@@ -863,7 +863,7 @@ button:not(:disabled):active,
 .border-r-2, .border-r-4 { border-right-width: 1px; }
 .border-x-2 { border-left-width: 1px; border-right-width: 1px; }
 .border-y-2 { border-top-width: 1px; border-bottom-width: 1px; }
-.ring-2, .ring-4, .ring-8 { --tw-ring-offset-width: 0px; box-shadow: 0 0 0 1px var(--tw-ring-color, rgba(199,234,70,0.45)); }
+.ring-2, .ring-4, .ring-8 { --tw-ring-offset-width: 0px; box-shadow: 0 0 0 1px var(--tw-ring-color, rgba(153, 230, 0,0.45)); }
 
 /* ── Sale celebration ───────────────────────────────────────────────────────
    Falls from above the viewport so pieces enter rather than pop into being.

@@ -130,7 +130,11 @@ export default function Profile() {
           opens with a piece of the brand instead of a fourth grey rectangle. */}
       <div className="card rounded-3xl overflow-hidden mb-5">
         <div className="relative h-28 sm:h-32" style={{
-          background: 'linear-gradient(115deg, #c7ea46 0%, #a9d12f 42%, #6f8f1c 100%)',
+          // Brand 500 → 600 → 700. Was three hand-picked stops on the old hue,
+          // which the palette swap left stranded a different colour from
+          // everything around them. Using ramp members means the next change
+          // carries them too.
+          background: 'linear-gradient(115deg, #99e600 0%, #81c200 42%, #669900 100%)',
         }}>
           {/* Soft vignette so the avatar's ring has something to sit against. */}
           <div className="absolute inset-0" style={{

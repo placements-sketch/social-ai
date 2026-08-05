@@ -15,10 +15,10 @@ import clsx from 'clsx'
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/reportExport'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const ACCENT = '#c7ea46'
+const ACCENT = '#99e600'
 
 // Coordinated donut palette: accent → warm → taupe → grays. Not a rainbow.
-const DONUT = ['#c7ea46', '#d6f278', '#c99a86', '#8a8a93', '#a1a1aa', '#c4c4cc', '#d4d4d8']
+const DONUT = ['#99e600', '#c9ff5c', '#c99a86', '#8a8a93', '#a1a1aa', '#c4c4cc', '#d4d4d8']
 
 // The same ranges the Dashboard offers, in the same order and wording.
 //
@@ -338,7 +338,7 @@ function Funnel({ conversion }) {
             key={label}
             className={clsx('rounded-xl px-4 py-3 border',
               accent ? 'border-transparent' : 'border-gray-100 bg-white')}
-            style={accent ? { background: 'rgba(199,234,70,0.09)' } : undefined}
+            style={accent ? { background: 'rgba(153, 230, 0,0.09)' } : undefined}
           >
             <p
               className={clsx('text-xl font-bold tabular-nums leading-none truncate',
@@ -544,13 +544,13 @@ function HeroBand({ kpis, weekly, periodLabel }) {
       <span
         aria-hidden="true"
         className="absolute inset-0 pointer-events-none"
-        style={{ background: 'linear-gradient(135deg, rgba(199,234,70,0.10) 0%, transparent 62%)' }}
+        style={{ background: 'linear-gradient(135deg, rgba(153, 230, 0,0.10) 0%, transparent 62%)' }}
       />
       <div className="relative">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: ACCENT, boxShadow: '0 0 0 3px rgba(199,234,70,0.20)' }} />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: ACCENT, boxShadow: '0 0 0 3px rgba(153, 230, 0,0.20)' }} />
             <Eyebrow>AI performance · {periodLabel}</Eyebrow>
           </div>
           <div className="flex items-baseline gap-3">
@@ -570,7 +570,7 @@ function HeroBand({ kpis, weekly, periodLabel }) {
           {series.map((v, i) => {
             const h = Math.max(6, Math.round((v / sMax) * 56))
             const isLast = i >= series.length - 2
-            return <div key={i} style={{ width: 13, height: h, borderRadius: 3, background: isLast ? ACCENT : `rgba(199,234,70,${0.22 + (i / series.length) * 0.5})`, transformOrigin: 'bottom', animation: 'an-grow .6s ease both', animationDelay: `${i * 40}ms` }} />
+            return <div key={i} style={{ width: 13, height: h, borderRadius: 3, background: isLast ? ACCENT : `rgba(153, 230, 0,${0.22 + (i / series.length) * 0.5})`, transformOrigin: 'bottom', animation: 'an-grow .6s ease both', animationDelay: `${i * 40}ms` }} />
           })}
         </div>
       </div>
