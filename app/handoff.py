@@ -158,11 +158,15 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                 from app.notifications import create_notification
                 handle = conversation.user.external_id if conversation.user else 'a customer'
                 channel_label = conversation.channel.replace('_', ' ')
+                ready = (detail or '').lower() in ('order_request', 'ready_to_order')
                 create_notification(
                     user_id=agent.id,
                     type_='escalation_assigned',
-                    title="New escalation assigned to you",
-                    body=f"{handle} on {channel_label} — reason: {detail or reason}",
+                    title=("Ready to order — assigned to you" if ready
+                           else "New escalation assigned to you"),
+                    body=(f"{handle} on {channel_label} wants to place an order."
+                          if ready
+                          else f"{handle} on {channel_label} — reason: {detail or reason}"),
                     severity='urgent',
                     resource_type='conversation',
                     resource_id=conversation.id,
@@ -214,12 +218,24 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
             if assignee:
                 assignee_blurb = f" Auto-assigned to {assignee.full_name}."
 
+        # A sale and a complaint are both "urgent", but they are not the same
+        # news. Sending an alarm-shaped email about someone wanting to buy
+        # trains supervisors to read every escalation as a problem — and the
+        # one they should move fastest on is the one they would learn to
+        # dread. Same delivery, honest framing.
+        wants_to_order = (detail or '').lower() in ('order_request', 'ready_to_order')
+        if wants_to_order:
+            notif_title = f"Ready to order: {handle}"
+            notif_body = (f"{handle} wants to place an order on {channel_label} "
+                          f"and needs someone to take it.{assignee_blurb}")
+        else:
+            notif_title = f"Conversation escalated ({reason}): {handle}"
+            notif_body = f"Reason: {detail}. Channel: {channel_label}.{assignee_blurb}"
+
         notify_supervisors(
             type_='conversation_escalated',
-            title=f"Conversation escalated ({reason}): {handle}",
-            body=(
-                f"Reason: {detail}. Channel: {channel_label}.{assignee_blurb}"
-            ),
+            title=notif_title,
+            body=notif_body,
             severity='urgent',
             resource_type='conversation',
             resource_id=conversation.id,
