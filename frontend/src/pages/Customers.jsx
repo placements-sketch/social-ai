@@ -51,7 +51,7 @@ function KpiCard({ icon: Icon, label, value, sub, tone }) {
           busy and dated it more than anything else on the page. The icon keeps
           the colour; the card keeps the glass. */}
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest leading-relaxed">
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest leading-relaxed">
           {label}
         </p>
         <span className={clsx(
@@ -118,7 +118,7 @@ function TopList({ title, icon: TitleIcon, customers, mode, navigate }) {
                 <p className="text-sm font-bold text-gray-900">
                   {mode === 'spent' ? `KES ${formatKES(c.total_spent)}` : `${formatKES(c.total_orders)} orders`}
                 </p>
-                <span className={clsx('inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide', meta.color)}>
+                <span className={clsx('inline-flex items-center gap-0.5 text-[11px] font-bold uppercase tracking-wide', meta.color)}>
                   <SegIcon size={9} />
                   {meta.label}
                 </span>
@@ -337,10 +337,10 @@ export default function Customers() {
           lifetime), so the two cannot share a row of cards without saying
           which is which. Marked rather than mixed. */}
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">
+        <p className="text-[12px] font-bold text-gray-400 uppercase tracking-wide">
           All time
         </p>
-        <p className="text-[11px] text-gray-400">
+        <p className="text-[12px] text-gray-400">
           Lifetime totals as reported by Shopify
         </p>
       </div>
@@ -350,7 +350,7 @@ export default function Customers() {
           out that "Total spent" and "Total sales" are different metrics. */}
       {overview?.kpis?.net_sales_estimate != null && (
         <details className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 group">
-          <summary className="text-[11px] text-gray-500 cursor-pointer list-none flex items-center gap-1.5">
+          <summary className="text-[12px] text-gray-500 cursor-pointer list-none flex items-center gap-1.5">
             <Info size={12} className="text-gray-400 shrink-0" />
             <span>
               Shopify Analytics will show a smaller figure — roughly
@@ -358,7 +358,7 @@ export default function Customers() {
               Why?
             </span>
           </summary>
-          <div className="mt-2.5 pt-2.5 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed space-y-1.5">
+          <div className="mt-2.5 pt-2.5 border-t border-gray-200 text-[12px] text-gray-500 leading-relaxed space-y-1.5">
             <p>
               Both are Shopify's own numbers; they answer different questions.
             </p>
@@ -443,7 +443,7 @@ export default function Customers() {
               <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
                 <Target size={14} className="text-brand-500" /> Segments
               </h2>
-              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">RFM</span>
+              <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">RFM</span>
             </div>
             <div className="space-y-2">
               {Object.entries(SEGMENT_META).map(([key, meta]) => {
@@ -475,7 +475,7 @@ export default function Customers() {
                         </div>
                         <div>
                           <span className="font-semibold text-gray-800 block">{meta.label}</span>
-                          <span className="text-[10px] text-gray-400">{pct.toFixed(1)}%</span>
+                          <span className="text-[11px] text-gray-400">{pct.toFixed(1)}%</span>
                         </div>
                       </div>
                       <span className="font-bold text-gray-900 text-sm">{formatKES(count)}</span>
@@ -511,7 +511,7 @@ export default function Customers() {
                     key={g}
                     onClick={() => setGranularity(g)}
                     className={clsx(
-                      'px-2.5 py-1 rounded-md text-[11px] font-semibold capitalize transition-colors',
+                      'px-2.5 py-1 rounded-md text-[12px] font-semibold capitalize transition-colors',
                       granularity === g
                         ? 'bg-white text-gray-900 shadow-sm'
                         : 'text-gray-500 hover:text-gray-800'
@@ -640,13 +640,13 @@ export default function Customers() {
               <table className="w-full text-sm min-w-[700px]">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Customer</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">RFM</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Segment</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Spent</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Orders</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">AOV</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Last Order</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Customer</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">RFM</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Segment</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Spent</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Orders</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">AOV</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Last Order</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -671,7 +671,7 @@ export default function Customers() {
                             : <span className="text-xs text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-3">
-                          <span className={clsx('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md', meta.bg, meta.color)}>
+                          <span className={clsx('inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-1 rounded-md', meta.bg, meta.color)}>
                             <SegIcon size={10} />
                             {meta.label}
                           </span>
@@ -709,26 +709,26 @@ export default function Customers() {
                           <p className="text-xs text-gray-500 truncate">{c.email || c.phone || '—'}</p>
                         </div>
                       </div>
-                      <span className={clsx('inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md shrink-0', meta.bg, meta.color)}>
+                      <span className={clsx('inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-1 rounded-md shrink-0', meta.bg, meta.color)}>
                         <SegIcon size={10} />
                         {meta.label}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 border-t border-gray-100 pt-3">
                       <div>
-                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">Spent</p>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">Spent</p>
                         <p className="text-sm font-bold text-gray-900 truncate">KES {formatKES(c.total_spent)}</p>
                       </div>
                       <div>
-                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">Orders</p>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">Orders</p>
                         <p className="text-sm font-bold text-gray-900">{formatKES(c.total_orders)}</p>
                       </div>
                       <div>
-                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">AOV</p>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">AOV</p>
                         <p className="text-sm font-bold text-gray-900 truncate">KES {formatKES(c.aov)}</p>
                       </div>
                       <div>
-                        <p className="text-[9px] text-gray-400 uppercase tracking-wide">Last order</p>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">Last order</p>
                         <p className="text-sm font-bold text-gray-900">{c.days_since_last_order != null ? `${c.days_since_last_order}d ago` : '—'}</p>
                       </div>
                     </div>

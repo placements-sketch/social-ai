@@ -271,7 +271,7 @@ function AIMasterSwitch({ settings, setSettings }) {
                 <span className="block text-xs font-bold text-gray-900">
                   Queue them for agents now
                 </span>
-                <span className="block text-[11px] text-gray-500 mt-0.5">
+                <span className="block text-[12px] text-gray-500 mt-0.5">
                   Moves them to Unclaimed so agents can pick them up. Already-assigned
                   chats go back to whoever owns them. You can hand them back to the AI
                   when you switch it on again.
@@ -282,7 +282,7 @@ function AIMasterSwitch({ settings, setSettings }) {
                 <span className="block text-xs font-bold text-gray-900">
                   Leave them for the AI to resume
                 </span>
-                <span className="block text-[11px] text-gray-500 mt-0.5">
+                <span className="block text-[12px] text-gray-500 mt-0.5">
                   Nothing moves. They will show as stalled in the inbox until you
                   switch the AI back on. Best for a short pause.
                 </span>
@@ -322,7 +322,7 @@ function AIMasterSwitch({ settings, setSettings }) {
                   Turn on and hand back {handover.restorable} queued conversation
                   {handover.restorable === 1 ? '' : 's'}
                 </span>
-                <span className="block text-[11px] text-gray-600 mt-0.5">
+                <span className="block text-[12px] text-gray-600 mt-0.5">
                   Only the ones this switch paused. Chats an agent took over by hand
                   are left with that agent.
                 </span>
@@ -332,7 +332,7 @@ function AIMasterSwitch({ settings, setSettings }) {
                 <span className="block text-xs font-bold text-gray-900">
                   Turn on for new messages only
                 </span>
-                <span className="block text-[11px] text-gray-500 mt-0.5">
+                <span className="block text-[12px] text-gray-500 mt-0.5">
                   The {handover.restorable} queued conversation
                   {handover.restorable === 1 ? '' : 's'} stay with agents.
                 </span>
@@ -451,7 +451,7 @@ function DangerPanel({ settings, setSettings }) {
 
       {msg && <p className={`text-xs font-medium px-1 ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
 
-      <p className="text-[11px] text-gray-400 px-1">
+      <p className="text-[12px] text-gray-400 px-1">
         Deleting conversations, customers, or products isn't exposed here by design — those are irreversible on a live store and shouldn't sit behind a single click.
       </p>
     </div>
@@ -519,7 +519,7 @@ function HeaderStat({ label, value, tone = 'default' }) {
         : 'bg-gray-50 border-gray-200 text-gray-600',
     )}>
       <span className="text-xs font-bold">{value}</span>
-      <span className="text-[10px] font-medium uppercase tracking-wide opacity-70">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-wide opacity-70">{label}</span>
     </span>
   )
 }
@@ -590,7 +590,7 @@ function HandoffPanel({ settings, setSettings }) {
         aside={<HeaderStat label="per agent" value={h.max_agent_load ?? 10} />}
       />
 
-      <div className="flex items-center gap-2 text-[11px] font-medium text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mb-5">
+      <div className="flex items-center gap-2 text-[12px] font-medium text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mb-5">
         <Zap size={13} className="shrink-0" />
         Changes take effect immediately — no redeploy needed.
       </div>
@@ -602,7 +602,7 @@ function HandoffPanel({ settings, setSettings }) {
             <input className={`${inputCls} pr-28`} type="number" min="1" max="100" value={maxLoad} onChange={e => setMaxLoad(e.target.value)} />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">conversations</span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1.5">Agents at or above this are skipped for auto-assignment.</p>
+          <p className="text-[12px] text-gray-400 mt-1.5">Agents at or above this are skipped for auto-assignment.</p>
         </div>
         <div>
           <label className={labelCls}>Presence window</label>
@@ -610,7 +610,7 @@ function HandoffPanel({ settings, setSettings }) {
             <input className={`${inputCls} pr-16`} type="number" min="30" max="3600" value={presence} onChange={e => setPresence(e.target.value)} />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">seconds</span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1.5">How recently an agent must've been active to count as present. 300 = 5 min.</p>
+          <p className="text-[12px] text-gray-400 mt-1.5">How recently an agent must've been active to count as present. 300 = 5 min.</p>
         </div>
         <div>
           <label className={labelCls}>Alert when unclaimed for</label>
@@ -618,7 +618,7 @@ function HandoffPanel({ settings, setSettings }) {
             <input className={`${inputCls} pr-16`} type="number" min="1" max="1440" value={unclaimedMins} onChange={e => setUnclaimedMins(e.target.value)} />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">minutes</span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1.5">A conversation waiting this long with nobody assigned alerts supervisors.</p>
+          <p className="text-[12px] text-gray-400 mt-1.5">A conversation waiting this long with nobody assigned alerts supervisors.</p>
         </div>
         <div>
           <label className={labelCls}>Flag agent's chat after</label>
@@ -626,13 +626,13 @@ function HandoffPanel({ settings, setSettings }) {
             <input className={`${inputCls} pr-16`} type="number" min="1" max="1440" value={agentWaitMins} onChange={e => setAgentWaitMins(e.target.value)} />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">minutes</span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1.5">A customer waiting this long on an agent who owns the chat shows in that agent's Needs Attention panel.</p>
+          <p className="text-[12px] text-gray-400 mt-1.5">A customer waiting this long on an agent who owns the chat shows in that agent's Needs Attention panel.</p>
         </div>
       </div>
 
       <div className="border-t border-gray-200/70 dark:border-white/10 pt-5 mb-5">
         <p className="text-xs font-semibold text-gray-900 mb-1">Conversation lifecycle</p>
-        <p className="text-[11px] text-gray-400 mb-4">
+        <p className="text-[12px] text-gray-400 mb-4">
           When a chat closes itself, and when a returning customer continues the old thread instead of starting a new one.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -642,7 +642,7 @@ function HandoffPanel({ settings, setSettings }) {
               <input className={`${inputCls} pr-14`} type="number" min="0" max="365" value={autoResolve} onChange={e => setAutoResolve(e.target.value)} />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">days</span>
             </div>
-            <p className="text-[11px] text-gray-400 mt-1.5">
+            <p className="text-[12px] text-gray-400 mt-1.5">
               Only closes chats where <span className="font-medium text-gray-500">we</span> spoke last — if the customer is still waiting on a reply it stays open. 0 turns auto-resolve off.
             </p>
           </div>
@@ -652,7 +652,7 @@ function HandoffPanel({ settings, setSettings }) {
               <input className={`${inputCls} pr-16`} type="number" min="0" max="720" value={reopenHours} onChange={e => setReopenHours(e.target.value)} />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">hours</span>
             </div>
-            <p className="text-[11px] text-gray-400 mt-1.5">
+            <p className="text-[12px] text-gray-400 mt-1.5">
               A reply this soon after resolving continues the same conversation. Later, it starts a fresh one. 0 always starts fresh.
             </p>
           </div>
@@ -662,7 +662,7 @@ function HandoffPanel({ settings, setSettings }) {
       <div className="mb-5">
         <label className={labelCls}>Default handoff message</label>
         <textarea className={`${inputCls} resize-none`} rows={3} value={bridging} onChange={e => setBridging(e.target.value)} />
-        <p className="text-[11px] text-gray-400 mt-1.5">Sent to the customer on escalation. Abuse and frustration cases use their own tuned messages.</p>
+        <p className="text-[12px] text-gray-400 mt-1.5">Sent to the customer on escalation. Abuse and frustration cases use their own tuned messages.</p>
       </div>
 
       <div className="flex items-center justify-end gap-3">
@@ -778,7 +778,7 @@ function BusinessPanel({ settings, setSettings }) {
                 <button
                   type="button"
                   onClick={() => setTimezone(browserTz)}
-                  className="mt-1.5 text-[11px] text-brand-600 hover:text-brand-700 font-medium transition-colors"
+                  className="mt-1.5 text-[12px] text-brand-600 hover:text-brand-700 font-medium transition-colors"
                 >
                   Use this device’s timezone ({browserTz})
                 </button>
@@ -790,7 +790,7 @@ function BusinessPanel({ settings, setSettings }) {
                 <option value="monday">Monday</option>
                 <option value="sunday">Sunday</option>
               </select>
-              <p className="mt-1.5 text-[11px] text-gray-400">
+              <p className="mt-1.5 text-[12px] text-gray-400">
                 Where the Dashboard’s “This week” window begins.
               </p>
             </div>
@@ -849,7 +849,7 @@ function WebhookRegister() {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-gray-800">Real-time webhooks</p>
-          <p className="text-[11px] text-gray-500 mt-0.5">
+          <p className="text-[12px] text-gray-500 mt-0.5">
             {loading ? 'Checking…' : `${hooks?.length || 0} topic${hooks?.length === 1 ? '' : 's'} registered with Shopify.`}
           </p>
         </div>
@@ -858,7 +858,7 @@ function WebhookRegister() {
           {registering ? 'Registering…' : 'Register webhooks'}
         </button>
       </div>
-      {msg && <p className={`text-[11px] mt-2 font-medium ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
+      {msg && <p className={`text-[12px] mt-2 font-medium ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
     </div>
   )
 }
@@ -903,7 +903,7 @@ function DeliveryPanel({ settings, setSettings }) {
         aside={<HeaderStat label={zones.length === 1 ? 'zone' : 'zones'} value={zones.length}
                            tone={zones.length === 0 ? 'warn' : 'default'} />} />
 
-      <div className="flex items-center gap-2 text-[11px] font-medium text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mb-5">
+      <div className="flex items-center gap-2 text-[12px] font-medium text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mb-5">
         <Zap size={13} className="shrink-0" />
         Add zones so the assistant can answer "how much is delivery?" — otherwise it just says it'll check with the team.
       </div>
@@ -930,7 +930,7 @@ function DeliveryPanel({ settings, setSettings }) {
         <label className={labelCls}>Delivery notes</label>
         <textarea className={`${inputCls} resize-none`} rows={3} value={notes} onChange={e => setNotes(e.target.value)}
           placeholder="e.g. Free delivery on orders over KES 5,000. Countrywide shipping via courier, 2–4 days." />
-        <p className="text-[11px] text-gray-400 mt-1.5">Anything zones don't cover — free-delivery thresholds, courier info, timelines.</p>
+        <p className="text-[12px] text-gray-400 mt-1.5">Anything zones don't cover — free-delivery thresholds, courier info, timelines.</p>
       </div>
 
       <div className="flex items-center justify-end gap-3">
@@ -1023,11 +1023,11 @@ function NotificationsPanel({ settings, setSettings, resolved }) {
           {/* An empty field with alerts working reads as broken unless we say
               where the webhook is coming from. */}
           {fromEnv ? (
-            <p className="text-[11px] text-emerald-600 mt-1.5 font-medium">
+            <p className="text-[12px] text-emerald-600 mt-1.5 font-medium">
               Using the server's environment-configured webhook. Alerts are being delivered — enter a URL here only to override it.
             </p>
           ) : (
-            <p className="text-[11px] text-gray-400 mt-1.5">Leave blank to use the server's env-configured webhook, if any.</p>
+            <p className="text-[12px] text-gray-400 mt-1.5">Leave blank to use the server's env-configured webhook, if any.</p>
           )}
         </div>
         <div>
@@ -1043,7 +1043,7 @@ function NotificationsPanel({ settings, setSettings, resolved }) {
       </div>
 
       <div className="mt-5 pt-4 border-t border-gray-100">
-        <p className="text-[11px] text-gray-400">In-app notifications (assignments, escalations) are always on and can't be disabled here.</p>
+        <p className="text-[12px] text-gray-400">In-app notifications (assignments, escalations) are always on and can't be disabled here.</p>
       </div>
 
       <div className="flex items-center justify-end gap-3 mt-4">
@@ -1071,7 +1071,7 @@ function StatusPill({ ok, warn }) {
   const cls = warn ? 'bg-amber-50 text-amber-700' : ok ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
   const dot = warn ? 'bg-amber-500' : ok ? 'bg-green-500' : 'bg-gray-400'
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full shrink-0', cls)}>
+    <span className={clsx('inline-flex items-center gap-1.5 text-[12px] font-semibold px-2 py-1 rounded-full shrink-0', cls)}>
       <span className={clsx('w-1.5 h-1.5 rounded-full', dot)} />
       {warn ? 'Needs attention' : ok ? 'Connected' : 'Not connected'}
     </span>
@@ -1082,7 +1082,7 @@ function Row({ label, value, mono }) {
   return (
     <div className="flex items-center justify-between py-1.5 text-xs gap-3">
       <span className="text-gray-500 shrink-0">{label}</span>
-      <span className={clsx('text-gray-800 font-medium truncate text-right', mono && 'font-mono text-[11px]')}>{value}</span>
+      <span className={clsx('text-gray-800 font-medium truncate text-right', mono && 'font-mono text-[12px]')}>{value}</span>
     </div>
   )
 }
@@ -1147,12 +1147,12 @@ function IntegrationsPanel({ data, loading, error, reload }) {
                            ? ` · ${m.token_days_left}d left` : ''}`} />
                 )}
                 {m.token_expired && (
-                  <p className="text-[11px] text-red-600 mt-1.5">
+                  <p className="text-[12px] text-red-600 mt-1.5">
                     This token has expired — Instagram messages are not being sent or received. Reconnect the account.
                   </p>
                 )}
                 {m.token_expiring_soon && !m.token_expired && (
-                  <p className="text-[11px] text-amber-600 mt-1.5">
+                  <p className="text-[12px] text-amber-600 mt-1.5">
                     Expires in {m.token_days_left} day{m.token_days_left === 1 ? '' : 's'}. A daily job refreshes this — if it's still falling, that job has been failing.
                   </p>
                 )}
@@ -1172,12 +1172,12 @@ function IntegrationsPanel({ data, loading, error, reload }) {
                     to the Logs to work out what; "Orders and products haven't
                     synced in over 9h" tells you where to look before you go. */}
                 {s.stale && (
-                  <p className="text-[11px] text-amber-600 mt-1.5">
+                  <p className="text-[12px] text-amber-600 mt-1.5">
                     {s.stale_kinds.join(' and ')} {s.stale_kinds.length === 1 ? 'has' : 'have'} not synced in over {s.stale_after_hours}h — syncs are scheduled every 3h.
                   </p>
                 )}
                 {s.failed_recently > 0 && (
-                  <p className="text-[11px] text-amber-600 mt-1.5">
+                  <p className="text-[12px] text-amber-600 mt-1.5">
                     {s.failed_recently} sync {s.failed_recently === 1 ? 'job' : 'jobs'} failed in the last 24h — check Logs.
                   </p>
                 )}

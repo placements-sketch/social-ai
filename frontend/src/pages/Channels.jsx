@@ -138,7 +138,7 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
           if (!ch.token_expires_at) {
             // Verified but no expiry stored → long-lived token
             return (
-              <p className="text-[11px] font-medium mt-1 text-gray-500">
+              <p className="text-[12px] font-medium mt-1 text-gray-500">
                 Token: no expiry (long-lived)
               </p>
             )
@@ -159,7 +159,7 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
             label = `Token expires in ${daysLeft} days`
           }
           return (
-            <p className={clsx('text-[11px] font-medium mt-1', cls)}>
+            <p className={clsx('text-[12px] font-medium mt-1', cls)}>
               {label}
             </p>
           )
@@ -168,7 +168,7 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
         {/* Live test result — transient, only after click */}
         {testResult && (
           <p className={clsx(
-            'text-[11px] font-medium mt-1',
+            'text-[12px] font-medium mt-1',
             testResult.ok ? 'text-green-600' : 'text-red-500'
           )}>
             {testResult.ok ? '✓' : '✗'} {testResult.message}
@@ -471,7 +471,7 @@ export default function Channels({ embedded = false }) {
                       {conn.ig_username ? `@${conn.ig_username}` : conn.page_name || 'Connected Page'}
                     </p>
                     {conn.is_active && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-50 text-green-700">
                         <CheckCircle2 size={9} /> Active
                       </span>
                     )}
@@ -481,7 +481,7 @@ export default function Channels({ embedded = false }) {
                     {conn.connected_at && ` · Connected ${new Date(conn.connected_at).toLocaleDateString()}`}
                   </p>
                   {conn.scopes?.length > 0 && (
-                    <p className="text-[10px] text-gray-400 mt-1 font-mono truncate">
+                    <p className="text-[11px] text-gray-400 mt-1 font-mono truncate">
                       {conn.scopes.join(' · ')}
                     </p>
                   )}

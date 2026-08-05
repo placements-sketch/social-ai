@@ -106,16 +106,16 @@ function NotificationRow({ notif, onClick }) {
             <p className="text-xs text-gray-600 mt-1 leading-snug">{notif.body}</p>
           )}
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-[10px] text-gray-400 font-medium">{timeAgo}</span>
-            <span className="text-[10px] text-gray-300">·</span>
-            <span className="text-[10px] text-gray-500 font-medium capitalize">
+            <span className="text-[11px] text-gray-400 font-medium">{timeAgo}</span>
+            <span className="text-[11px] text-gray-300">·</span>
+            <span className="text-[11px] text-gray-500 font-medium capitalize">
               {(notif.type || '').replace(/_/g, ' ')}
             </span>
             {notif.severity && notif.severity !== 'info' && (
               <>
-                <span className="text-[10px] text-gray-300">·</span>
+                <span className="text-[11px] text-gray-300">·</span>
                 <span className={clsx(
-                  'text-[10px] font-bold uppercase',
+                  'text-[11px] font-bold uppercase',
                   notif.severity === 'urgent' ? 'text-red-600' : 'text-amber-600'
                 )}>
                   {notif.severity}
@@ -342,7 +342,7 @@ export default function Notifications({ embedded = false }) {
           grouped.map(group => (
             <div key={group.label}>
               <div className="px-4 py-2 bg-gray-50/50 border-b border-gray-100">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                   {group.label}
                 </p>
               </div>

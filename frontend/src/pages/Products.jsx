@@ -103,7 +103,7 @@ function ProductDetailModal({ product, onClose }) {
             <div className="min-w-0 space-y-4">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-lg font-bold text-gray-900">{product.price || '—'}</span>
-                <span className={clsx('text-[11px] font-semibold px-2 py-0.5 rounded-md', stockTone)}>
+                <span className={clsx('text-[12px] font-semibold px-2 py-0.5 rounded-md', stockTone)}>
                   {untracked ? 'Not tracked' : stock === 0 ? 'Out of stock' : `${stock} in stock`}
                 </span>
               </div>
@@ -112,7 +112,7 @@ function ProductDetailModal({ product, onClose }) {
                   says which size to stop promising. */}
               {variants.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">
+                  <p className="text-[12px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">
                     Stock by variant
                   </p>
                   <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
@@ -128,7 +128,7 @@ function ProductDetailModal({ product, onClose }) {
                           <div className="min-w-0">
                             <p className="text-xs text-gray-700 truncate">{v.title || v.name || `Variant ${i + 1}`}</p>
                             {v.sku && (
-                              <p className="text-[10px] text-gray-400 font-mono truncate">{v.sku}</p>
+                              <p className="text-[11px] text-gray-400 font-mono truncate">{v.sku}</p>
                             )}
                           </div>
                           <span className={clsx('text-xs font-semibold tabular-nums shrink-0',
@@ -146,7 +146,7 @@ function ProductDetailModal({ product, onClose }) {
 
               {plainText(product.description) && (
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1">Description</p>
+                  <p className="text-[12px] font-bold uppercase tracking-wide text-gray-400 mb-1">Description</p>
                   <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-line">
                     {plainText(product.description).length > 700
                       ? `${plainText(product.description).slice(0, 700)}…`
@@ -157,10 +157,10 @@ function ProductDetailModal({ product, onClose }) {
 
               {(product.tags || []).length > 0 && (
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Tags</p>
+                  <p className="text-[12px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">Tags</p>
                   <div className="flex flex-wrap gap-1.5">
                     {product.tags.map((t, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 text-[11px] text-gray-600 bg-gray-100 rounded-md px-2 py-0.5">
+                      <span key={i} className="inline-flex items-center gap-1 text-[12px] text-gray-600 bg-gray-100 rounded-md px-2 py-0.5">
                         <Tag size={10} className="text-gray-400" />{t}
                       </span>
                     ))}
@@ -171,7 +171,7 @@ function ProductDetailModal({ product, onClose }) {
               {/* Stated, not hidden: this is a cached copy, and how old it is
                   decides whether you trust the stock number above. */}
               {product.cached_at && (
-                <p className="text-[11px] text-gray-400 pt-1">
+                <p className="text-[12px] text-gray-400 pt-1">
                   Synced from Shopify {formatTimeAgo(product.cached_at)}
                 </p>
               )}
@@ -207,7 +207,7 @@ function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
        data behind it is fresh enough to trust. */
     <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
       <div className="card p-4">
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">In the catalogue</p>
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">In the catalogue</p>
         <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums">{animatedTotal}</p>
         <p className="text-xs text-gray-400 mt-1">
           products the assistant can recommend
@@ -215,7 +215,7 @@ function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
       </div>
 
       <div className="card p-4">
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Cannot be sold</p>
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Cannot be sold</p>
         <p className={clsx('text-2xl font-bold mt-2 tabular-nums',
           outOfStock > 0 ? 'text-amber-600' : 'text-gray-900')}>
           {animatedOutOfStock}
@@ -229,7 +229,7 @@ function ProductKPIs({ status, products, lastSynced, formatTimeAgo }) {
       </div>
 
       <div className="card p-4 col-span-2 lg:col-span-1">
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Catalogue freshness</p>
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Catalogue freshness</p>
         <p className={clsx('text-2xl font-bold mt-2',
           status?.stale ? 'text-amber-600' : 'text-gray-900')}>
           {lastSynced ? formatTimeAgo(lastSynced) : 'Never'}
@@ -508,7 +508,7 @@ export default function Products() {
           />
         </div>
         {search && (
-          <p className="text-[11px] text-gray-400 mt-1.5">
+          <p className="text-[12px] text-gray-400 mt-1.5">
             {total.toLocaleString()} match{total === 1 ? '' : 'es'} for “{search}” —
             the same fields the assistant searches when picking what to recommend.
           </p>
@@ -591,7 +591,7 @@ export default function Products() {
                     <td className="px-4 py-4">
                       <div className="flex justify-center">
                         <span className={clsx(
-                          'inline-flex items-center gap-1.5 text-[11px] font-semibold',
+                          'inline-flex items-center gap-1.5 text-[12px] font-semibold',
                           'px-2.5 py-1 rounded-full whitespace-nowrap border',
                           p.stock_quantity === 0
                             ? 'bg-red-50 text-red-700 border-red-200'
@@ -641,16 +641,16 @@ export default function Products() {
                         <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
                         <p className="text-xs font-semibold text-gray-700 truncate">{p.price || '—'}</p>
                       </div>
-                      <span className={clsx('text-[10px] font-bold px-2 py-1 rounded-md shrink-0 whitespace-nowrap', stockBadge.cls)}>
+                      <span className={clsx('text-[11px] font-bold px-2 py-1 rounded-md shrink-0 whitespace-nowrap', stockBadge.cls)}>
                         {stockBadge.label}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-2">
                       {(p.variants || []).slice(0, 3).map((v, i) => (
-                        <span key={i} className="text-[11px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{v}</span>
+                        <span key={i} className="text-[12px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{v}</span>
                       ))}
                       {(p.variants || []).length > 3 && (
-                        <span className="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded">+{(p.variants || []).length - 3}</span>
+                        <span className="text-[12px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded">+{(p.variants || []).length - 3}</span>
                       )}
                     </div>
                   </div>

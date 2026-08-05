@@ -17,12 +17,12 @@ import { useAuth } from '../context/AuthContext'
 import { parseBackendTime, formatTimeOfDay, formatTimeAgo } from '../utils/time'
 
 const FbIcon = () => (
-  <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[8px]"
+  <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[9px]"
     style={{ background: '#1877F2' }}>f</span>
 )
 
 const TikTokIcon = () => (
-  <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[8px]"
+  <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[9px]"
     style={{ background: '#000000' }}>♪</span>
 )
 
@@ -70,7 +70,7 @@ const formatDayLabel = (iso) => {
 }
 
 const statusBadge = (s) => {
-  const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+  const baseClass = "text-[11px] font-semibold px-1.5 py-0.5 rounded-md"
   if (s === 'ai_replied')     return <span className={`${baseClass} bg-brand-100 text-brand-600`}>AI Replied</span>
   if (s === 'active')         return <span className={`${baseClass} bg-brand-100 text-brand-600`}>Active</span>
   if (s === 'human_override') return <span className={`${baseClass} bg-amber-100 text-amber-600`}>Human</span>
@@ -144,7 +144,7 @@ const firstName = (person) => {
 // badge beside it already says "In queue" — two chips saying the same thing is
 // noise, not emphasis.
 const handlerBadge = (conv, { terse = false } = {}) => {
-  const baseClass = "text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+  const baseClass = "text-[11px] font-semibold px-1.5 py-0.5 rounded-md"
   if (conv.status === 'resolved') {
     return <span className={`${baseClass} bg-gray-100 text-gray-600`}>Resolved</span>
   }
@@ -183,7 +183,7 @@ function CommentPostPreview({ mediaId }) {
 
   if (!post) {
     return (
-      <div className="flex items-center gap-2 mb-1 pl-1 text-[10px] text-gray-400">
+      <div className="flex items-center gap-2 mb-1 pl-1 text-[11px] text-gray-400">
         <div className="w-8 h-8 rounded-md bg-gray-100 animate-pulse shrink-0" />
         <span>Loading post…</span>
       </div>
@@ -208,7 +208,7 @@ function CommentPostPreview({ mediaId }) {
           <Instagram size={12} className="text-gray-400" />
         </div>
       )}
-      <span className="text-[10px] text-gray-500 group-hover:text-brand-600 truncate">
+      <span className="text-[11px] text-gray-500 group-hover:text-brand-600 truncate">
         <span className="font-semibold">Comment on post</span>
         {caption ? ` · ${caption.slice(0, 40)}${caption.length > 40 ? '…' : ''}` : ''}
       </span>
@@ -245,9 +245,9 @@ function Attachment({ url, onOpen }) {
         className="flex items-center gap-2 rounded-xl border border-dashed border-gray-300 px-3 py-2.5 max-w-[220px] hover:border-gray-400 transition-colors"
       >
         <ImageOff size={14} className="text-gray-400 shrink-0" />
-        <span className="text-[11px] text-gray-500 leading-snug">
+        <span className="text-[12px] text-gray-500 leading-snug">
           Image unavailable
-          <span className="block text-[10px] text-gray-400">
+          <span className="block text-[11px] text-gray-400">
             The link from the platform has expired — open directly
           </span>
         </span>
@@ -1119,7 +1119,7 @@ const handleSend = async (retryOf = null) => {
               key={key}
               onClick={() => setPlatformFilter(key)}
               className={clsx(
-                'text-[11px] px-2.5 py-1 rounded-full font-semibold transition-all whitespace-nowrap shrink-0 sm:shrink inline-flex items-center gap-1.5',
+                'text-[12px] px-2.5 py-1 rounded-full font-semibold transition-all whitespace-nowrap shrink-0 sm:shrink inline-flex items-center gap-1.5',
                 platformFilter === key
                   ? 'bg-brand-500 text-black'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -1131,7 +1131,7 @@ const handleSend = async (retryOf = null) => {
                   // Circle, not a rounded square. min-w + aspect keeps it round
                   // at one digit and lets it become a pill at three, rather than
                   // clipping — 8 and 128 both have to fit.
-                  'text-[10px] font-bold tabular-nums leading-none rounded-full',
+                  'text-[11px] font-bold tabular-nums leading-none rounded-full',
                   'min-w-[16px] h-[16px] px-1 inline-flex items-center justify-center',
                   platformFilter === key ? 'bg-black/15' : 'bg-gray-200 text-gray-500'
                 )}>{count}</span>
@@ -1152,8 +1152,8 @@ const handleSend = async (retryOf = null) => {
             list of 11. */}
         {aiGloballyOffCounts?.off && (statusCounts?.ai > 0 || aiGloballyOffCounts.queued > 0) && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-            <p className="text-[11px] font-bold text-amber-800">AI is off for the whole platform</p>
-            <p className="text-[11px] text-amber-700 mt-0.5 leading-snug">
+            <p className="text-[12px] font-bold text-amber-800">AI is off for the whole platform</p>
+            <p className="text-[12px] text-amber-700 mt-0.5 leading-snug">
               {statusCounts?.ai > 0
                 ? `${statusCounts.ai} conversation${statusCounts.ai === 1 ? '' : 's'} still marked for the AI — nobody is answering ${statusCounts.ai === 1 ? 'it' : 'them'} until it is switched back on or they are queued for agents in Settings.`
                 : `${aiGloballyOffCounts.queued} conversation${aiGloballyOffCounts.queued === 1 ? '' : 's'} queued for agents while the AI is off.`}
@@ -1178,7 +1178,7 @@ const handleSend = async (retryOf = null) => {
                 key={key}
                 onClick={() => setStatusFilter(active ? null : key)}
                 className={clsx(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors',
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-semibold transition-colors',
                   active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 )}
                 title={active ? 'Clear this filter' : `Show only ${label.toLowerCase()}`}
@@ -1203,7 +1203,7 @@ const handleSend = async (retryOf = null) => {
               key={key}
               onClick={() => setSurfaceFilter(key)}
               className={clsx(
-                'flex-1 text-[11px] font-semibold py-1.5 rounded-lg transition-all inline-flex items-center justify-center gap-1.5',
+                'flex-1 text-[12px] font-semibold py-1.5 rounded-lg transition-all inline-flex items-center justify-center gap-1.5',
                 surfaceFilter === key
                   ? 'bg-brand-500 text-black shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
@@ -1212,7 +1212,7 @@ const handleSend = async (retryOf = null) => {
               {label}
               {count > 0 && (
                 <span className={clsx(
-                  'text-[10px] font-bold tabular-nums',
+                  'text-[11px] font-bold tabular-nums',
                   surfaceFilter === key ? 'text-black/55' : 'text-gray-400'
                 )}>{count}</span>
               )}
@@ -1224,12 +1224,12 @@ const handleSend = async (retryOf = null) => {
           empty inbox. Say what's filtered, and make it one click to clear. */}
       {assignedFilter && (
         <div className="mx-2 mb-2 flex items-center justify-between gap-2 rounded-lg bg-brand-50 border border-brand-100 px-3 py-2">
-          <span className="text-[11px] font-semibold text-brand-700 truncate">
+          <span className="text-[12px] font-semibold text-brand-700 truncate">
             Showing {assignedFilter === 'me' ? 'your conversations' : 'unassigned only'}
           </span>
           <button
             onClick={() => setAssignedFilter(null)}
-            className="text-[11px] font-semibold text-brand-700 hover:text-brand-800 shrink-0"
+            className="text-[12px] font-semibold text-brand-700 hover:text-brand-800 shrink-0"
           >
             Clear
           </button>
@@ -1342,12 +1342,12 @@ const handleSend = async (retryOf = null) => {
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className={clsx(
-                    'text-[13px] truncate',
+                    'text-[14px] truncate',
                     conv.unread_count > 0 ? 'font-bold text-gray-900' : 'font-semibold text-gray-900'
                   )}>
                     {conv.handle}
                   </span>
-                  <span className="text-[11px] text-gray-400 shrink-0 whitespace-nowrap">
+                  <span className="text-[12px] text-gray-400 shrink-0 whitespace-nowrap">
                     {conv.last_message_at ? formatTimeAgo(conv.last_message_at) : conv.time}
                   </span>
                 </div>
@@ -1366,7 +1366,7 @@ const handleSend = async (retryOf = null) => {
                     meant. The server only sends this when the visible line
                     doesn't already contain the term. */}
                 {conv.match_snippet && (
-                  <p className="text-[11px] text-gray-500 mt-1 pl-2 border-l-2 border-brand-300 line-clamp-2">
+                  <p className="text-[12px] text-gray-500 mt-1 pl-2 border-l-2 border-brand-300 line-clamp-2">
                     <span className="font-semibold text-gray-400">
                       {conv.match_from === 'customer' ? 'They said: ' : 'We said: '}
                     </span>
@@ -1376,13 +1376,13 @@ const handleSend = async (retryOf = null) => {
 
                 <div className="flex items-center gap-1.5 mt-2">
                   {conv.platform && conv.platform.includes('comment') && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700 uppercase tracking-wide shrink-0">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700 uppercase tracking-wide shrink-0">
                       Comment
                     </span>
                   )}
                   {attn?.badge && (
                     <span className={clsx(
-                      'text-[10px] font-bold px-1.5 py-0.5 rounded-md',
+                      'text-[11px] font-bold px-1.5 py-0.5 rounded-md',
                       attn.urgent ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                     )}>
                       {attn.badge}
@@ -1390,7 +1390,7 @@ const handleSend = async (retryOf = null) => {
                   )}
                   {handlerBadge(conv, { terse: true })}
                   {conv.unread_count > 0 && (
-                    <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-brand-500 text-black text-[10px] font-bold flex items-center justify-center shrink-0">
+                    <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-brand-500 text-black text-[11px] font-bold flex items-center justify-center shrink-0">
                       {conv.unread_count > 99 ? '99+' : conv.unread_count}
                     </span>
                   )}
@@ -1551,7 +1551,7 @@ const handleSend = async (retryOf = null) => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-1">
                       <MessageSquare size={11} className="text-gray-400 shrink-0" />
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                      <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
                         Replying to a comment on
                       </span>
                     </div>
@@ -1563,7 +1563,7 @@ const handleSend = async (retryOf = null) => {
                   {postContext.permalink && (
                     <button
                       onClick={() => window.open(postContext.permalink, '_blank')}
-                      className="shrink-0 self-center flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg px-2 py-1.5 transition-colors"
+                      className="shrink-0 self-center flex items-center gap-1 text-[12px] font-semibold text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg px-2 py-1.5 transition-colors"
                     >
                       <span className="hidden sm:inline">Open post</span>
                       <ExternalLink size={11} />
@@ -1680,7 +1680,7 @@ const handleSend = async (retryOf = null) => {
                     <Users size={13} />
                     <span className="hidden sm:inline">Assign</span>
                     {activeConv.assigned_to && (
-                      <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                      <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[11px] font-bold">
                         {activeConv.assignee?.full_name}
                       </span>
                     )}
@@ -1710,7 +1710,7 @@ const handleSend = async (retryOf = null) => {
                                   )}
                                 >
                                   <div className="font-medium">{agent.full_name}</div>
-                                  <div className="text-[11px] text-gray-400">{agent.email}</div>
+                                  <div className="text-[12px] text-gray-400">{agent.email}</div>
                                 </button>
                               ))}
                               
@@ -1763,7 +1763,7 @@ const handleSend = async (retryOf = null) => {
               {dayKey(msg.created_at) !== dayKey(arr[i - 1]?.created_at) && (
                 <div className="flex items-center gap-3 pt-2 pb-1 first:pt-0">
                   <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">
+                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">
                     {formatDayLabel(msg.created_at)}
                   </span>
                   <div className="flex-1 h-px bg-gray-200" />
@@ -2004,7 +2004,7 @@ const handleSend = async (retryOf = null) => {
               {replyContext && (
                 <div className="px-3 md:px-4 pt-2 pb-1.5 flex items-start gap-2 border-l border-brand-500 bg-brand-50/40 mx-2 sm:mx-3 md:mx-4 mt-2 rounded-tr-md">
                   <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wide mb-0.5">
+                    <p className="text-[11px] font-bold text-brand-600 uppercase tracking-wide mb-0.5">
                       Replying to {replyContext.from === 'user' ? 'Customer'
                         : replyContext.from === 'ai' ? 'AI'
                         : (firstName(replyContext.sender_user) || 'Agent')}
@@ -2029,23 +2029,23 @@ const handleSend = async (retryOf = null) => {
                     <AlertCircle size={13} className="text-red-600 shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-red-800">Message not sent</p>
-                      <p className="text-[11px] text-red-700 mt-0.5 leading-snug">
+                      <p className="text-[12px] text-red-700 mt-0.5 leading-snug">
                         {sendError.message || 'The reply could not be delivered.'}
                       </p>
-                      <p className="text-[11px] text-gray-600 mt-1 truncate italic">
+                      <p className="text-[12px] text-gray-600 mt-1 truncate italic">
                         “{sendError.content}”
                       </p>
                       <div className="flex items-center gap-2 mt-1.5">
                         <button
                           onClick={() => handleSend(sendError)}
                           disabled={sending}
-                          className="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md px-2.5 py-1 disabled:opacity-50"
+                          className="text-[12px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md px-2.5 py-1 disabled:opacity-50"
                         >
                           {sending ? 'Retrying…' : 'Retry'}
                         </button>
                         <button
                           onClick={() => setSendError(null)}
-                          className="text-[11px] font-semibold text-gray-500 hover:text-gray-800"
+                          className="text-[12px] font-semibold text-gray-500 hover:text-gray-800"
                         >
                           Discard
                         </button>
@@ -2235,7 +2235,7 @@ function ContextContent({ conv }) {
     <section className="rounded-xl border border-gray-200 bg-white overflow-hidden">
       <header className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-gray-50">
         {icon}
-        <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{title}</h3>
+        <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">{title}</h3>
       </header>
       <div className="px-3 py-2.5 space-y-3">{children}</div>
     </section>
@@ -2253,7 +2253,7 @@ function ContextContent({ conv }) {
       {/* Escalation sits above everything: it changes what you do next. */}
       {conv.handoff_reason && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
-          <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">
+          <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wide mb-1">
             Handed to a human
           </p>
           <p className="text-xs text-amber-800">
@@ -2271,27 +2271,27 @@ function ContextContent({ conv }) {
       {/* 1 — What the AI made of it */}
       <Card title="What the AI made of this" icon={<Bot size={11} className="text-gray-400" />}>
         <div>
-          <p className="text-[10px] text-gray-400 font-semibold mb-1.5">Detected intent</p>
+          <p className="text-[11px] text-gray-400 font-semibold mb-1.5">Detected intent</p>
           {intents.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {intents.map(i => (
                 <span
                   key={i}
-                  className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100 capitalize"
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100 capitalize"
                 >
                   {prettyIntent(i)}
                 </span>
               ))}
             </div>
           ) : (
-            <p className="text-[11px] text-gray-400 italic">
+            <p className="text-[12px] text-gray-400 italic">
               Nothing classified on the last customer message
             </p>
           )}
         </div>
 
         <div>
-          <p className="text-[10px] text-gray-400 font-semibold mb-1.5 flex items-center gap-1">
+          <p className="text-[11px] text-gray-400 font-semibold mb-1.5 flex items-center gap-1">
             <Search size={9} /> Searched the catalogue for
           </p>
           {searchedFor.length > 0 ? (
@@ -2305,24 +2305,24 @@ function ContextContent({ conv }) {
                 ))}
               </ul>
               {searchedFor.length > 4 && (
-                <p className="text-[10px] text-gray-400 mt-1">
+                <p className="text-[11px] text-gray-400 mt-1">
                   +{searchedFor.length - 4} more earlier in the thread
                 </p>
               )}
-              <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+              <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
                 If this does not match what they asked for, that is why the
                 recommendation was off.
               </p>
             </>
           ) : (
-            <p className="text-[11px] text-gray-400 italic">
+            <p className="text-[12px] text-gray-400 italic">
               No product search ran on this conversation
             </p>
           )}
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-1">
-          <span className="text-[10px] text-gray-400 font-semibold flex items-center gap-1">
+          <span className="text-[11px] text-gray-400 font-semibold flex items-center gap-1">
             <Zap size={9} /> Last AI reply took
           </span>
           <span className={clsx('text-xs font-bold', speedTone)}>
@@ -2340,7 +2340,7 @@ function ContextContent({ conv }) {
         </Row>
         {lastInbound?.text && (
           <div className="pt-1">
-            <p className="text-[10px] text-gray-400 font-semibold mb-1">Last thing they said</p>
+            <p className="text-[11px] text-gray-400 font-semibold mb-1">Last thing they said</p>
             <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">
               {lastInbound.text}
             </p>
@@ -2361,17 +2361,17 @@ function ContextContent({ conv }) {
                   className="block rounded-lg border border-gray-200 px-2.5 py-2 hover:border-gray-300 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold text-gray-500 capitalize truncate">
+                    <span className="text-[11px] font-semibold text-gray-500 capitalize truncate">
                       {(ec.channel || '').replace(/_/g, ' ')}
                     </span>
-                    <span className="text-[10px] text-gray-400 shrink-0">
+                    <span className="text-[11px] text-gray-400 shrink-0">
                       {ec.last_message_at ? formatDayLabel(ec.last_message_at) : ''}
                     </span>
                   </div>
                   <p className="text-xs text-gray-700 truncate mt-0.5">
                     {ec.last_message || 'No messages'}
                   </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">
+                  <p className="text-[11px] text-gray-400 mt-0.5">
                     {ec.message_count} message{ec.message_count === 1 ? '' : 's'}
                     {ec.status === 'resolved' ? ' · resolved' : ''}
                   </p>
@@ -2380,7 +2380,7 @@ function ContextContent({ conv }) {
             ))}
           </ul>
           {conv.earlier_conversations.length > 5 && (
-            <p className="text-[10px] text-gray-400">
+            <p className="text-[11px] text-gray-400">
               +{conv.earlier_conversations.length - 5} more
             </p>
           )}
@@ -2396,14 +2396,14 @@ function ContextContent({ conv }) {
         <Row label="Customer">{conv.handle || 'Unknown handle'}</Row>
         {conv.assignee ? (
           <div className="pt-1 border-t border-gray-100">
-            <p className="text-[10px] text-gray-400 font-semibold mb-1">Assigned to</p>
+            <p className="text-[11px] text-gray-400 font-semibold mb-1">Assigned to</p>
             <p className="text-xs text-gray-800 font-medium truncate">
               {conv.assignee.full_name}
             </p>
-            <p className="text-[10px] text-gray-400 truncate">{conv.assignee.email}</p>
+            <p className="text-[11px] text-gray-400 truncate">{conv.assignee.email}</p>
           </div>
         ) : (
-          <p className="text-[11px] text-gray-400 italic pt-1 border-t border-gray-100">
+          <p className="text-[12px] text-gray-400 italic pt-1 border-t border-gray-100">
             Not assigned to anyone yet
           </p>
         )}

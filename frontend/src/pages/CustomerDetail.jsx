@@ -96,7 +96,7 @@ function KpiCard({ icon: Icon, label, value, sub, accent }) {
         <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center mb-3 bg-gradient-to-br', accent)}>
           <Icon size={16} className="text-white" />
         </div>
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
         <p className="text-xl font-bold text-gray-900 mt-1 truncate">{formatted}</p>
         {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
       </div>
@@ -122,8 +122,8 @@ function RfmPillar({ icon: Icon, label, score, caption, scaleLabel }) {
         <div className={clsx('h-full rounded-full transition-all duration-700', c.bar)}
              style={{ width: `${(score / 5) * 100}%` }} />
       </div>
-      <p className="text-[11px] text-gray-500 leading-relaxed">{caption}</p>
-      <p className="text-[10px] text-gray-400 mt-1.5">{scaleLabel}</p>
+      <p className="text-[12px] text-gray-500 leading-relaxed">{caption}</p>
+      <p className="text-[11px] text-gray-400 mt-1.5">{scaleLabel}</p>
     </div>
   )
 }
@@ -338,12 +338,12 @@ export default function CustomerDetail() {
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate">{customer.name}</h1>
-                <span className={clsx('inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md', meta.bg, meta.color)}>
+                <span className={clsx('inline-flex items-center gap-1 text-[12px] font-bold px-2 py-0.5 rounded-md', meta.bg, meta.color)}>
                   <SegIcon size={10} />
                   {meta.label}
                 </span>
                 {customer.accepts_marketing && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-green-50 text-green-700 border border-green-100">
+                  <span className="inline-flex items-center gap-1 text-[12px] font-medium px-2 py-0.5 rounded-md bg-green-50 text-green-700 border border-green-100">
                     <CheckCircle2 size={10} />
                     Marketing opt-in
                   </span>
@@ -401,15 +401,15 @@ export default function CustomerDetail() {
           {customer.tags?.length > 0 && (
             <div className="mt-5 pt-4 border-t border-gray-100">
               <div className="flex items-start gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1 shrink-0">Tags</span>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mt-1 shrink-0">Tags</span>
                 <div className="flex flex-wrap gap-1.5">
                   {customer.tags.slice(0, 12).map((t, i) => (
-                    <span key={i} className="inline-flex items-center text-[11px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md">
+                    <span key={i} className="inline-flex items-center text-[12px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md">
                       {t}
                     </span>
                   ))}
                   {customer.tags.length > 12 && (
-                    <span className="text-[11px] text-gray-500 font-semibold px-1">
+                    <span className="text-[12px] text-gray-500 font-semibold px-1">
                       +{customer.tags.length - 12} more
                     </span>
                   )}
@@ -514,7 +514,7 @@ export default function CustomerDetail() {
             <div className="space-y-4 relative">
               {/* Measured. This one is a fact. */}
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Spent so far</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">Spent so far</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">KES {formatKES(customer.total_spent)}</p>
                 <p className="text-xs text-gray-400 mt-0.5">
                   across {formatCount(ltvProjection.orders)} order{ltvProjection.orders === 1 ? '' : 's'}
@@ -524,7 +524,7 @@ export default function CustomerDetail() {
 
               {/* Estimated. This one is clearly marked as a guess. */}
               <div className="border-t border-gray-100 pt-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
                   If they keep this up
                 </p>
                 {ltvProjection.enough ? (
@@ -533,14 +533,14 @@ export default function CustomerDetail() {
                       KES {formatKES(ltvProjection.annualLow)} – {formatKES(ltvProjection.annualHigh)}
                       <span className="text-xs font-semibold text-gray-400"> / year</span>
                     </p>
-                    <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                    <p className="text-[12px] text-gray-400 mt-1 leading-relaxed">
                       Estimated from their spend rate across {formatCount(ltvProjection.spanDays)} days
                       of buying. A range, not a forecast — it assumes nothing about
                       whether they come back.
                     </p>
                   </>
                 ) : (
-                  <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  <p className="text-[12px] text-gray-400 mt-1 leading-relaxed">
                     Not enough history to estimate.
                     {ltvProjection.needMoreOrders > 0
                       ? ` Needs at least ${LTV_MIN_ORDERS} orders — this customer has ${ltvProjection.orders}.`
@@ -586,11 +586,11 @@ export default function CustomerDetail() {
               <table className="w-full text-sm min-w-[720px]">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Order</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Date</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Items</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Status</th>
-                    <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-700 uppercase tracking-widest">Total</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Order</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Date</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Items</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Status</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -613,14 +613,14 @@ export default function CustomerDetail() {
                         <td className="px-3 py-3">
                           <p className="text-xs text-gray-900 font-medium">{o.items} item{o.items === 1 ? '' : 's'}</p>
                           {o.products?.length > 0 && (
-                            <p className="text-[11px] text-gray-500 truncate max-w-[260px]" title={o.products.join(', ')}>
+                            <p className="text-[12px] text-gray-500 truncate max-w-[260px]" title={o.products.join(', ')}>
                               {o.products.slice(0, 2).join(', ')}
                               {o.products.length > 2 && ` +${o.products.length - 2} more`}
                             </p>
                           )}
                         </td>
                         <td className="px-3 py-3">
-                          <span className={clsx('inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded', statusTone)}>
+                          <span className={clsx('inline-block text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded', statusTone)}>
                             {(o.status || 'unknown').replace(/_/g, ' ')}
                           </span>
                         </td>

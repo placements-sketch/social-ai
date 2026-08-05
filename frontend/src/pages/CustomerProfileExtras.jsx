@@ -13,7 +13,7 @@ function RfmTile({ label, value, Icon }) {
     <div className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-3 text-center">
       <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
         <Icon size={12} />
-        <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
+        <span className="text-[11px] font-bold uppercase tracking-widest">{label}</span>
       </div>
       <p className="text-2xl font-bold text-gray-900 leading-none">{value ?? '—'}</p>
       <div className="mt-2 h-1 rounded-full bg-gray-100 overflow-hidden">

@@ -55,7 +55,7 @@ const SHADOW = '0 1px 2px rgba(16,24,40,0.04), 0 8px 24px -12px rgba(16,24,40,0.
 
 function Eyebrow({ children, className }) {
   return (
-    <span className={clsx('text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400', className)}>
+    <span className={clsx('text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400', className)}>
       {children}
     </span>
   )
@@ -200,11 +200,11 @@ function TopProducts({ rows, emptyText = 'No product questions yet' }) {
                 : <Package size={18} className="text-brand-500" />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium text-gray-900 truncate group-hover:text-black">{p.name}</p>
+              <p className="text-[14px] font-medium text-gray-900 truncate group-hover:text-black">{p.name}</p>
               <p className="text-xs text-gray-500 mt-0.5">{p.price ? `KES ${Number(p.price).toLocaleString()}` : '—'}</p>
             </div>
             <div className="text-right shrink-0">
-              <p className={clsx('text-[15px] font-bold leading-none tabular-nums', i === 0 ? 'text-brand-600' : 'text-gray-900')}>{p.mentions}</p>
+              <p className={clsx('text-[16px] font-bold leading-none tabular-nums', i === 0 ? 'text-brand-600' : 'text-gray-900')}>{p.mentions}</p>
               <Eyebrow className="block mt-0.5">asks</Eyebrow>
             </div>
           </Row>
@@ -292,14 +292,14 @@ function Funnel({ conversion }) {
             <div className="flex items-baseline justify-between gap-3 mb-1.5">
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-gray-800 truncate">{s.label}</p>
-                <p className="text-[11px] text-gray-400 truncate">{s.help}</p>
+                <p className="text-[12px] text-gray-400 truncate">{s.help}</p>
               </div>
               <div className="text-right shrink-0">
                 <span className="text-sm font-bold text-gray-900 tabular-nums">
                   {s.value.toLocaleString()}
                 </span>
                 {i > 0 && (
-                  <span className="text-[11px] text-gray-400 ml-1.5 tabular-nums">
+                  <span className="text-[12px] text-gray-400 ml-1.5 tabular-nums">
                     {s.pct.toFixed(1)}%
                   </span>
                 )}
@@ -319,7 +319,7 @@ function Funnel({ conversion }) {
             {i === 0 && (
               <div className="flex items-center gap-2 pl-1 mt-2">
                 <div className="w-px h-4 bg-gray-200" />
-                <p className="text-[11px] text-gray-400 tabular-nums">
+                <p className="text-[12px] text-gray-400 tabular-nums">
                   {lost.toLocaleString()} didn’t order
                 </p>
               </div>
@@ -347,7 +347,7 @@ function Funnel({ conversion }) {
             >
               {value}
             </p>
-            <p className="text-[11px] text-gray-500 mt-1.5">{label}</p>
+            <p className="text-[12px] text-gray-500 mt-1.5">{label}</p>
           </div>
         ))}
       </div>
@@ -398,7 +398,7 @@ function VolumeChart({ rows, periodLabel }) {
       right={
         <div className="flex items-center gap-3">
           {!noData && (
-            <span className="text-[11px] font-semibold tabular-nums" style={{ color: ACCENT }}>
+            <span className="text-[12px] font-semibold tabular-nums" style={{ color: ACCENT }}>
               {coverage}% AI-handled
             </span>
           )}
@@ -476,7 +476,7 @@ function VolumeChart({ rows, periodLabel }) {
             <span className="font-semibold text-gray-700 tabular-nums">{totals.ai.toLocaleString()}</span>
           </span>
           {aiSilent && (
-            <span className="text-[11px] text-amber-600 font-medium">
+            <span className="text-[12px] text-amber-600 font-medium">
               The assistant answered nothing this period — check the master switch in Settings.
             </span>
           )}
@@ -558,7 +558,7 @@ function HeroBand({ kpis, weekly, periodLabel }) {
               {animated.toFixed(1)}<span style={{ fontSize: 34 }}>%</span>
             </span>
             <div className="flex flex-col gap-1">
-              <span className="text-[13px] text-gray-600 font-medium">success rate</span>
+              <span className="text-[14px] text-gray-600 font-medium">success rate</span>
               <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold', up ? 'text-emerald-600' : 'text-gray-500')}>
                 {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{Math.abs(diff).toFixed(1)}%
               </span>
@@ -714,7 +714,7 @@ export default function Analytics() {
                 <div role="listbox" className="absolute right-0 top-full mt-1.5 w-52 card rounded-xl shadow-2xl z-20 overflow-hidden py-1">
                   {PERIOD_GROUPS.map((group, gi) => (
                     <div key={group.title} className={clsx(gi > 0 && 'border-t border-gray-100 mt-1 pt-1')}>
-                      <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide">{group.title}</p>
+                      <p className="px-3 pt-1.5 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">{group.title}</p>
                       {group.options.map(({ key, label, days: d }) => (
                         <button
                           key={key}
@@ -726,7 +726,7 @@ export default function Analytics() {
                             period === key ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50')}
                         >
                           <span>{label}</span>
-                          <span className={clsx('text-[9px] font-bold uppercase tracking-wide',
+                          <span className={clsx('text-[10px] font-bold uppercase tracking-wide',
                             period === key ? 'text-white/50' : 'text-gray-300')}>
                             {d ? 'rolling' : 'calendar'}
                           </span>
@@ -816,7 +816,7 @@ export default function Analytics() {
               <thead>
                 <tr className="border-b border-gray-100">
                   {['Agent', 'Active', 'Assigned', 'Resolved', 'Human replies', 'AI on theirs'].map((h, i) => (
-                    <th key={h} className={clsx('py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
+                    <th key={h} className={clsx('py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -827,7 +827,7 @@ export default function Analytics() {
                     <tr key={a.agent?.id || name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-3">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-7 h-7 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center shrink-0">{name.charAt(0).toUpperCase()}</span>
+                          <span className="w-7 h-7 rounded-full bg-gray-900 text-white text-[12px] font-semibold flex items-center justify-center shrink-0">{name.charAt(0).toUpperCase()}</span>
                           <span className="font-medium text-gray-800 truncate">{name}</span>
                         </div>
                       </td>

@@ -89,7 +89,7 @@ export default function MetaDiagnostics({ embedded = false }) {
                   {res.ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
                   HTTP {res.status}
                 </div>
-                <pre className="text-[11px] bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap break-all">
+                <pre className="text-[12px] bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap break-all">
                   {JSON.stringify(res.body, null, 2)}
                 </pre>
               </div>

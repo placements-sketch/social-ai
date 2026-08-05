@@ -204,17 +204,17 @@ export default function InstagramConnections() {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[13px] font-semibold text-gray-900 truncate">
+                  <span className="text-[14px] font-semibold text-gray-900 truncate">
                     {c.ig_username ? `@${c.ig_username}` : (c.page_name || c.ig_login_user_id || `Connection ${c.id}`)}
                   </span>
                   <span className={clsx(
-                    'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md',
+                    'inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md',
                     meta.cls
                   )}>
                     <StatusIcon size={10} />
                     {meta.label}
                   </span>
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600">
+                  <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600">
                     {SURFACE[c.surface] || c.surface}
                   </span>
                 </div>

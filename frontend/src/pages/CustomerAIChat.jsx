@@ -26,7 +26,7 @@ function DataTable({ rows }) {
         <thead>
           <tr className="bg-gray-50 border-b border-gray-200">
             {keys.map(k => (
-              <th key={k} className="text-left px-2.5 py-1.5 text-[10px] font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">{label(k)}</th>
+              <th key={k} className="text-left px-2.5 py-1.5 text-[11px] font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">{label(k)}</th>
             ))}
           </tr>
         </thead>
@@ -114,7 +114,7 @@ export default function CustomerAIChat() {
               </span>
               <div>
                 <p className="text-sm font-bold text-gray-900 leading-none">Ask about your customers</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">Spend, segments, cities & more</p>
+                <p className="text-[12px] text-gray-500 mt-0.5">Spend, segments, cities & more</p>
               </div>
             </div>
             <button onClick={() => setOpen(false)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">

@@ -221,7 +221,7 @@ export default function AISettings({ embedded = false }) {
             Reset now lives at the foot of the page with the other irreversible
             things. */}
         {dirty && (
-          <span className="text-[11px] font-semibold text-amber-600 whitespace-nowrap">
+          <span className="text-[12px] font-semibold text-amber-600 whitespace-nowrap">
             Unsaved changes
           </span>
         )}
@@ -280,7 +280,7 @@ export default function AISettings({ embedded = false }) {
           <div key={key} className="space-y-2">
             <div className="flex items-end justify-between gap-3">
               <label className="text-xs font-semibold text-gray-900">{label}</label>
-              <span className="text-[11px] text-gray-500 text-right">{says(formData[key])}</span>
+              <span className="text-[12px] text-gray-500 text-right">{says(formData[key])}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 w-10">{left}</span>
@@ -313,7 +313,7 @@ export default function AISettings({ embedded = false }) {
               The standing instructions sent before every reply, on every channel.
             </p>
           </div>
-          <span className="text-[10px] font-bold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 shrink-0">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 shrink-0">
             Affects every reply
           </span>
         </div>
@@ -362,7 +362,7 @@ export default function AISettings({ embedded = false }) {
       <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-bold text-red-800">Reset to defaults</p>
-          <p className="text-[11px] text-red-700 mt-0.5 leading-relaxed">
+          <p className="text-[12px] text-red-700 mt-0.5 leading-relaxed">
             Discards your tone, sliders, system prompt and response rules, and puts
             the assistant back to how it shipped. There is no undo.
           </p>
@@ -370,7 +370,7 @@ export default function AISettings({ embedded = false }) {
         <button
           onClick={handleReset}
           disabled={saving}
-          className="shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+          className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
         >
           <RotateCcw size={12} className="inline mr-1 -mt-px" /> Reset
         </button>
@@ -383,7 +383,7 @@ export default function AISettings({ embedded = false }) {
           <div className="card glass-modal rounded-xl px-4 py-3 flex items-center justify-between gap-4 shadow-2xl">
             <div className="min-w-0">
               <p className="text-xs font-bold text-gray-900">Unsaved changes</p>
-              <p className="text-[11px] text-gray-500 truncate">
+              <p className="text-[12px] text-gray-500 truncate">
                 {changedFields.length ? changedFields.join(', ') : 'settings'}
               </p>
             </div>
@@ -391,7 +391,7 @@ export default function AISettings({ embedded = false }) {
               <button
                 onClick={() => setFormData(saved)}
                 disabled={saving}
-                className="text-[11px] font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                className="text-[12px] font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 disabled:opacity-50"
               >
                 Discard
               </button>

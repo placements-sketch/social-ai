@@ -567,7 +567,7 @@ export default function TopBar({ onMenuClick }) {
                       onClick={() => clearAlerts(null)}
                       disabled={clearingAlerts}
                       title="Mark everything here as seen. Nothing is deleted — a repeat failure comes back."
-                      className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300 disabled:opacity-50"
+                      className="text-[12px] font-semibold px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300 disabled:opacity-50"
                     >
                       {clearingAlerts ? 'Clearing…' : 'Clear all'}
                     </button>
@@ -589,10 +589,10 @@ export default function TopBar({ onMenuClick }) {
                       <span className={clsx('w-1.5 h-1.5 rounded-full mt-1.5 shrink-0',
                         iss.level === 'error' || iss.level === 'critical' ? 'bg-red-500' : 'bg-amber-500')} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-bold text-gray-700 font-mono truncate">{iss.source}</p>
+                        <p className="text-[12px] font-bold text-gray-700 font-mono truncate">{iss.source}</p>
                         <p className="text-xs text-gray-600 mt-0.5 leading-snug break-words">{iss.message}</p>
                         {iss.at && (
-                          <p className="text-[10px] text-gray-400 mt-1">
+                          <p className="text-[11px] text-gray-400 mt-1">
                             {new Date(iss.at + 'Z').toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         )}
@@ -679,7 +679,7 @@ export default function TopBar({ onMenuClick }) {
                   groupNotifsByDay(notifications).map(group => (
                     <div key={group.label}>
                       <div className="px-4 py-2 bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                           {group.label}
                         </p>
                       </div>
@@ -725,8 +725,8 @@ export default function TopBar({ onMenuClick }) {
               <div className="fixed right-4 top-16 w-52 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                   <p className="text-xs font-bold text-gray-900">{user?.full_name}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{user?.email}</p>
-                  <span className="inline-block mt-1.5 text-[10px] font-semibold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
+                  <p className="text-[12px] text-gray-500 mt-0.5">{user?.email}</p>
+                  <span className="inline-block mt-1.5 text-[11px] font-semibold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
                 </div>
                 <div className="py-1">
                   <button onClick={() => { setShowUserMenu(false); navigate('/profile') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors">

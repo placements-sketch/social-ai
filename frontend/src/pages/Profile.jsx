@@ -140,7 +140,7 @@ export default function Profile() {
           <div className="absolute inset-0" style={{
             background: 'radial-gradient(120% 140% at 82% -20%, rgba(255,255,255,0.42), transparent 58%)',
           }} />
-          <span className="absolute top-4 right-5 text-[10px] font-bold uppercase tracking-[0.14em] text-black/45">
+          <span className="absolute top-4 right-5 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">
             Shop Zetu
           </span>
         </div>
@@ -166,7 +166,7 @@ export default function Profile() {
                   {user?.full_name || 'Your profile'}
                 </h1>
                 {user?.role && (
-                  <span className="text-[10px] font-bold uppercase tracking-wide bg-gray-900 text-white px-2 py-0.5 rounded-full">
+                  <span className="text-[11px] font-bold uppercase tracking-wide bg-gray-900 text-white px-2 py-0.5 rounded-full">
                     {user.role}
                   </span>
                 )}
@@ -177,7 +177,7 @@ export default function Profile() {
             {/* Your own presence, so the dot on the Users page is explicable
                 rather than mysterious — this is what colleagues see of you. */}
             <div className="flex items-center gap-2 shrink-0 sm:pb-1.5">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 bg-gray-100 rounded-full pl-2 pr-2.5 py-1">
+              <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-gray-600 bg-gray-100 rounded-full pl-2 pr-2.5 py-1">
                 <PresenceDot status="online" size="sm" />
                 Online now
               </span>
@@ -188,14 +188,14 @@ export default function Profile() {
               text; as labelled cells they can actually be read. */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
             <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Member since</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Member since</p>
               <p className="text-sm font-semibold text-gray-900 mt-0.5 flex items-center gap-1.5">
                 <Calendar size={13} className="text-brand-500 shrink-0" />
                 {memberSince || '—'}
               </p>
             </div>
             <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 sm:col-span-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
                 What your role allows
               </p>
               <p className="text-xs text-gray-600 mt-1 leading-relaxed">
@@ -215,7 +215,7 @@ export default function Profile() {
           </span>
           <div>
             <h2 className="text-sm font-bold text-gray-900 leading-tight">Profile details</h2>
-            <p className="text-[11px] text-gray-400">Your name and sign-in email.</p>
+            <p className="text-[12px] text-gray-400">Your name and sign-in email.</p>
           </div>
         </div>
         <div className="space-y-4">
@@ -244,7 +244,7 @@ export default function Profile() {
           </span>
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-gray-900 leading-tight">Password</h2>
-            <p className="text-[11px] text-gray-400 flex items-center gap-1">
+            <p className="text-[12px] text-gray-400 flex items-center gap-1">
               <ShieldCheck size={11} className="shrink-0" /> Requires your current password
             </p>
           </div>
@@ -267,7 +267,7 @@ export default function Profile() {
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                   <div className={`h-full rounded-full transition-all ${strength.color}`} style={{ width: strength.width }} />
                 </div>
-                <p className="text-[10px] font-medium text-gray-400 mt-1">Strength: {strength.label}</p>
+                <p className="text-[11px] font-medium text-gray-400 mt-1">Strength: {strength.label}</p>
               </div>
             )}
           </div>

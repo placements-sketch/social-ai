@@ -4,6 +4,26 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // Text was running small across the whole app: 435 uses of text-xs and
+      // 189 of text-sm, at Tailwind's default 12px and 14px, are what most of
+      // the interface is actually set in.
+      //
+      // Redefining the scale here rather than bumping the root font size,
+      // because Tailwind's SPACING is also in rem — moving the root would
+      // scale every padding, gap and fixed width with it and reflow layouts
+      // that are already tuned. This changes type only.
+      //
+      // Line heights grow with it. Keeping text-xs on its default 1rem leading
+      // at 13px would leave it tighter than it was at 12px, which reads as
+      // cramped even though the letters got bigger.
+      //
+      // lg and above are untouched — headings and page titles were never the
+      // complaint, and growing them too would push card titles onto two lines.
+      fontSize: {
+        xs:   ['0.8125rem', { lineHeight: '1.125rem' }],  // 13px, was 12
+        sm:   ['0.9375rem', { lineHeight: '1.375rem' }],  // 15px, was 14
+        base: ['1.0625rem', { lineHeight: '1.625rem' }],  // 17px, was 16
+      },
       colors: {
         // Shop Zetu lime. 500 is the exact brand value (#99e600) so the
         // existing brand-500 usages land on-brand without being touched.

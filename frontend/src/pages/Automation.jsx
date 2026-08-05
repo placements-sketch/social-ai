@@ -350,19 +350,19 @@ export default function Automation({ embedded = false }) {
                           the UI just reports it. */}
                       {rule.execution && !rule.execution.runnable && (
                         <span title={rule.execution.reason}
-                              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+                              className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
                           Never runs
                         </span>
                       )}
                       {rule.execution?.no_op && (
                         <span title={rule.execution.reason}
-                              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 border border-gray-200">
+                              className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 border border-gray-200">
                           No effect
                         </span>
                       )}
                     </div>
                     {rule.execution && (!rule.execution.runnable || rule.execution.no_op) && (
-                      <p className="text-[11px] text-amber-700 mb-2 pl-5">{rule.execution.reason}</p>
+                      <p className="text-[12px] text-amber-700 mb-2 pl-5">{rule.execution.reason}</p>
                     )}
 
                     <div className="space-y-1.5 sm:space-y-2">
@@ -392,7 +392,7 @@ export default function Automation({ embedded = false }) {
                   >
                     <Trash2 size={13} />
                   </button>
-                  <span className={clsx('text-[10px] font-bold uppercase tracking-wide hidden sm:inline',
+                  <span className={clsx('text-[11px] font-bold uppercase tracking-wide hidden sm:inline',
                     rule.enabled ? 'text-gray-400' : 'text-gray-400')}>
                     {rule.enabled ? 'On' : 'Off'}
                   </span>

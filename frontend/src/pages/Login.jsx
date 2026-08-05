@@ -36,12 +36,12 @@ export default function Login() {
   const emailRef = useRef(null)
   const codeRef = useRef(null)
 
-  // 'password' | 'code'. Password stays the default: it is what everyone
-  // already has, and a code costs a round trip through an inbox.
-  const [mode, setMode] = useState('password')
+  // 'code' | 'password'. The emailed code leads: nothing to remember, nothing
+  // to leak, and it is the path we want people to form a habit around.
+  // Passwords remain one click away and fully supported — see switchMode.
+  const [mode, setMode] = useState('code')
   const [codeSent, setCodeSent] = useState(false)
   const [code, setCode] = useState('')
-  const [notice, setNotice] = useState('')
   // Seconds until "Send again" is live. Mirrors the server's cooldown so the
   // button is disabled rather than silently doing nothing — the server's reply
   // is identical whether it sent a code or refused, by design.
@@ -64,7 +64,6 @@ export default function Login() {
   const switchMode = (next) => {
     setMode(next)
     setError('')
-    setNotice('')
     setCode('')
     setCodeSent(false)
     setPassword('')
@@ -101,7 +100,6 @@ export default function Login() {
       // way. Anything else would leak who has an account here.
       setCodeSent(true)
       setCooldown(60)
-      setNotice(data.message || 'If that address has an account, a code is on its way.')
     } catch (err) {
       setError(err.message)
     }
@@ -153,7 +151,7 @@ export default function Login() {
           <img src={szLogo} alt="" aria-hidden="true" className="w-9 h-9" />
           <div>
             <p className="text-sm font-bold leading-tight tracking-tight">Shop Zetu</p>
-            <p className="text-[11px] text-white/50 mt-0.5">Social AI</p>
+            <p className="text-[12px] text-white/50 mt-0.5">Social AI</p>
           </div>
         </div>
 
@@ -168,7 +166,7 @@ export default function Login() {
           </p>
         </div>
 
-        <p className="relative text-[11px] text-white/30">
+        <p className="relative text-[12px] text-white/30">
           © {new Date().getFullYear()} Shop Zetu
         </p>
       </aside>
@@ -182,13 +180,30 @@ export default function Login() {
             <img src={szLogo} alt="" aria-hidden="true" className="w-8 h-8" />
             <div>
               <p className="text-sm font-bold leading-tight tracking-tight">Shop Zetu</p>
-              <p className="text-[11px] text-white/50 mt-0.5">Social AI</p>
+              <p className="text-[12px] text-white/50 mt-0.5">Social AI</p>
             </div>
           </div>
 
-          <h1 className="text-2xl font-bold tracking-tight">Sign in</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {codeSent ? 'Check your email' : 'Sign in'}
+          </h1>
+          {/* The subtitle carries the instruction for whichever step you are
+              on. A single fixed line would leave the code screen — the one
+              place people genuinely need telling what to do — explaining the
+              thing they have already done. */}
           <p className="text-sm text-white/50 mt-1.5">
-            Use the account your administrator set up for you.
+            {codeSent ? (
+              // Hedged, not "we sent you a code" — the server deliberately
+              // behaves identically for an address with no account, and a
+              // confident claim here would both be untrue in that case and
+              // contradict itself against the wording below.
+              <>If <span className="text-white/80 font-medium">{email}</span> has an account,
+                a 6-digit code is on its way. It expires in 10 minutes.</>
+            ) : mode === 'code' ? (
+              'Enter your work email and we\'ll send you a 6-digit code.'
+            ) : (
+              'Use the account your administrator set up for you.'
+            )}
           </p>
 
           {/* aria-live so the failure is spoken, not just coloured. */}
@@ -203,13 +218,6 @@ export default function Login() {
               </div>
             )}
           </div>
-
-          {notice && !error && (
-            <div className="mt-6 flex items-start gap-2.5 rounded-xl border border-brand-500/25 bg-brand-500/10 px-3.5 py-3">
-              <Mail size={15} className="text-brand-500 shrink-0 mt-px" />
-              <p className="text-xs text-brand-100 leading-relaxed">{notice}</p>
-            </div>
-          )}
 
           {/* ── Sign in with an emailed code ──────────────────────────────
               Two steps in one form rather than two routes: the email is
@@ -252,7 +260,7 @@ export default function Login() {
                       type="button"
                       onClick={handleRequestCode}
                       disabled={cooldown > 0 || isLoading}
-                      className="text-[11px] font-semibold text-white/40 hover:text-brand-500 transition-colors disabled:hover:text-white/40 disabled:opacity-60"
+                      className="text-[12px] font-semibold text-white/40 hover:text-brand-500 transition-colors disabled:hover:text-white/40 disabled:opacity-60"
                     >
                       {cooldown > 0 ? `Send again in ${cooldown}s` : 'Send again'}
                     </button>
@@ -284,8 +292,8 @@ export default function Login() {
                   />
                   <button
                     type="button"
-                    onClick={() => { setCodeSent(false); setCode(''); setNotice(''); setError('') }}
-                    className="mt-2 text-[11px] font-semibold text-white/35 hover:text-white/70 transition-colors"
+                    onClick={() => { setCodeSent(false); setCode(''); setError('') }}
+                    className="mt-2 text-[12px] font-semibold text-white/35 hover:text-white/70 transition-colors"
                   >
                     Use a different email address
                   </button>
@@ -347,7 +355,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => navigate('/forgot-password')}
-                  className="text-[11px] font-semibold text-white/40 hover:text-brand-500 transition-colors"
+                  className="text-[12px] font-semibold text-white/40 hover:text-brand-500 transition-colors"
                 >
                   Forgot password?
                 </button>
@@ -407,7 +415,7 @@ export default function Login() {
             <button
               type="button"
               onClick={() => switchMode(mode === 'password' ? 'code' : 'password')}
-              className="text-[11px] font-semibold text-white/40 hover:text-brand-500 transition-colors"
+              className="text-[12px] font-semibold text-white/40 hover:text-brand-500 transition-colors"
             >
               {mode === 'password'
                 ? 'Email me a sign-in code instead'
@@ -416,7 +424,7 @@ export default function Login() {
             <span className="h-px flex-1 bg-white/[0.07]" />
           </div>
 
-          <p className="mt-8 pt-6 border-t border-white/[0.07] text-[11px] text-white/25 text-center">
+          <p className="mt-8 pt-6 border-t border-white/[0.07] text-[12px] text-white/25 text-center">
             Authorised personnel only. Activity on this platform is logged.
           </p>
         </div>

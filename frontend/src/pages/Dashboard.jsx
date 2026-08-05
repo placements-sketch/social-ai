@@ -148,9 +148,9 @@ const channelIcon = (ch) => {
   if (ch === 'instagram_dm' || ch === 'instagram_comment') return <Instagram size={13} className="text-pink-500" />
   if (ch === 'whatsapp')       return <Smartphone size={13} className="text-green-500" />
   if (ch === 'facebook_dm' || ch === 'facebook_comment')
-    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-white font-black text-[9px]" style={{ background: '#1877F2' }}>f</span>
+    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-white font-black text-[10px]" style={{ background: '#1877F2' }}>f</span>
   if (ch === 'tiktok_dm' || ch === 'tiktok_comment')
-    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded font-black text-[9px]" style={{ background: '#000000', color: '#ffffff' }}>♪</span>
+    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded font-black text-[10px]" style={{ background: '#000000', color: '#ffffff' }}>♪</span>
   if (ch === 'shopify')        return <ShoppingBag size={13} className="text-emerald-500" />
   if (ch === 'alert')          return <AlertTriangle size={13} className="text-amber-500" />
   return <Bot size={13} className="text-brand-500" />
@@ -289,16 +289,16 @@ function StatCard({ label, icon: Icon, color, bg, kpiKey, isPercentage, goodDire
           <Icon size={18} className={color} />
         </div>
         {thinSample ? (
-          <span className="text-[10px] font-semibold whitespace-nowrap text-gray-400">—</span>
+          <span className="text-[11px] font-semibold whitespace-nowrap text-gray-400">—</span>
         ) : (
-          <span className={`text-[10px] font-semibold whitespace-nowrap ${colorClass}`}>
+          <span className={`text-[11px] font-semibold whitespace-nowrap ${colorClass}`}>
             {arrow} {changeDisplay}
           </span>
         )}
       </div>
       <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mt-2 tabular-nums truncate">{displayValue}</p>
       <p className="text-sm text-gray-500 font-semibold truncate">{label}</p>
-      <p className="text-[10px] text-gray-400 truncate">
+      <p className="text-[11px] text-gray-400 truncate">
         {thinSample ? `${sample} convos · too few to compare` : `vs ${periodLabel}`}
       </p>
     </div>
@@ -776,7 +776,7 @@ export default function Dashboard() {
                 <div role="listbox" className="absolute right-0 sm:left-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-2xl border border-gray-200 z-20 overflow-hidden py-1">
                   {PERIOD_GROUPS.map((group, gi) => (
                     <div key={group.title} className={clsx(gi > 0 && 'border-t border-gray-100 mt-1 pt-1')}>
-                      <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                      <p className="px-3 pt-1.5 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-wide">
                         {group.title}
                       </p>
                       {group.options.map(({ key, label, days }) => (
@@ -793,7 +793,7 @@ export default function Dashboard() {
                           <span>{label}</span>
                           {/* Names the family, so "This month" vs "Last 30
                               days" isn't left to guesswork. */}
-                          <span className={clsx('text-[9px] font-bold uppercase tracking-wide',
+                          <span className={clsx('text-[10px] font-bold uppercase tracking-wide',
                             period === key ? 'text-white/50' : 'text-gray-300')}>
                             {days ? 'rolling' : 'calendar'}
                           </span>
@@ -856,7 +856,7 @@ export default function Dashboard() {
       {period === 'custom' && (
         <div className="card p-4 flex flex-col sm:flex-row sm:items-end gap-3">
           <div className="flex-1 min-w-0">
-            <label className="block text-[11px] font-semibold text-gray-700 mb-1.5">From</label>
+            <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">From</label>
             <input
               type="date"
               value={customStart}
@@ -866,7 +866,7 @@ export default function Dashboard() {
             />
           </div>
           <div className="flex-1 min-w-0">
-            <label className="block text-[11px] font-semibold text-gray-700 mb-1.5">To</label>
+            <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">To</label>
             <input
               type="date"
               value={customEnd}
@@ -883,7 +883,7 @@ export default function Dashboard() {
           >
             Just today
           </button>
-          <p className="text-[11px] text-gray-400 sm:ml-1 sm:pb-2.5 shrink-0">
+          <p className="text-[12px] text-gray-400 sm:ml-1 sm:pb-2.5 shrink-0">
             {rangeError
               ? <span className="text-red-600 font-medium">{rangeError}</span>
               : customReady
@@ -917,7 +917,7 @@ export default function Dashboard() {
             <p className="text-xs font-bold text-gray-800">
               No activity in {(PERIOD_LABELS[period] || 'this period').toLowerCase()}
             </p>
-            <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+            <p className="text-[12px] text-gray-500 mt-0.5 leading-snug">
               {ROLLING_DAYS[period]
                 ? 'Nothing arrived in this window. Earlier activity is still there.'
                 : 'Calendar periods restart — this one covers from its first day to now, so early in a period it can be empty while earlier activity is untouched.'}
@@ -928,7 +928,7 @@ export default function Dashboard() {
                   which is the situation this notice exists for. */}
               {['d7', 'd30'].filter(k => k !== period).map(k => (
                 <button key={k} onClick={() => setPeriod(k)}
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white">
+                  className="text-[12px] font-semibold px-2.5 py-1 rounded-lg border border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white">
                   Show {PERIOD_LABELS[k].toLowerCase()}
                 </button>
               ))}
@@ -985,7 +985,7 @@ export default function Dashboard() {
                   key={key}
                   onClick={() => setSelectedChannel(key)}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors',
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-semibold transition-colors',
                     active ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'
                   )}
                 >
@@ -1052,7 +1052,7 @@ export default function Dashboard() {
           </ResponsiveContainer>
 
           {/* Legend — mirrors whatever the selector is currently showing */}
-          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5 mt-5 text-[11px]">
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5 mt-5 text-[12px]">
             {chartSeries.map(({ dataKey, name, stroke, dash }) => (
               <div key={dataKey} className="flex items-center gap-1.5">
                 <svg width="16" height="2">
@@ -1080,10 +1080,10 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2 min-w-0">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 truncate">{name}</span>
+                    <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-600 truncate">{name}</span>
                   </span>
                   <span className={clsx(
-                    'text-[10px] font-semibold tabular-nums shrink-0',
+                    'text-[11px] font-semibold tabular-nums shrink-0',
                     delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-600' : 'text-gray-400'
                   )}>
                     {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta)}
@@ -1091,9 +1091,9 @@ export default function Dashboard() {
                 </div>
                 <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums">{row.inbound}</p>
                 <div className="flex items-center justify-between gap-2 mt-1">
-                  <span className="text-[11px] text-gray-400 truncate">inbound · {periodLabel}</span>
+                  <span className="text-[12px] text-gray-400 truncate">inbound · {periodLabel}</span>
                   {status.label !== 'Healthy' && (
-                    <span className={clsx('shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold', status.cls)}>
+                    <span className={clsx('shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold', status.cls)}>
                       {status.label}
                     </span>
                   )}
@@ -1179,7 +1179,7 @@ export default function Dashboard() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="section-title">AI Performance</p>
-              <span className="text-[10px] font-semibold text-gray-400">{periodLabel}</span>
+              <span className="text-[11px] font-semibold text-gray-400">{periodLabel}</span>
             </div>
             {(() => {
               const kpis = analyticsData?.kpis || {}
@@ -1248,7 +1248,7 @@ export default function Dashboard() {
                           </p>
                           {showTrend && (
                             <span className={clsx(
-                              'text-[11px] font-semibold',
+                              'text-[12px] font-semibold',
                               delta > 0 ? 'text-green-600' : 'text-red-600'
                             )}>
                               {delta > 0 ? '↑' : '↓'} {Math.abs(relDelta).toFixed(0)}%
@@ -1273,7 +1273,7 @@ export default function Dashboard() {
                         as two unrelated facts. One stem, both facts hanging
                         off it, so the relationship is impossible to misread. */}
                     {handled > 0 && (
-                      <div className="mt-3 text-[11px]">
+                      <div className="mt-3 text-[12px]">
                         <p className="text-gray-500">
                           Of the <span className="font-bold text-gray-900 tabular-nums">{handled}</span>
                           {' '}conversation{handled === 1 ? '' : 's'} the AI was on duty for:
@@ -1314,7 +1314,7 @@ export default function Dashboard() {
                     ].map(({ label, value, color }) => (
                       <div key={label} className="flex flex-col">
                         <span className={clsx('text-lg font-bold leading-none', color)}>{value}</span>
-                        <span className="text-[11px] text-gray-500 mt-1">{label}</span>
+                        <span className="text-[12px] text-gray-500 mt-1">{label}</span>
                       </div>
                     ))}
                   </div>
@@ -1326,7 +1326,7 @@ export default function Dashboard() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="section-title">Conversion Rate</p>
-              <span className="text-[10px] font-semibold text-gray-400">{periodLabel}</span>
+              <span className="text-[11px] font-semibold text-gray-400">{periodLabel}</span>
             </div>
             {(() => {
               const conv = analyticsData?.conversion || {}
@@ -1372,11 +1372,11 @@ export default function Dashboard() {
                       {conv.revenue_currency || 'KES'} {Math.round(revenue).toLocaleString()}
                     </span>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1">
+                  <p className="text-[11px] text-gray-400 mt-1">
                     {orders} attributed order{orders === 1 ? '' : 's'} · excl. tax
                   </p>
                   {conv.revenue_excluded_orders > 0 && (
-                    <p className="text-[10px] text-amber-600 font-medium mt-1">
+                    <p className="text-[11px] text-amber-600 font-medium mt-1">
                       {conv.revenue_excluded_orders} order{conv.revenue_excluded_orders === 1 ? '' : 's'} in
                       another currency not included
                     </p>
@@ -1454,14 +1454,14 @@ export default function Dashboard() {
                             </div>
                             <div className="min-w-0">
                               <h4 className="font-semibold text-gray-900 text-sm truncate">{meta.name}</h4>
-                              <p className="text-[11px] text-gray-500">
+                              <p className="text-[12px] text-gray-500">
                                 {c.share}% of inbound
                               </p>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-xl font-bold text-gray-900 leading-none tabular-nums">{c.inbound}</p>
-                            <p className="text-[11px] mt-1 tabular-nums">
+                            <p className="text-[12px] mt-1 tabular-nums">
                               <span className={clsx(
                                 'font-semibold',
                                 delta > 0 ? 'text-green-600' : delta < 0 ? 'text-red-600' : 'text-gray-400'
@@ -1481,7 +1481,7 @@ export default function Dashboard() {
                               <div style={{ width: `${aiShare}%`, background: meta.color }} />
                               <div style={{ width: `${100 - aiShare}%`, background: '#99e600' }} />
                             </div>
-                            <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500 tabular-nums">
+                            <div className="flex items-center gap-3 mt-1.5 text-[12px] text-gray-500 tabular-nums">
                               {/* Spelled out as REPLIES because the block
                                   below counts conversations — two units, one
                                   row, was exactly what made the old layout
@@ -1505,11 +1505,11 @@ export default function Dashboard() {
                             it were about messages. This spells out both. */}
                         {c.handled_convos > 0 && (
                           <div className="mb-3 rounded-xl bg-gray-50 px-3 py-2.5">
-                            <p className="text-[11px] text-gray-500 mb-1.5">
+                            <p className="text-[12px] text-gray-500 mb-1.5">
                               <span className="font-bold text-gray-900 tabular-nums">{c.handled_convos}</span>
                               {' '}conversation{c.handled_convos === 1 ? '' : 's'} the AI was on duty for
                             </p>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
                               <span className="flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                                 <span className="font-bold text-gray-900 tabular-nums">{c.answered_convos}</span>
@@ -1543,7 +1543,7 @@ export default function Dashboard() {
                                   {Object.entries(c.no_reply_reasons || {})
                                     .sort((a, b) => b[1] - a[1])
                                     .map(([reason, n]) => (
-                                      <li key={reason} className="text-[11px] text-gray-500 flex items-start gap-1.5">
+                                      <li key={reason} className="text-[12px] text-gray-500 flex items-start gap-1.5">
                                         <span className="text-gray-300">↳</span>
                                         <span>
                                           <span className="font-bold text-gray-900 tabular-nums">{n}</span>
@@ -1565,22 +1565,22 @@ export default function Dashboard() {
                                         className="flex items-center gap-2 rounded-lg px-2 py-1.5 -mx-1 hover:bg-white transition-colors group"
                                       >
                                         <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                                        <span className="text-[11px] font-semibold text-gray-900 truncate">
+                                        <span className="text-[12px] font-semibold text-gray-900 truncate">
                                           @{r.handle || `conversation ${r.conversation_id}`}
                                         </span>
-                                        <span className="text-[10px] text-gray-400 shrink-0 ml-auto">
+                                        <span className="text-[11px] text-gray-400 shrink-0 ml-auto">
                                           {r.last_message_at
                                             ? new Date(r.last_message_at + 'Z').toLocaleDateString('en-KE',
                                                 { day: 'numeric', month: 'short' })
                                             : ''}
                                         </span>
-                                        <span className="text-[10px] text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                        <span className="text-[11px] text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                           open →
                                         </span>
                                       </a>
                                     ))}
                                     {c.no_reply_convos > c.no_reply_sample.length && (
-                                      <p className="text-[10px] text-gray-400 px-2 pt-0.5">
+                                      <p className="text-[11px] text-gray-400 px-2 pt-0.5">
                                         + {c.no_reply_convos - c.no_reply_sample.length} more
                                       </p>
                                     )}
@@ -1595,7 +1595,7 @@ export default function Dashboard() {
                             here too — dropped, because the breakdown above now
                             says the same thing in whole conversations, without
                             a percentage to misread. */}
-                        <div className="flex items-center gap-5 text-[11px]">
+                        <div className="flex items-center gap-5 text-[12px]">
                           <div>
                             <span className="font-bold text-gray-900 tabular-nums">
                               {c.avg_response_time_ms == null
@@ -1614,7 +1614,7 @@ export default function Dashboard() {
                             <span className="text-gray-500"> escalated</span>
                           </div>
                           <span className={clsx(
-                            'ml-auto shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                            'ml-auto shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold',
                             status.cls
                           )}>
                             {status.label}

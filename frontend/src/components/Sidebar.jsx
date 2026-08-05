@@ -155,7 +155,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
           <img src={szLogo} alt="Shop Zetu" className="w-8 h-8 lg:w-9 lg:h-9 shrink-0" />
           <div className={clsx(isMobile ? 'block' : (collapsed ? 'md:hidden' : 'block'))}>
             <p className="text-sm font-bold text-white leading-tight tracking-tight">Shop Zetu</p>
-            <p className="text-[11px] text-gray-300 mt-0.5">Social AI</p>
+            <p className="text-[12px] text-gray-300 mt-0.5">Social AI</p>
           </div>
         </div>
 
@@ -189,7 +189,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
               )}
 
               {!collapsed && (
-                <p className="text-[11px] font-bold text-gray-300/90 uppercase tracking-[0.12em] px-3 mb-1.5 lg:mb-2">
+                <p className="text-[12px] font-bold text-gray-300/90 uppercase tracking-[0.12em] px-3 mb-1.5 lg:mb-2">
                   {groupName}
                 </p>
               )}
@@ -237,8 +237,8 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
                         // noise.
                         title={to === '/messages' ? badgeTitle(badgeSplit) : undefined}
                         className={clsx(
-                          'w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
-                          isMobile ? 'ml-auto' : (collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[8px] hidden md:flex' : 'ml-auto')
+                          'w-5 h-5 rounded-full bg-brand-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0',
+                          isMobile ? 'ml-auto' : (collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[9px] hidden md:flex' : 'ml-auto')
                         )}
                       >
                         {liveBadge > 99 ? '99+' : liveBadge}
@@ -355,8 +355,8 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
             {user?.full_name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-white truncate">{user?.full_name || 'User'}</p>
-            <p className="text-[11px] text-gray-300 truncate capitalize">{user?.role || 'user'}</p>
+            <p className="text-[14px] font-semibold text-white truncate">{user?.full_name || 'User'}</p>
+            <p className="text-[12px] text-gray-300 truncate capitalize">{user?.role || 'user'}</p>
           </div>
           <PresenceDot status={user?.presence || 'online'} />
         </div>
