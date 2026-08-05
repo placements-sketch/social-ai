@@ -146,7 +146,13 @@ export default function Profile() {
               the name and email with it, so they sat on top of the lime and
               became unreadable — dark text on a bright field. The avatar is a
               solid shape and is the one thing that should break the edge. */}
-          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+          {/* relative z-10 so the avatar paints ABOVE the banner.
+              The banner is `position: relative`, and a positioned element wins
+              over a static sibling no matter which comes later in the DOM — so
+              the avatar's negative margin lifted it into the banner's space and
+              the banner then drew straight over the top of it. It looked like
+              the avatar was clipped; it was buried. */}
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-end gap-4">
             <div className="w-[88px] h-[88px] -mt-11 sm:-mt-12 rounded-3xl bg-gray-900 text-white flex items-center justify-center text-3xl font-bold shrink-0 ring-4 ring-white dark:ring-[#0f0f0f] shadow-xl">
               {initial}
             </div>
