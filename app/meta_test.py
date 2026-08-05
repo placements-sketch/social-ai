@@ -377,6 +377,33 @@ def subscribe_webhooks():
     log_event('info' if ok else 'error', 'meta_test.subscribe', str(body))
     return jsonify({'success': ok, 'response': body}), (200 if ok else 502)
 
+
+def _username_error(igsid: str) -> str:
+    """
+    The raw reason a username lookup failed, for the backfill's report.
+
+    Deliberately a second call rather than plumbing errors through
+    fetch_instagram_username: that function is on the hot inbound path where a
+    failed lookup must stay cheap and silent, and only this diagnostic wants the
+    detail. It runs at most once per unresolved user, on demand.
+    """
+    from app.integrations.meta import _ig_login_credentials, ig_login_request
+    _id, token = _ig_login_credentials()
+    if not token:
+        return 'No active Instagram connection'
+    try:
+        r, body = ig_login_request('GET', str(igsid),
+                                   params={'fields': 'username', 'access_token': token},
+                                   timeout=10)
+    except Exception as e:
+        return f'Request failed: {str(e)[:120]}'
+    if r.ok:
+        return 'Returned no username field'
+    err = (body.get('error') or {})
+    return (f"{err.get('message') or 'HTTP %s' % r.status_code}"
+            f"{' (code %s)' % err['code'] if err.get('code') else ''}")[:200]
+
+
 @meta_test_bp.route('/api/meta-test/backfill-usernames', methods=['POST'])
 @jwt_required()
 def backfill_usernames():
@@ -424,11 +451,16 @@ def backfill_usernames():
             if apply_changes:
                 u.name = username
         else:
-            # Worth reporting rather than silently skipping: a handle that
-            # cannot be resolved usually means the IGSID belongs to an account
-            # we are no longer connected as, which is a different problem from
-            # "we forgot to look it up".
-            failed.append(u.external_id)
+            # Report WHAT Instagram said, not just that it said no.
+            #
+            # The first version of this listed unresolved ids and nothing else,
+            # which is the exact failure this whole audit keeps finding: a
+            # diagnostic that can only say "it didn't work". "Object does not
+            # exist" and "missing permission" and "token expired" need three
+            # completely different responses, and the id alone distinguishes
+            # none of them.
+            failed.append({'external_id': u.external_id,
+                           'error': _username_error(u.external_id)})
 
     if apply_changes and resolved:
         db.session.commit()
