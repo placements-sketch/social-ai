@@ -1262,7 +1262,7 @@ const handleSend = async (retryOf = null) => {
           </div>
         )}
 
-        <div className="flex flex-wrap gap-1.5 pt-0.5">
+        <div className="flex flex-wrap gap-1.5 pt-2.5 border-t border-gray-100">
           {STATUS_FILTERS.map((f) => {
             const stalled = f.key === 'ai' && aiGloballyOffCounts?.off
             const { key } = f
@@ -1298,6 +1298,7 @@ const handleSend = async (retryOf = null) => {
             visible to everyone who sees the post, so it is often the more
             urgent of the two; a segmented control rather than another chip row
             because these three are mutually exclusive and always present. */}
+        <div className="pt-2.5 border-t border-gray-100">
         <div className="flex rounded-xl bg-gray-100 p-0.5 gap-0.5">
           {surfaceTabs.map(({ key, label, count }) => (
             <button
@@ -1319,6 +1320,7 @@ const handleSend = async (retryOf = null) => {
               )}
             </button>
           ))}
+        </div>
         </div>
       </div>
       {/* A deep link silently hiding most of the inbox would look like an

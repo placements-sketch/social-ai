@@ -35,11 +35,14 @@ from app.utils.logger import log_event
 docs_assistant_bp = Blueprint('docs_assistant', __name__)
 
 MODEL = 'claude-sonnet-5'
-# Generous, because the budget is shared with any reasoning the model does
-# before writing. Seen once at 1200: the whole allowance went on a thinking
-# block, the reply came back with no text at all, and the user got "the
-# assistant returned nothing" for a question it could answer perfectly well.
-MAX_ANSWER_TOKENS = 2500
+# Extended thinking is switched OFF for this endpoint. The task is explaining
+# from text that is already in front of the model — there is nothing to reason
+# out — and leaving it on had a real cost: the reasoning shared the token
+# budget with the answer, so replies came back cut off mid-sentence or, twice,
+# with no text at all. Off, a typical answer costs ~250 output tokens instead
+# of 2,000+, and comes back noticeably faster.
+NO_THINKING = {'type': 'disabled'}
+MAX_ANSWER_TOKENS = 900
 
 # extras/ lives beside app/, not inside it.
 DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'extras')
@@ -141,6 +144,12 @@ SYSTEM_INSTRUCTIONS = (
     "They are asking because something on screen confused them and they want to get "
     "back to work.\n\n"
     "HOW TO WRITE\n"
+    "- LENGTH IS THE HARDEST RULE HERE. Three short paragraphs maximum, or about "
+    "120 words. Answer exactly what was asked and stop. Do not add background "
+    "nobody asked for. If there is more worth knowing, end with one line offering "
+    "it — 'Want me to explain how that gets decided?' — and let them ask. A wall "
+    "of text stands between an agent and their next customer, so extra thoroughness "
+    "here is a cost, not a kindness.\n"
     "- Plain, everyday English. Short sentences.\n"
     "- Describe what they SEE — 'the green chip at the top of the inbox', not 'the "
     "by_status count'. Talk about buttons, labels and screens.\n"
@@ -148,7 +157,13 @@ SYSTEM_INSTRUCTIONS = (
     "query, SQL, webhook, cache, boolean, null, backend, frontend, deploy, token. If "
     "one of these is genuinely the answer, explain it in ordinary words instead — "
     "'the system checks with Instagram every few minutes' beats 'a polling job'.\n"
-    "- No code blocks or file paths in the answer body.\n"
+    "- NEVER show a file name or a code word, and never use backticks. Not "
+    "MESSAGES_EXPLAINED.md, not handoff.py, not human_escalate, not by_status. "
+    "These mean nothing to the reader and make the answer look like it was meant "
+    "for someone else. Say what the thing is called ON SCREEN, or describe what it "
+    "does: 'the rule hands the chat to a person', never 'the human_escalate "
+    "action'.\n"
+    "- No headings, and no bold mini-titles at the start of list items.\n"
     "- Warm and direct. Answer first, then a sentence of why if it helps.\n"
     "- Never make them feel silly for asking.\n\n"
     "WHAT TO ANSWER FROM\n"
@@ -170,8 +185,11 @@ SYSTEM_INSTRUCTIONS = (
     "6. You cannot see live data — no customers, orders, conversations or sales "
     "figures. If asked, say plainly that you explain how things work, and that for real "
     "numbers they should look at the Dashboard or Analytics page.\n"
-    "7. If they would benefit from reading more, mention the guide in plain words at "
-    "the end, like: (More detail in the Inbox guide.) Keep it to one short line."
+    "7. Do not cite documents or guides. The reader cannot open them and does not "
+    "care which one an answer came from. Just answer.\n"
+    "8. Do not bold the start of each list item as a mini-heading. Write the point "
+    "as a plain sentence. Bold at most one or two words in a whole reply, and only "
+    "when something genuinely needs emphasis."
 )
 
 
@@ -255,6 +273,7 @@ def ask_docs():
         resp = client.messages.create(
             model=MODEL,
             max_tokens=MAX_ANSWER_TOKENS,
+            thinking=NO_THINKING,
             system=[
                 # Two blocks, and the order matters: the corpus is identical on
                 # every request and carries the cache breakpoint, so it is
