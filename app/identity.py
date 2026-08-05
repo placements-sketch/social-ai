@@ -94,6 +94,31 @@ def candidate_ids(*texts):
     return found
 
 
+def display_for_external_id(external_id):
+    """
+    What to show when we have no username: "Instagram user · 4283".
+
+    Six customers here will NEVER resolve. Their IGSIDs were issued to the
+    Instagram account this app was connected as before the switch, and Meta
+    answers "object does not exist" for every one — no token we can hold will
+    ever read them. Confirmed by the fact that 16 of 22 conversations DO have
+    handles: a missing scope or a bad token would have failed all 22.
+
+    So the raw 17-digit number is permanent for those threads, and showing it
+    is the worst option: it looks like a field that failed to load, and an
+    agent cannot tell two customers apart by scanning digit strings. The last
+    four are stable, distinguishable, and honest about being partial.
+    """
+    ext = str(external_id or '').strip()
+    if not ext:
+        return 'Unknown customer'
+    # Only long platform ids get this treatment. A phone number or a handle
+    # someone typed is already readable and must pass through untouched.
+    if ext.isdigit() and len(ext) >= 15:
+        return f'Instagram user · {ext[-4:]}'
+    return ext
+
+
 def humanise(text_value, mapping):
     """
     Replace known external ids in free text with '@username'.

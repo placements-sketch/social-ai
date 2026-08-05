@@ -15,6 +15,7 @@ agent can manually resend.
 """
 
 import os
+from collections import OrderedDict
 from datetime import datetime, timedelta
 
 import requests
@@ -355,12 +356,36 @@ def fetch_instagram_media(media_id: str, account_id: str | None = None):
     return body, None
 
 
+# IGSIDs Meta has already told us it cannot resolve.
+#
+# The lookup runs on inbound messages, so the same six unresolvable customers
+# were producing a doomed Graph call every time they wrote to us — burning rate
+# limit and filling the log with the same line forever. The answer for these
+# never changes: the id belongs to a previously connected Instagram account, so
+# asking again tomorrow gets the identical refusal.
+#
+# In memory, not a database column: a process restart re-asking once per id is
+# harmless, and it keeps this out of the schema. Bounded so a flood of bad ids
+# cannot grow it without limit.
+_UNRESOLVABLE_IGSIDS: "OrderedDict[str, bool]" = OrderedDict()
+_UNRESOLVABLE_MAX = 500
+
+
+def _mark_unresolvable(igsid: str):
+    _UNRESOLVABLE_IGSIDS[str(igsid)] = True
+    while len(_UNRESOLVABLE_IGSIDS) > _UNRESOLVABLE_MAX:
+        _UNRESOLVABLE_IGSIDS.popitem(last=False)
+
+
 def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict | None:
     """
     Look up an Instagram user's profile (name / username / avatar) by their
     IGSID via the Graph API. Returns the profile dict, or None on failure.
     Works for users who've messaged the business (messaging context).
     """
+    if str(igsid) in _UNRESOLVABLE_IGSIDS:
+        return None
+
     # Prefer Instagram Login — the Facebook-Login page token 403s on any
     # customer without a role on the app.
     _ig_id, ig_token = _ig_login_credentials(account_id)
@@ -416,6 +441,7 @@ def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict 
                       f"account — most likely a thread from a previously "
                       f"connected Instagram account.",
                       payload={"igsid": igsid})
+            _mark_unresolvable(igsid)
             return None
 
         # Only worth retrying if there is a narrower attempt left.

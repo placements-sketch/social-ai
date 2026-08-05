@@ -169,8 +169,22 @@ class User(db.Model):
 
     @property
     def handle(self):
-        """Display name for the inbox — platform name if known, else external_id."""
-        return self.name or self.external_id
+        """
+        Display name for the inbox — the platform username where we have one.
+
+        Falling back to the raw external_id put "2532642840503747" in front of
+        agents on every shift. It reads as a field that failed to load, and two
+        customers cannot be told apart by scanning 17-digit strings. Those ids
+        will never resolve (see display_for_external_id), so this is permanent
+        for the affected threads rather than something that fixes itself.
+
+        One place, because handle() is what the inbox, activity feed,
+        notifications and emails all read.
+        """
+        if self.name:
+            return self.name
+        from app.identity import display_for_external_id
+        return display_for_external_id(self.external_id)
 
     def to_dict(self):
         return {
