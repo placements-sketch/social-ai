@@ -154,21 +154,22 @@ const verifyToken = async (token) => {
     }
   }
 
-  // Google sign-in. Returns the server's own message on failure rather than a
-  // boolean, because here the reason IS the instruction: "no account exists for
-  // you@gmail.com — ask an administrator" tells someone exactly what to do
-  // next, and collapsing that to "sign-in failed" would strand them.
-  const loginWithGoogle = async (credential) => {
+  // Sign in with an emailed one-time code. Returns the server's own message on
+  // failure rather than a boolean, because here the reason IS the instruction:
+  // "that code has expired — request a new one" and "incorrect code, 3 attempts
+  // left" call for completely different actions, and collapsing both to
+  // "sign-in failed" would leave someone retyping a code that can never work.
+  const loginWithCode = async (email, code) => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`${API_URL}/api/auth/google`, {
+      const response = await fetch(`${API_URL}/api/auth/otp/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential })
+        body: JSON.stringify({ email, code })
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.error || 'Google sign-in failed')
+      if (!response.ok) throw new Error(data.error || 'Sign-in failed')
 
       localStorage.setItem('authToken', data.token)
       setUser(data.user)
@@ -198,7 +199,7 @@ const verifyToken = async (token) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, loginWithGoogle, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, error, login, loginWithCode, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )
