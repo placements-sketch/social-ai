@@ -162,6 +162,11 @@ const handlerBadge = (conv, { terse = false } = {}) => {
   return <span className={`${baseClass} bg-brand-100 text-brand-700`}>AI</span>
 }
 
+// Bare URLs in message text → clickable links. Split on the global regex,
+// test with a non-global one (a /g regex is stateful across .test calls).
+const URL_SPLIT_RE = /(https?:\/\/[^\s<>()"']+)/g
+const IS_URL_RE = /^https?:\/\//
+
 // ── Per-comment post preview ──────────────────────────────────────
 // A tiny cache so multiple comments on the same post don't refetch.
 const _mediaCache = new Map()
@@ -181,45 +186,122 @@ function CommentPostPreview({ mediaId }) {
     return () => { cancelled = true }
   }, [mediaId])
 
+  const [imgFailed, setImgFailed] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
   if (!post) {
     return (
-      <div className="flex items-center gap-2 mb-1 pl-1 text-[11px] text-gray-400">
-        <div className="w-8 h-8 rounded-md bg-gray-100 animate-pulse shrink-0" />
-        <span>Loading post…</span>
+      <div className="w-full mb-2 rounded-xl border border-gray-200 p-3 space-y-2">
+        <div className="h-3 w-24 rounded bg-gray-100 animate-pulse" />
+        <div className="h-28 rounded-lg bg-gray-100 animate-pulse" />
       </div>
     )
   }
 
-  const thumb = post.thumbnail_url || post.media_url
+  // VIDEO and CAROUSEL_ALBUM have no media_url that renders as a still, so the
+  // thumbnail is the only usable image for them.
+  const image = post.media_type === 'IMAGE'
+    ? (post.media_url || post.thumbnail_url)
+    : (post.thumbnail_url || post.media_url)
   const caption = (post.caption || '').trim()
+  // Captions run long. Show the opening and let it be opened out, rather than
+  // either truncating to 40 characters — which told an agent nothing — or
+  // letting a 2,000-character caption push the actual comment off screen.
+  const isLong = caption.length > 320
+  const shown = expanded || !isLong ? caption : caption.slice(0, 320).trimEnd()
 
   return (
-    
-    <a href={post.permalink || '#'}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-2 mb-1 pl-1 group max-w-[240px]"
-      title={caption || 'View post'}
-    >
-      {thumb ? (
-        <img src={thumb} alt="post" className="w-8 h-8 rounded-md object-cover shrink-0 border border-gray-200" loading="lazy" />
+    <div className="w-full mb-2 rounded-xl border border-gray-200 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-100">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+            <Instagram size={12} className="text-gray-400" />
+          </span>
+          <span className="text-xs font-bold text-gray-700 truncate">Original post</span>
+        </div>
+        {post.permalink && (
+          <a
+            href={post.permalink}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-700 shrink-0"
+          >
+            Open <ExternalLink size={11} />
+          </a>
+        )}
+      </div>
+
+      {/* Instagram serves media from signed CDN links that expire, so an older
+          post reliably 404s. A broken-image icon would read as our bug; this
+          says what happened and offers the one thing that still works. Same
+          reasoning as Attachment below. */}
+      {image && !imgFailed ? (
+        <img
+          src={image}
+          alt=""
+          onError={() => setImgFailed(true)}
+          className="w-full max-h-64 object-cover bg-gray-50"
+          loading="lazy"
+        />
       ) : (
-        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200">
-          <Instagram size={12} className="text-gray-400" />
+        <a
+          href={post.permalink || '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center justify-center gap-1.5 m-3 rounded-lg border border-dashed border-gray-300 py-6 text-[12px] text-gray-400 hover:border-gray-400 hover:text-gray-500 transition-colors"
+        >
+          Media unavailable — view on the platform <ExternalLink size={11} />
+        </a>
+      )}
+
+      {caption && (
+        <div className="px-3 py-2.5">
+          {/* whitespace-pre-line keeps the paragraph breaks the caption was
+              written with. Collapsing them turned a structured caption into
+              one grey slab. */}
+          <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-line break-words">
+            <CaptionText text={shown} />
+            {isLong && !expanded && '\u2026'}
+          </p>
+          {isLong && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setExpanded(v => !v) }}
+              className="mt-1 text-[11px] font-semibold text-gray-400 hover:text-brand-600 transition-colors"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
         </div>
       )}
-      <span className="text-[11px] text-gray-500 group-hover:text-brand-600 truncate">
-        <span className="font-semibold">Comment on post</span>
-        {caption ? ` · ${caption.slice(0, 40)}${caption.length > 40 ? '…' : ''}` : ''}
-      </span>
-    </a>
+    </div>
   )
 }
 
-// Bare URLs in message text → clickable links. Split on the global regex,
-// test with a non-global one (a /g regex is stateful across .test calls).
-const URL_SPLIT_RE = /(https?:\/\/[^\s<>()"']+)/g
-const IS_URL_RE = /^https?:\/\//
+// Hashtags, @mentions and links picked out of a caption. They are how an IG
+// caption is actually read — the tags at the end are a block of metadata, not
+// a sentence — and running them together as flat grey text is what made the
+// old preview unreadable at any length.
+const CAPTION_SPLIT_RE = /(https?:\/\/[^\s<>()"']+|[#@][\w.]+)/g
+
+function CaptionText({ text }) {
+  return String(text || '').split(CAPTION_SPLIT_RE).map((part, i) => {
+    if (!part) return null
+    if (IS_URL_RE.test(part)) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+           onClick={(e) => e.stopPropagation()}
+           className="text-brand-600 hover:underline break-all">{part}</a>
+      )
+    }
+    if (part[0] === '#' || part[0] === '@') {
+      return <span key={i} className="text-brand-600 font-medium">{part}</span>
+    }
+    return part
+  })
+}
 
 // Bold the searched term inside a match snippet. Split on the term rather
 // than using dangerouslySetInnerHTML — the term comes from the search box, so
