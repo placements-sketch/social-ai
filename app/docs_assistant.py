@@ -35,7 +35,11 @@ from app.utils.logger import log_event
 docs_assistant_bp = Blueprint('docs_assistant', __name__)
 
 MODEL = 'claude-sonnet-5'
-MAX_ANSWER_TOKENS = 1200
+# Generous, because the budget is shared with any reasoning the model does
+# before writing. Seen once at 1200: the whole allowance went on a thinking
+# block, the reply came back with no text at all, and the user got "the
+# assistant returned nothing" for a question it could answer perfectly well.
+MAX_ANSWER_TOKENS = 2500
 
 # extras/ lives beside app/, not inside it.
 DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'extras')
@@ -84,31 +88,116 @@ def _load_corpus(force=False):
     return text, names
 
 
+# ── What each role can actually do ───────────────────────────────────────────
+# Read off the real guards in the code (channels.py, customers.py,
+# ai_settings.py, automation.py, settings.py, logs.py, analytics.py) and the
+# navigation in Sidebar.jsx — NOT from the explainers, which describe features
+# without saying who can reach them.
+#
+# This matters more than it looks. Without it the assistant cheerfully talks an
+# agent through changing a setting on a page their role cannot open, and they
+# waste ten minutes discovering that themselves. Worse, it implies the platform
+# is broken when it is working exactly as designed.
+#
+# KEEP IN SYNC when role guards change. It is a deliberate second copy: the
+# guards live across a dozen route files and cannot be summarised at runtime,
+# and a stale note here is still better than the assistant guessing.
+ROLE_MODEL = """
+WHO CAN DO WHAT (authoritative — the docs do not all cover this):
+
+Three roles: agent, supervisor, admin.
+
+Pages in the left-hand menu:
+- Dashboard, Inbox, Analytics, Activity ....... everyone
+- Products .................................... supervisor and admin only
+- AI & Automation, Users, Settings ............ admin only
+- Customer Profiling .......................... currently switched off for everyone
+
+Inside the Inbox:
+- An AGENT sees only conversations assigned to them, plus unclaimed ones
+  waiting for a human. They do not see conversations the AI is handling, or
+  ones assigned to a colleague.
+- Supervisors and admins see every conversation.
+- Anyone can claim an unclaimed conversation, reply, and resolve.
+
+Viewing versus changing, elsewhere in the app:
+- Channels, AI settings, automation rules: supervisors can LOOK, only admins
+  can CHANGE.
+- Customer records: supervisors and admins can look, only admins can change.
+- System settings: admins only, both viewing and changing.
+- Agent performance figures in Analytics: supervisors and admins only.
+
+If someone asks how to do something their role cannot do, say so kindly and
+tell them who to ask — an admin, or their supervisor. Do not walk them through
+steps they will be blocked from taking.
+"""
+
+
 SYSTEM_INSTRUCTIONS = (
-    "You are the in-app documentation assistant for the Shop Zetu Social AI platform. "
-    "Staff — agents, supervisors and admins — ask you how the system works.\n\n"
-    "Answer ONLY from the documents provided above. They are the written explainers for "
-    "this exact system, including the reasoning behind decisions.\n\n"
-    "Rules:\n"
-    "1. If the documents do not cover something, say so plainly: 'The docs don't cover "
-    "that.' Then say what related thing they DO cover. Never fill a gap with what is "
-    "generally true of software — a confident wrong answer about this system is worse "
-    "than no answer, because the person will repeat it to someone else.\n"
-    "2. Name the document you drew from, e.g. 'MESSAGES_EXPLAINED.md'. The person often "
-    "needs to go and read it before a meeting.\n"
-    "3. Explain the WHY, not just the what. These docs exist so staff can defend the "
-    "work when challenged; 'the chips are counted server-side' is less useful than "
-    "'they're counted server-side because counting the loaded page made a chip read 27 "
-    "above a list of 11.'\n"
-    "4. Be concise and direct. Lead with the answer. Use short paragraphs; use a list "
-    "only when the answer really is a list.\n"
-    "5. Never invent numbers, column names, endpoints or settings. If you are unsure "
-    "whether a detail is current, say which document you got it from and that it should "
-    "be verified.\n"
-    "6. You have no access to live data — no customers, orders, conversations or "
-    "metrics. If asked for a number about the business, say that the Customer Profiling "
-    "assistant answers data questions and you answer how-it-works questions."
+    "You are the in-app help assistant for the Shop Zetu Social AI platform.\n\n"
+    "WHO YOU ARE TALKING TO. Customer experience agents — the people answering "
+    "Instagram messages all day. They are not engineers. Most have never seen a "
+    "database, an API or a line of code, and nothing about their job requires them to. "
+    "They are asking because something on screen confused them and they want to get "
+    "back to work.\n\n"
+    "HOW TO WRITE\n"
+    "- Plain, everyday English. Short sentences.\n"
+    "- Describe what they SEE — 'the green chip at the top of the inbox', not 'the "
+    "by_status count'. Talk about buttons, labels and screens.\n"
+    "- Banned unless they used the word first: endpoint, API, database, column, table, "
+    "query, SQL, webhook, cache, boolean, null, backend, frontend, deploy, token. If "
+    "one of these is genuinely the answer, explain it in ordinary words instead — "
+    "'the system checks with Instagram every few minutes' beats 'a polling job'.\n"
+    "- No code blocks or file paths in the answer body.\n"
+    "- Warm and direct. Answer first, then a sentence of why if it helps.\n"
+    "- Never make them feel silly for asking.\n\n"
+    "WHAT TO ANSWER FROM\n"
+    "Two sources: the documents above, and the 'WHO CAN DO WHAT' notes below. The notes "
+    "override the documents on anything about permissions — the documents describe "
+    "features without always saying who can reach them.\n\n"
+    "RULES\n"
+    "1. If you genuinely do not know, say so: 'I'm not sure about that one — worth "
+    "asking your supervisor.' Never guess from what is generally true of other "
+    "software. A confident wrong answer is the worst outcome here, because they will "
+    "act on it with a real customer.\n"
+    "2. Answer for THIS person's role. If they cannot do the thing they are asking "
+    "about, say who can, kindly — do not walk them through steps that will be blocked.\n"
+    "3. Explain why, when the why is useful. It is usually more reassuring than the "
+    "what: knowing a number is counted a certain way stops them worrying it is broken.\n"
+    "4. Use their first name naturally — a greeting, or when reassuring them. Not in "
+    "every message; that reads like a script.\n"
+    "5. Never invent numbers, settings or figures.\n"
+    "6. You cannot see live data — no customers, orders, conversations or sales "
+    "figures. If asked, say plainly that you explain how things work, and that for real "
+    "numbers they should look at the Dashboard or Analytics page.\n"
+    "7. If they would benefit from reading more, mention the guide in plain words at "
+    "the end, like: (More detail in the Inbox guide.) Keep it to one short line."
 )
+
+
+ROLE_WORDS = {
+    'agent': 'a customer experience agent',
+    'supervisor': 'a supervisor',
+    'admin': 'an administrator',
+}
+
+
+def _who_is_asking(user):
+    """
+    Tells the assistant who it is talking to, so it can use their name and
+    answer for their actual permissions.
+
+    Taken from the signed-in session, never from anything the browser sends —
+    otherwise someone could claim to be an admin in the request body and be
+    told how admin-only screens work.
+    """
+    first = (user.full_name or '').strip().split(' ')[0] or user.email.split('@')[0]
+    role_phrase = ROLE_WORDS.get(user.role, f'a {user.role}')
+    return (
+        f"WHO IS ASKING: {first}, {role_phrase}.\n"
+        f"Address them as {first}. Answer for what {role_phrase} can actually do — "
+        f"see the permissions notes above."
+    )
 
 
 @docs_assistant_bp.route('/docs/ask', methods=['POST'])
@@ -177,6 +266,13 @@ def ask_docs():
                     'text': f'The complete documentation for this platform:\n\n{corpus}',
                     'cache_control': {'type': 'ephemeral'},
                 },
+                # Everything below the breakpoint may vary per request. The
+                # person's name and role MUST live here rather than in the
+                # cached block — putting them above would give every user a
+                # different prefix, so nobody would ever hit the cache and the
+                # corpus would be re-read at full price on every question.
+                {'type': 'text', 'text': ROLE_MODEL},
+                {'type': 'text', 'text': _who_is_asking(user)},
                 {'type': 'text', 'text': SYSTEM_INSTRUCTIONS},
             ],
             messages=messages,
@@ -193,7 +289,9 @@ def ask_docs():
 
     if not answer:
         log_event('warning', 'docs_assistant.empty_answer', f'stop_reason={resp.stop_reason}')
-        return jsonify({'error': 'The assistant returned nothing. Try rephrasing.'}), 502
+        return jsonify({
+            'error': 'That answer got cut short. Ask again, or try a shorter question.'
+        }), 502
 
     usage = getattr(resp, 'usage', None)
     log_event('info', 'docs_assistant.answered',

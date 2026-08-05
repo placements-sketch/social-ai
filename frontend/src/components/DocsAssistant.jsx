@@ -20,11 +20,12 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 // Starter questions, so the empty state shows what this is for. A blank box
 // with a cursor is the worst possible onboarding for something whose whole
 // value is that you didn't know what to ask.
+// Written the way an agent would actually ask, not the way a developer would.
 const SUGGESTIONS = [
-  'What does "Unclaimed" mean in the inbox?',
-  'How is the dashboard "Escalated" number calculated?',
-  'When does the AI hand a conversation to a human?',
-  'What happens when I resolve a conversation?',
+  'What does "Unclaimed" mean?',
+  "Why can't I see some conversations?",
+  'When does the AI hand a chat over to me?',
+  'What happens when I mark something resolved?',
 ]
 
 function authHeaders() {
@@ -167,9 +168,9 @@ export default function DocsAssistant() {
               {turns.length === 0 && (
                 <div>
                   <p className="text-xs text-gray-500 leading-relaxed">
-                    Ask anything about how this platform works — what a number means,
-                    why a conversation moved, how a setting behaves. Answers come from
-                    the written documentation, and cite which document they came from.
+                    Stuck on something? Ask away — what a label means, why a chat
+                    moved, what a button does. It knows how this system works and
+                    what your role can do.
                   </p>
                   <p className="text-[11px] font-semibold text-gray-400 mt-4 mb-2">Try one of these</p>
                   <div className="space-y-1.5">
@@ -187,8 +188,8 @@ export default function DocsAssistant() {
                       cannot see live data, and the moment someone asks it for
                       a revenue figure they should already know that. */}
                   <p className="text-[11px] text-gray-400 mt-4 leading-relaxed">
-                    It explains how things work. For questions about customers,
-                    orders or revenue, use the assistant on Customer Profiling.
+                    It explains how things work. For real sales or customer
+                    numbers, check the Dashboard or Analytics page.
                   </p>
                 </div>
               )}
