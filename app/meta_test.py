@@ -376,3 +376,162 @@ def subscribe_webhooks():
     ok, body = subscribe_page_webhooks(fields=fields)
     log_event('info' if ok else 'error', 'meta_test.subscribe', str(body))
     return jsonify({'success': ok, 'response': body}), (200 if ok else 502)
+
+@meta_test_bp.route('/api/meta-test/backfill-usernames', methods=['POST'])
+@jwt_required()
+def backfill_usernames():
+    """
+    Resolve Instagram handles for customers still showing as a bare numeric id.
+
+    Every agent sees these on every shift — "2532642840503747" instead of a
+    person — and each one is a Graph call we simply never made or that failed
+    once and was never retried.
+
+    DRY RUN BY DEFAULT. POST {"apply": true} to write. A job that reaches an
+    external API and rewrites customer records should make you say so twice.
+
+    Bounded by `limit` (default 50) because this is one Graph call per user and
+    Meta rate-limits: 3,000 users in a single request would be throttled
+    part-way through, leaving nobody able to say which half was done.
+    """
+    if not _require_admin():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from app import db
+    from app.models import User
+    from app.integrations.meta import fetch_instagram_username
+    from sqlalchemy import or_
+
+    body = request.get_json(silent=True) or {}
+    apply_changes = bool(body.get('apply'))
+    limit = min(max(int(body.get('limit') or 50), 1), 500)
+
+    # Only real IGSIDs. Test rows and seeded handles are not resolvable and
+    # would burn the whole rate-limit budget failing.
+    candidates = (User.query
+                  .filter(User.channel.like('instagram%'))
+                  .filter(or_(User.name.is_(None), User.name == ''))
+                  .filter(User.external_id.op('~')(r'^[0-9]{15,}$'))
+                  .limit(limit)
+                  .all())
+
+    resolved, failed = [], []
+    for u in candidates:
+        profile = fetch_instagram_username(u.external_id)
+        username = (profile or {}).get('username') or (profile or {}).get('name')
+        if username:
+            resolved.append({'external_id': u.external_id, 'username': username})
+            if apply_changes:
+                u.name = username
+        else:
+            # Worth reporting rather than silently skipping: a handle that
+            # cannot be resolved usually means the IGSID belongs to an account
+            # we are no longer connected as, which is a different problem from
+            # "we forgot to look it up".
+            failed.append(u.external_id)
+
+    if apply_changes and resolved:
+        db.session.commit()
+
+    log_event('info', 'meta_test.backfill_usernames',
+              f"{'Applied' if apply_changes else 'Dry run'}: "
+              f"{len(resolved)} resolved, {len(failed)} unresolved")
+
+    return jsonify({
+        'applied': apply_changes,
+        'checked': len(candidates),
+        'resolved_count': len(resolved),
+        'unresolved_count': len(failed),
+        'resolved': resolved[:100],
+        'unresolved': failed[:100],
+        'hint': ('Dry run — nothing was saved. POST {"apply": true} to write.'
+                 if not apply_changes else 'Names saved.'),
+    }), 200
+
+
+@meta_test_bp.route('/api/meta-test/media-audit', methods=['GET'])
+@jwt_required()
+def media_audit():
+    """
+    Test the "post no longer loads" theory: are the failures ONLY on comments
+    that arrived before the current Instagram connection?
+
+    Media ids are scoped to the account and app that issued them, exactly like
+    IGSIDs — so a comment received under the old Facebook-Login connection has
+    an id the current Instagram-Login token can never resolve. If that is what
+    is happening, every failure will predate the connection and every success
+    will follow it, and the fix is an honest message rather than a retry.
+
+    If failures appear on BOTH sides of that date, the theory is wrong and
+    something else is broken. Reported either way — the point is to settle it
+    with data rather than a third guess.
+    """
+    if not _require_admin():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from app.models import Message, MetaConnection
+    from app.integrations.meta import fetch_instagram_media
+
+    limit = min(max(request.args.get('limit', default=15, type=int), 1), 60)
+
+    conn = (MetaConnection.query
+            .filter_by(is_active=True)
+            .order_by(MetaConnection.connected_at.desc())
+            .first())
+    connected_at = getattr(conn, 'connected_at', None)
+
+    rows = (Message.query
+            .filter(Message.media_id.isnot(None))
+            .order_by(Message.created_at.desc())
+            .limit(limit)
+            .all())
+
+    seen, results = set(), []
+    for m in rows:
+        if m.media_id in seen:
+            continue
+        seen.add(m.media_id)
+        data, error = fetch_instagram_media(m.media_id)
+        before_connection = (
+            bool(connected_at and m.created_at and m.created_at < connected_at)
+        )
+        results.append({
+            'media_id': m.media_id,
+            'message_at': m.created_at.isoformat() if m.created_at else None,
+            'predates_connection': before_connection,
+            'ok': bool(data),
+            'error': error,
+        })
+
+    older = [r for r in results if r['predates_connection']]
+    newer = [r for r in results if not r['predates_connection']]
+
+    def _fail_rate(group):
+        return f"{sum(1 for r in group if not r['ok'])}/{len(group)}" if group else 'none tested'
+
+    older_all_fail = bool(older) and all(not r['ok'] for r in older)
+    newer_all_ok = bool(newer) and all(r['ok'] for r in newer)
+
+    if older_all_fail and newer_all_ok:
+        verdict = ('CONFIRMED — every failure predates the current connection and '
+                   'everything after it works. These ids belong to the previous '
+                   'account and can never be resolved. Show an honest message '
+                   'instead of retrying.')
+    elif not older and not newer:
+        verdict = 'No comment media found to test.'
+    elif newer and not newer_all_ok:
+        verdict = ('THEORY WRONG — posts from AFTER the current connection are '
+                   'failing too, so this is not about old ids. Send me the '
+                   'errors below.')
+    else:
+        verdict = ('INCONCLUSIVE — not a clean split. See the per-item results.')
+
+    return jsonify({
+        'connection_connected_at': connected_at.isoformat() if connected_at else None,
+        'ig_username': getattr(conn, 'ig_username', None),
+        'tested': len(results),
+        'failures_before_connection': _fail_rate(older),
+        'failures_after_connection': _fail_rate(newer),
+        'verdict': verdict,
+        'results': results,
+    }), 200

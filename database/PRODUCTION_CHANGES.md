@@ -1518,3 +1518,160 @@ SELECT indexname, indexdef FROM pg_indexes
 **Note for the code side:** with this in place, a duplicate insert raises
 `IntegrityError` instead of succeeding. The inbound path should treat that as
 "already handled, nothing to do" rather than an error — see `_claim_inbound`.
+
+---
+
+### Step 25 — Correction to Step 22: DO NOT run that delete
+
+**Step 22 was wrong and would have destroyed real customer conversations.**
+
+Its rule was "any conversation on a channel that has never been connected is not
+real". The preview disproved it: `facebook_dm` rows carry 17-digit Facebook
+PSIDs with timestamps from this week. Those are real people who messaged us on
+Messenger. Step 18 switched Facebook off for *replying* — it never stopped
+messages arriving.
+
+The mistake was inferring realness from the CHANNEL. Realness lives in the
+**id**: platform-issued ids are long numerics we could never have invented,
+while everything seeded carries an obvious human-typed marker.
+
+**The corrected rule — classify every row and look at it:**
+
+```sql
+SELECT
+  CASE
+    WHEN u.external_id ~ '^[0-9]{15,}$'              THEN 'KEEP - platform id'
+    WHEN u.external_id LIKE 'seed:%'                 THEN 'DELETE - seed prefix'
+    WHEN u.external_id LIKE 'seed!_%'   ESCAPE '!'   THEN 'DELETE - seed prefix'
+    WHEN u.external_id LIKE '%!_seed!_%' ESCAPE '!'  THEN 'DELETE - seed infix'
+    WHEN u.external_id LIKE '%seed%'                 THEN 'DELETE - seed word'
+    WHEN u.external_id ILIKE '%test%'                THEN 'DELETE - test row'
+    WHEN u.external_id ~ '^[0-9]{1,14}$'             THEN 'DELETE - short numeric'
+    WHEN u.external_id = u.name                      THEN 'DELETE - name as id'
+    ELSE 'REVIEW - decide by hand'
+  END AS verdict,
+  c.channel, u.external_id, u.name,
+  count(*) AS threads, max(c.last_message_at) AS newest
+FROM conversations c
+JOIN users u ON u.id = c.user_id
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2, 3;
+```
+
+A real Instagram or Facebook id is 15–17 digits. Nothing under 15 digits and
+nothing containing letters was issued by Meta.
+
+**Read the REVIEW rows before going further.** Locally they are three WhatsApp
+phone numbers (`+254722333444`, `+254700111222`, `+254733555666`). Those are
+genuinely ambiguous: a phone number is what a real WhatsApp id looks like, and
+WhatsApp has never been connected here — so they are almost certainly seeded,
+but the id alone cannot prove it. **They are NOT deleted by the SQL below.**
+Decide on them yourself; if you want them gone, delete those ids explicitly.
+
+**Then delete — patterns only, never channel:**
+
+```sql
+BEGIN;
+
+CREATE TEMP TABLE junk_convos AS
+SELECT c.id
+  FROM conversations c
+  JOIN users u ON u.id = c.user_id
+ WHERE u.external_id !~ '^[0-9]{15,}$'         -- never touch a platform id
+   AND (   u.external_id LIKE 'seed:%'
+        OR u.external_id LIKE 'seed!_%'   ESCAPE '!'
+        OR u.external_id LIKE '%!_seed!_%' ESCAPE '!'
+        OR u.external_id LIKE '%seed%'
+        OR u.external_id ILIKE '%test%'
+        OR u.external_id ~ '^[0-9]{1,14}$'
+        OR u.external_id = u.name);
+
+-- Sanity check BEFORE deleting: this must be 0.
+SELECT count(*) AS platform_ids_caught
+  FROM conversations c
+  JOIN users u ON u.id = c.user_id
+ WHERE c.id IN (SELECT id FROM junk_convos)
+   AND u.external_id ~ '^[0-9]{15,}$';
+
+DELETE FROM conversation_reads      WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM conversion_attributions WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM logs                    WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM messages                WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM conversations           WHERE id IN (SELECT id FROM junk_convos);
+
+DELETE FROM users
+ WHERE NOT EXISTS (SELECT 1 FROM conversations c WHERE c.user_id = users.id)
+   AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.user_id = users.id)
+   AND external_id !~ '^[0-9]{15,}$';
+
+-- Real Facebook and Instagram threads must still be here.
+SELECT channel, count(*) FROM conversations GROUP BY 1 ORDER BY 2 DESC;
+
+COMMIT;
+```
+
+Run the sanity check inside the transaction and confirm it returns **0** before
+`COMMIT`. If anything looks wrong, `ROLLBACK;` — nothing is lost.
+
+**Local result of the corrected rule:** 41 conversations deleted across 33
+seeded/test users; the 2 real platform-id threads and the 3 WhatsApp REVIEW rows
+untouched.
+
+**The lesson worth keeping:** "this channel isn't connected" was a plausible
+proxy for "this data is fake", and it was wrong within days of being written —
+because a channel can receive without being able to reply. Identify data by what
+it *is*, not by what you assume about where it came from.
+
+---
+
+### Step 26 — The three WhatsApp rows Step 25 left for review
+
+Step 25 deliberately would not decide these. A phone number is exactly what a
+real WhatsApp id looks like, so nothing about `+254700111222` proves it was
+seeded — the id alone cannot tell you. **Confirmed by hand as seed data**, so
+they go.
+
+Keyed on the channel this time, which is safe ONLY because a person has looked
+at all three and said so. That is the difference between this and Step 22: the
+channel is not evidence, it is just the filter for a decision already made.
+
+**Look first — expect exactly 3, all with phone-number ids:**
+
+```sql
+SELECT c.id, u.external_id, u.name, c.last_message_at
+  FROM conversations c
+  JOIN users u ON u.id = c.user_id
+ WHERE c.channel = 'whatsapp'
+ ORDER BY c.id;
+```
+
+**If it shows anything you do not recognise, stop.** WhatsApp is not connected,
+so nothing new can arrive — but check before deleting, not after.
+
+```sql
+BEGIN;
+
+CREATE TEMP TABLE wa_convos AS
+SELECT id FROM conversations WHERE channel = 'whatsapp';
+
+DELETE FROM conversation_reads      WHERE conversation_id IN (SELECT id FROM wa_convos);
+DELETE FROM conversion_attributions WHERE conversation_id IN (SELECT id FROM wa_convos);
+DELETE FROM logs                    WHERE conversation_id IN (SELECT id FROM wa_convos);
+DELETE FROM messages                WHERE conversation_id IN (SELECT id FROM wa_convos);
+DELETE FROM conversations           WHERE id IN (SELECT id FROM wa_convos);
+
+DELETE FROM users
+ WHERE channel = 'whatsapp'
+   AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c.user_id = users.id)
+   AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.user_id = users.id);
+
+-- Expect: instagram_dm, instagram_comment, facebook_dm only.
+SELECT channel, count(*) FROM conversations GROUP BY 1 ORDER BY 2 DESC;
+
+COMMIT;
+```
+
+**After Steps 25 and 26 the inbox finally describes reality:** every remaining
+conversation was sent by a real person, the platform chips count real traffic,
+and clicking TikTok or WhatsApp shows "not connected yet" instead of inventing
+a conversation history for a channel that never existed.
