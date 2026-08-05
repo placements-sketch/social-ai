@@ -974,6 +974,16 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
         if matches:
             context_data["products"] = matches              # full list for Claude
             context_data["product"]  = matches[0]           # single best (backwards compat)
+            # A SECOND ranked list that still contains sold-out products.
+            #
+            # `products` above deliberately excludes them so the AI can never
+            # offer something unbuyable. But the shopify_stock automation rules
+            # exist precisely to fire when the best match IS sold out — reading
+            # them off the filtered list would mean they could never match
+            # again, and an "out of stock" rule would go quietly dead.
+            # Recommendations and stock questions are different questions.
+            context_data["_stock_candidates"] = search_products(
+                search_terms, limit=3, include_sold_out=True) or matches
             context_data["stock"]    = {
                 "product_name": matches[0].get("name"),
                 "quantity":     matches[0].get("stock_quantity", 0),
@@ -1081,7 +1091,8 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # on the site rather than whatever the last nightly sync cached.
     for _srule, _saction in _match_automation_actions(
             message, intents, channel,
-            products=context_data.get('products') or [], stock_pass=True):
+            products=(context_data.get('_stock_candidates')
+                      or context_data.get('products') or []), stock_pass=True):
         s_outcome = _run_automation_action(
             _srule, _saction, channel=channel, user_id=user_id,
             external_id=external_id, inbound_record=inbound_record,

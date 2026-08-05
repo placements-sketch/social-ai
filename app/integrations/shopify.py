@@ -181,7 +181,8 @@ def _type_synonyms(word: str) -> set:
     return {w, w[:-1]} if w.endswith('s') and len(w) > 3 else {w}
 
 
-def search_products(keyword, limit: int = 3, must_match: str = None) -> list[dict]:
+def search_products(keyword, limit: int = 3, must_match: str = None,
+                    include_sold_out: bool = False) -> list[dict]:
     """
     Search the local ProductCache. Accepts either:
       - a single keyword string (matches across name/desc/variants/tags), OR
@@ -197,6 +198,13 @@ def search_products(keyword, limit: int = 3, must_match: str = None) -> list[dic
 
     If the filter matches nothing, returns empty rather than silently widening;
     the caller decides whether to fall back.
+
+    SOLD-OUT PRODUCTS ARE EXCLUDED BY DEFAULT. Recommending something the
+    customer cannot buy is worse than saying we don't have it — it produces a
+    link, an intent to purchase, and then a dead end. `include_sold_out=True`
+    is for callers that need to KNOW an item is sold out rather than offer it:
+    the stock automation rules, which exist precisely to answer "is this in
+    stock?" and would never fire if the sold-out row were filtered away first.
     """
     if not keyword:
         return []
@@ -207,12 +215,13 @@ def search_products(keyword, limit: int = 3, must_match: str = None) -> list[dic
         return []
 
     if not must_match:
-        return _cache_search_products(terms, limit=limit)
+        return _cache_search_products(terms, limit=limit, include_sold_out=include_sold_out)
 
     # Over-fetch, then filter — the ranking still decides the order within the
     # products that are the right kind of thing.
     needles = _type_synonyms(must_match)
-    candidates = _cache_search_products(terms, limit=max(limit * 8, 200))
+    candidates = _cache_search_products(terms, limit=max(limit * 8, 200),
+                                        include_sold_out=include_sold_out)
     kept = []
     for p in candidates:
         haystack = ' '.join([
@@ -319,7 +328,8 @@ def _diversify_by_family(rows, limit: int):
     return (picked + spill)[:limit]
 
 
-def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
+def _cache_search_products(terms: list[str], limit: int = 3,
+                           include_sold_out: bool = False) -> list[dict]:
     """
     Multi-term ProductCache search. Each term contributes to the score based on
     where it hits (name > variants > tags > description). Products that match
@@ -384,12 +394,42 @@ def _cache_search_products(terms: list[str], limit: int = 3) -> list[dict]:
         # The alphabetical final tie-break made it worse — within one score
         # tier it systematically favours whatever sorts first, so the same
         # brand won every time.
+        # SOLD OUT IS NOT A SEARCH RESULT.
+        #
+        # This was a ranking rule, not a filter — out-of-stock items sorted last
+        # but stayed eligible, so when nothing in stock matched well the AI
+        # cheerfully recommended something the customer could not buy. That is
+        # worse than saying we don't have it: it produces a link, an intent to
+        # purchase, and then a dead end, and the customer blames us at the point
+        # they were most willing to spend.
+        #
+        # "Out of stock" means we POSITIVELY KNOW the count is zero. Products
+        # Shopify does not track inventory for are always purchasable, so
+        # untracked and unknown both stay eligible — filtering on
+        # `stock_quantity <= 0` alone would silently delete every untracked
+        # product from the assistant's catalogue.
+        in_stock = or_(
+            ProductCache.inventory_tracked.is_(False),
+            ProductCache.stock_quantity.is_(None),
+            ProductCache.stock_quantity > 0,
+        )
+
+        q = db.session.query(ProductCache, score).filter(or_(*like_clauses))
+        if not include_sold_out:
+            q = q.filter(in_stock)
+
+        # Ordering differs by purpose. The default list is what gets offered, so
+        # nothing sold out is in it at all. A caller that asked for sold-out
+        # rows wants to know WHETHER the best match is available — burying them
+        # at the bottom would answer the opposite question, and the stock rule
+        # reading products[0] would never see one.
+        ordering = [] if include_sold_out else [
+            (func.coalesce(ProductCache.stock_quantity, 1) == 0).asc()
+        ]
         rows = (
-            db.session.query(ProductCache, score)
-            .filter(or_(*like_clauses))
+            q
             .order_by(
-                # In-stock products first. NULL stock = unknown, treat as available.
-                (func.coalesce(ProductCache.stock_quantity, 1) == 0).asc(),
+                *ordering,
                 score.desc(),
                 # Stock level, not name — a well-stocked item is the more
                 # useful representative of its family than an alphabetical one.

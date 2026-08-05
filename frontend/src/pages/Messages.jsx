@@ -177,6 +177,13 @@ function CommentPostPreview({ mediaId }) {
   // — which meant a failing lookup left the skeleton pulsing forever, and the
   // agent had no way to tell "still loading" from "this will never arrive".
   const [failed, setFailed] = useState(null)
+  // ALL hooks live above the early returns below. React counts hook calls per
+  // render and errors (#300, "rendered fewer hooks than expected") the moment a
+  // render takes a path that skips one — which is what an early return added
+  // above a useState does. Crashed the whole page as soon as a post lookup
+  // failed, i.e. exactly when the new error state was meant to show.
+  const [imgFailed, setImgFailed] = useState(false)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     if (!mediaId || _mediaCache.has(mediaId)) return
@@ -200,9 +207,6 @@ function CommentPostPreview({ mediaId }) {
       </div>
     )
   }
-
-  const [imgFailed, setImgFailed] = useState(false)
-  const [expanded, setExpanded] = useState(false)
 
   if (!post) {
     return (

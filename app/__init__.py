@@ -161,6 +161,7 @@ def create_app():
         from app.health import health_bp
         from app.settings import settings_bp
         from app.ai_assistant import ai_assistant_bp
+        from app.docs_assistant import docs_assistant_bp
         from app.meta_test import meta_test_bp
 
         app.register_blueprint(bp)
@@ -183,6 +184,7 @@ def create_app():
         app.register_blueprint(health_bp)
         app.register_blueprint(settings_bp)
         app.register_blueprint(ai_assistant_bp, url_prefix='/api')
+        app.register_blueprint(docs_assistant_bp, url_prefix='/api')
         app.register_blueprint(meta_test_bp)
 
         print("[APP] All blueprints registered successfully")
