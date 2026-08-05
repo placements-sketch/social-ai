@@ -772,8 +772,8 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # as a bare picture with its caption thrown away.
     post_caption = None
     if media_id:
-        from app.integrations.meta import fetch_instagram_media
-        media = fetch_instagram_media(media_id)
+        from app.integrations.meta import instagram_media_for_ai
+        media = instagram_media_for_ai(media_id)
         if media:
             if media.get("image_url") and not image_urls:
                 image_urls = [media["image_url"]]

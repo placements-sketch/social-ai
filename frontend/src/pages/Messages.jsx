@@ -173,25 +173,40 @@ const _mediaCache = new Map()
 
 function CommentPostPreview({ mediaId }) {
   const [post, setPost] = useState(() => _mediaCache.get(mediaId) || null)
+  // Why the fetch failed, so the card can say so. It used to `.catch(() => {})`
+  // — which meant a failing lookup left the skeleton pulsing forever, and the
+  // agent had no way to tell "still loading" from "this will never arrive".
+  const [failed, setFailed] = useState(null)
+
   useEffect(() => {
     if (!mediaId || _mediaCache.has(mediaId)) return
     let cancelled = false
     fetchInstagramMedia(mediaId)
       .then(data => {
         if (cancelled) return
+        if (data?.error) { setFailed(data.error); return }
         _mediaCache.set(mediaId, data)
         setPost(data)
       })
-      .catch(() => { /* silent — no preview on failure */ })
+      .catch(err => { if (!cancelled) setFailed(err?.message || 'Could not load the post') })
     return () => { cancelled = true }
   }, [mediaId])
+
+  if (failed && !post) {
+    return (
+      <div className="w-[22rem] max-w-full mb-2 rounded-xl border border-dashed border-gray-300 px-3 py-2.5">
+        <p className="text-xs font-semibold text-gray-500">Original post unavailable</p>
+        <p className="text-[11px] text-gray-400 mt-0.5 leading-snug break-words">{failed}</p>
+      </div>
+    )
+  }
 
   const [imgFailed, setImgFailed] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
   if (!post) {
     return (
-      <div className="w-full mb-2 rounded-xl border border-gray-200 p-3 space-y-2">
+      <div className="w-[22rem] max-w-full mb-2 rounded-xl border border-gray-200 p-3 space-y-2">
         <div className="h-3 w-24 rounded bg-gray-100 animate-pulse" />
         <div className="h-28 rounded-lg bg-gray-100 animate-pulse" />
       </div>
@@ -211,7 +226,7 @@ function CommentPostPreview({ mediaId }) {
   const shown = expanded || !isLong ? caption : caption.slice(0, 320).trimEnd()
 
   return (
-    <div className="w-full mb-2 rounded-xl border border-gray-200 overflow-hidden">
+    <div className="w-[22rem] max-w-full mb-2 rounded-xl border border-gray-200 overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-100">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">

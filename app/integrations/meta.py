@@ -297,6 +297,64 @@ def _send_url():
 # ─────────────────────────────────────────────
 # Instagram DM — implemented
 # ─────────────────────────────────────────────
+MEDIA_FIELDS = 'id,caption,media_url,thumbnail_url,permalink,media_type,timestamp'
+
+
+def fetch_instagram_media(media_id: str, account_id: str | None = None):
+    """
+    Post metadata for a comment's parent media. Returns (data, error_message).
+
+    Prefers Instagram Login, exactly like fetch_instagram_username below and
+    for the same reason: this used to call graph.facebook.com with
+    `page_access_token`, which an Instagram-Login connection never populates.
+    The token came back None, the endpoint 500'd on every request, and the
+    frontend — which swallowed the failure — sat on a loading skeleton forever.
+    An agent saw an empty grey box and no way to tell it had failed.
+    """
+    _ig_id, ig_token = _ig_login_credentials(account_id)
+
+    if ig_token:
+        # Through ig_login_request so the unversioned retry applies. The version
+        # prefix is not routable on graph.instagram.com for every node, and that
+        # single fault is what previously broke verification, webhook
+        # subscription and the username lookup all at once.
+        try:
+            r, body = ig_login_request(
+                'GET', str(media_id),
+                params={'fields': MEDIA_FIELDS, 'access_token': ig_token},
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            return None, f'Instagram unreachable: {str(e)[:120]}'
+        if not r.ok:
+            err = (body.get('error') or {}).get('message') or f'HTTP {r.status_code}'
+            log_event('warning', 'integrations.meta.media_lookup',
+                      f'Instagram Login media {media_id}: {err[:160]}')
+            return None, err[:160]
+        return body, None
+
+    _, token = _get_meta_credentials(account_id)
+    if not token:
+        return None, 'No active Instagram connection'
+
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}",
+            params={'fields': MEDIA_FIELDS, 'access_token': token},
+            timeout=10,
+        )
+        body = r.json() if r.text else {}
+    except (requests.RequestException, ValueError) as e:
+        return None, f'Meta unreachable: {str(e)[:120]}'
+
+    if not r.ok:
+        err = (body.get('error') or {}).get('message') or f'HTTP {r.status_code}'
+        log_event('warning', 'integrations.meta.media_lookup',
+                  f'Graph media {media_id}: {err[:160]}')
+        return None, err[:160]
+    return body, None
+
+
 def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict | None:
     """
     Look up an Instagram user's profile (name / username / avatar) by their
@@ -779,37 +837,26 @@ def delete_instagram_comment(comment_id: str) -> bool:
         return False
     
 
-def fetch_instagram_media(media_id: str) -> dict | None:
+def instagram_media_for_ai(media_id: str, account_id: str | None = None) -> dict | None:
     """
-    Fetch an IG post's image URL + caption by media_id, for giving the AI
-    visual context on comments (the commenter is referring to the post image).
-    Returns {"image_url": str|None, "caption": str|None} or None on failure.
+    {"image_url": str|None, "caption": str|None} or None — the shape the AI
+    vision path wants, over the single fetch_instagram_media above.
+
+    This used to be a SECOND function with the same name as that one, defined
+    later in the file, so it silently replaced it. Both then called
+    graph.facebook.com with the Facebook page token — which an Instagram-Login
+    connection never populates — so the AI was getting no image for comments on
+    our own posts and falling back to reasoning from the caption alone.
     """
-    _, token = _get_meta_credentials()
-    if not token or not media_id:
+    data, _error = fetch_instagram_media(media_id, account_id)
+    if not data:
         return None
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}"
-    try:
-        r = requests.get(url, params={
-            "fields": "caption,media_url,thumbnail_url,media_type",
-            "access_token": token,
-        }, timeout=8)
-        if r.status_code >= 400:
-            log_event("warning", "integrations.meta.media_fetch",
-                      f"Media fetch failed ({r.status_code}): {(r.text or '')[:200]}",
-                      payload={"media_id": media_id})
-            return None
-        d = r.json() or {}
-        # For videos/carousels media_url may be absent — thumbnail_url is the fallback.
-        image_url = d.get("media_url") or d.get("thumbnail_url")
-        # Only use media_url as an image if it's actually an image type.
-        if d.get("media_type") == "VIDEO":
-            image_url = d.get("thumbnail_url")
-        return {"image_url": image_url, "caption": d.get("caption")}
-    except requests.RequestException as e:
-        log_event("warning", "integrations.meta.media_fetch",
-                  f"Media fetch exception: {e}", payload={"media_id": media_id})
-        return None
+    # For videos and carousels media_url is absent or is not a still image;
+    # thumbnail_url is the only usable one.
+    image_url = data.get("media_url") or data.get("thumbnail_url")
+    if data.get("media_type") == "VIDEO":
+        image_url = data.get("thumbnail_url")
+    return {"image_url": image_url, "caption": data.get("caption")}
 
 # ─────────────────────────────────────────────
 # Instagram Login token refresh

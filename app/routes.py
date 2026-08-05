@@ -362,8 +362,8 @@ def instagram_webhook():
                             shared_post_id = post_mid
                         if not u and post_mid:
                             try:
-                                from app.integrations.meta import fetch_instagram_media
-                                media = fetch_instagram_media(post_mid)
+                                from app.integrations.meta import instagram_media_for_ai
+                                media = instagram_media_for_ai(post_mid)
                                 if media and media.get("image_url"):
                                     u = media["image_url"]
                             except Exception as e:
@@ -417,8 +417,8 @@ def instagram_webhook():
                             shared_post_id = post_mid
                         if not u and post_mid:
                             try:
-                                from app.integrations.meta import fetch_instagram_media
-                                media = fetch_instagram_media(post_mid)
+                                from app.integrations.meta import instagram_media_for_ai
+                                media = instagram_media_for_ai(post_mid)
                                 if media and media.get("image_url"):
                                     u = media["image_url"]
                             except Exception as e:

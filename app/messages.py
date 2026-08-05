@@ -1144,30 +1144,26 @@ def get_instagram_media(media_id):
     if not any(_agent_can_access_conversation(current_user, c) for c in candidates):
         return jsonify({'error': 'Forbidden'}), 403
     
-    from app.integrations.meta import _get_meta_credentials
-    _, token = _get_meta_credentials()
-    if not token:
-        return jsonify({'error': 'No active Meta connection — connect via OAuth first'}), 500
-    
-    url = f"https://graph.facebook.com/v25.0/{media_id}"
-    params = {
-        'fields': 'id,caption,media_url,thumbnail_url,permalink,media_type,timestamp',
-        'access_token': token,
-    }
-    
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code >= 400:
-            return jsonify({'error': f'Meta API error: {r.status_code}', 'detail': r.text[:200]}), r.status_code
-        data = r.json()
-        return jsonify({
-            'id': data.get('id'),
-            'caption': data.get('caption'),
-            'media_url': data.get('media_url'),
-            'thumbnail_url': data.get('thumbnail_url'),
-            'permalink': data.get('permalink'),
-            'media_type': data.get('media_type'),
-            'timestamp': data.get('timestamp'),
-        }), 200
-    except requests.RequestException as e:
-        return jsonify({'error': str(e)}), 502
+    # Whichever account the conversation belongs to, so a two-account setup
+    # asks the right one rather than whichever connected most recently.
+    account_id = next((c.business_account_id for c in candidates
+                       if c.business_account_id), None)
+
+    from app.integrations.meta import fetch_instagram_media
+    data, error = fetch_instagram_media(media_id, account_id)
+    if error:
+        # 200 with an error field, not a 4xx/5xx. The caller renders post
+        # context beside a message that is itself fine — a failure here should
+        # degrade that one card, and returning an error status made the
+        # frontend's catch swallow it into a permanent loading skeleton.
+        return jsonify({'error': error}), 200
+
+    return jsonify({
+        'id': data.get('id'),
+        'caption': data.get('caption'),
+        'media_url': data.get('media_url'),
+        'thumbnail_url': data.get('thumbnail_url'),
+        'permalink': data.get('permalink'),
+        'media_type': data.get('media_type'),
+        'timestamp': data.get('timestamp'),
+    }), 200
