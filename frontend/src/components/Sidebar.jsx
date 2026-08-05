@@ -64,6 +64,24 @@ const allNav = [
   { to: '/activity', icon: Bell, label: 'Activity', roles: ['admin', 'agent', 'supervisor'], group: 'System' },
 ]
 
+/**
+ * What the Inbox badge is counting, in words.
+ *
+ * Both halves need a person, which is why they share one number — but they need
+ * a DIFFERENT person. "Assigned to you" is yours alone; "unclaimed" is visible
+ * to every agent at once, so five people can see the same +1 and only one of
+ * them will act on it. Saying so on hover costs nothing and stops the figure
+ * being mysterious.
+ */
+function badgeTitle({ mine, unclaimed }) {
+  const parts = []
+  if (mine) parts.push(`${mine} assigned to you`)
+  if (unclaimed) parts.push(`${unclaimed} unclaimed`)
+  if (!parts.length) return 'Conversations needing a person'
+  return `${parts.join(', ')} — needs a person`
+}
+
+
 export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false }) {
   const { user } = useAuth()
   const location = useLocation()
@@ -79,6 +97,12 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
   // badge would under-report forever. /conversations/counts is 49 bytes and
   // has no ceiling.
   const [messagesBadge, setMessagesBadge] = useState(0)
+  // The same number, split. One badge was answering two questions — "waiting on
+  // you" and "waiting on anyone" — and an agent seeing 2 could not tell that
+  // one of them was an unclaimed chat any colleague might take first. Kept in
+  // the count deliberately: a customer nobody has picked up is the state you
+  // can least afford to hide. Made legible instead of removed.
+  const [badgeSplit, setBadgeSplit] = useState({ mine: 0, unclaimed: 0 })
   useEffect(() => {
     let cancelled = false
     const load = async () => {
@@ -92,7 +116,12 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         // "conversations you personally haven't opened" — 19 here versus 3
         // that actually need anyone. A badge that never goes down unless you
         // read every chat isn't telling you anything.
-        setMessagesBadge(counts.needs_human || 0)
+        const total = counts.needs_human || 0
+        const unclaimed = counts.unassigned || 0
+        setMessagesBadge(total)
+        // `unassigned` is already scoped the same way as needs_human, so the
+        // remainder is what is actually on this person's plate.
+        setBadgeSplit({ mine: Math.max(0, total - unclaimed), unclaimed })
       } catch { /* silent — a badge should never crash the sidebar */ }
     }
     load()
@@ -202,6 +231,11 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
 
                     {liveBadge > 0 && (
                       <span
+                        // Says what the number is made of. Only on the Inbox
+                        // badge — it is the only one with two parts, and a
+                        // tooltip on a figure that needs no explanation is just
+                        // noise.
+                        title={to === '/messages' ? badgeTitle(badgeSplit) : undefined}
                         className={clsx(
                           'w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
                           isMobile ? 'ml-auto' : (collapsed ? 'md:absolute md:top-1 md:right-1 md:w-4 md:h-4 md:text-[8px] hidden md:flex' : 'ml-auto')
