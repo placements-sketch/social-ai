@@ -390,16 +390,16 @@ input:-webkit-autofill:active {
 /* Brand text. brand-600 (#81c200) is chosen for contrast on white; on a dark
    surface it's muddy, so lift it to the pure brand value. */
 /* Links inside message bubbles.
-   The AI bubble is bg-black in light mode and flips to brand lime in dark mode
-   (see .dark .bg-black above). That rule also flips the bubble's `.text-white`
-   to near-black — but links were painted with `text-white/90`, which compiles
-   to `.text-white\/90`, a DIFFERENT class the flip never matched. Result:
-   white links on a lime bubble, invisible. Links now get their own colour per
-   bubble so they stay legible whichever way the bubble goes. */
-.link-on-ai          { color: #7dd3fc; }   /* sky on black  */
+   Each bubble gets its own link colour rather than relying on `text-white/90`,
+   which compiles to `.text-white\/90` — a different class from `.text-white`,
+   so the dark-mode text flip never matched it and links went invisible.
+
+   The AI bubble is now bg-gray-900 (navy) in BOTH themes. It used to be
+   bg-black, which the dark theme repaints brand lime, and this rule carried a
+   deep-blue override so links stayed readable on that lime. Navy plus deep blue
+   would have been unreadable — the override is gone and sky serves both. */
+.link-on-ai          { color: #7dd3fc; }   /* sky on navy */
 .link-on-ai:hover    { color: #bae6fd; }
-.dark .link-on-ai       { color: #123a86; } /* deep blue on lime */
-.dark .link-on-ai:hover { color: #0a2154; }
 
 /* Agent bubble is dark grey in both themes, so one colour serves both. */
 .link-on-agent       { color: #7dd3fc; }

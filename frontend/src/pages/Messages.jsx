@@ -1957,8 +1957,15 @@ const handleSend = async (retryOf = null) => {
                       <div className={clsx(
                         'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
                         msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
+                        // AI is navy, a person is grey. gray-900 (#111827) and
+                        // gray-800 (#1f2937) are both blue-tinted and sit two
+                        // steps apart, so side by side they read as one colour
+                        // — the whole point of colouring them differently is
+                        // telling at a glance whether a customer got a person.
+                        // neutral-700 is a TRUE grey with no blue in it, so the
+                        // two are unmistakable in either theme.
                         msg.from === 'ai'    && 'bg-gray-900 text-white rounded-tr-sm',
-                        msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
+                        msg.from === 'human' && 'bg-neutral-700 text-white rounded-tr-sm',
                       )}>
 
                       {msg.image_urls && msg.image_urls.length > 0 && (
