@@ -1957,7 +1957,7 @@ const handleSend = async (retryOf = null) => {
                       <div className={clsx(
                         'px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm',
                         msg.from === 'user'  && 'bg-white text-gray-800 rounded-tl-sm border border-gray-100',
-                        msg.from === 'ai'    && 'bg-black text-white rounded-tr-sm',
+                        msg.from === 'ai'    && 'bg-gray-900 text-white rounded-tr-sm',
                         msg.from === 'human' && 'bg-gray-800 text-white rounded-tr-sm',
                       )}>
 
@@ -2075,7 +2075,7 @@ const handleSend = async (retryOf = null) => {
                   </div>
                   {/* Sized to a one-line bubble so the thread doesn't jump when
                       the real message replaces it. */}
-                  <div className="bg-black text-white px-4 py-3 rounded-2xl rounded-tr-sm shadow-sm">
+                  <div className="bg-gray-900 text-white px-4 py-3 rounded-2xl rounded-tr-sm shadow-sm">
                     <div className="flex items-center gap-1.5">
                       {[0, 1, 2].map(i => (
                         <span
