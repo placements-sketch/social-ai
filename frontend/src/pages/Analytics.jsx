@@ -661,6 +661,13 @@ export default function Analytics() {
   const FAILURE_LABELS = {
     rate_limit: 'Rate limit hit', timeout: 'Timed out', auth: 'Auth error', bad_request: 'Bad request',
     api_error: 'Claude API error', network: 'Network error', bad_output: 'Malformed response', unknown: 'Unknown error',
+    // Sends the platform rejected, and crashes mid-reply. These are now
+    // included in the Failed Replies count, so without a label here they would
+    // have appeared as raw slugs — "dispatch_failed" tells an operator nothing
+    // about what to do next.
+    dispatch_failed: 'Instagram rejected the send',
+    pipeline_exception: 'Error while building the reply',
+    no_json_in_verdict: 'AI returned unreadable output',
   }
   const failureRows = (failure_breakdown || []).map((f) => ({ label: FAILURE_LABELS[f.reason] || f.reason, value: f.count }))
 

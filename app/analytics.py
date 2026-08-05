@@ -285,6 +285,31 @@ def _window():
     return win.days, win.start
 
 
+def _ai_failure_clause():
+    """
+    What counts as an AI reply that failed. ONE definition.
+
+    Two distinct things go wrong and both are failures from the customer's side:
+    the generator never produced a reply, or a reply was written and the
+    platform refused to deliver it. Counting only the first made the card
+    contradict itself — a store whose Instagram sends were all being rejected
+    showed "Failed 0" beside a success rate those very failures were dragging
+    down.
+
+    Shared with the reason breakdown, so the list underneath the number always
+    adds up to the number. They were two separate expressions, and the
+    breakdown was the narrower of the two.
+    """
+    return db.or_(
+        Log.source == 'ai.generator.failure',
+        db.and_(
+            Log.source == 'services.no_reply_sent',
+            text("logs.payload ->> 'reason' IN "
+                 "('dispatch_failed', 'pipeline_exception')"),
+        ),
+    )
+
+
 def _scope_filter(query, model, user):
     """
     Apply role-based scoping to a query on Conversation or Message.
@@ -469,14 +494,7 @@ def summary():
             db.session.query(func.count(Log.id))
               .filter(Log.created_at >= start_dt)
               .filter(Log.created_at < end_dt)
-              .filter(db.or_(
-                  Log.source == 'ai.generator.failure',
-                  db.and_(
-                      Log.source == 'services.no_reply_sent',
-                      text("logs.payload ->> 'reason' IN "
-                           "('dispatch_failed', 'pipeline_exception')"),
-                  ),
-              )),
+              .filter(_ai_failure_clause()),
             Log, user,
         ).scalar() or 0
 
@@ -761,9 +779,16 @@ def summary():
         # Scoped, like the failed_responses COUNT it breaks down. Without this
         # an agent saw their own failure count beside a company-wide list of
         # reasons, so the parts didn't add up to the whole.
+        #
+        # And it used the SAME predicate as that count, via _ai_failure_clause.
+        # It used to filter on ai.generator.failure alone while the count also
+        # included sends the platform rejected — so on a day when every failure
+        # was Instagram refusing to deliver, the card read "Failed 17" above an
+        # empty list. "Something is wrong and we won't say what" is the worst
+        # thing a diagnostic can do.
         rows = (_scope_filter(
                     db.session.query(reason_expr, func.count(Log.id))
-                      .filter(Log.source == 'ai.generator.failure')
+                      .filter(_ai_failure_clause())
                       .filter(Log.created_at >= cutoff)
                       .filter(Log.created_at < win.end),
                     Log, user,

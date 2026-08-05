@@ -1459,3 +1459,62 @@ same reason.
 
 **Nothing is removed and nothing changes for existing users.** Passwords keep
 working exactly as before; this is an additional door, not a replacement.
+
+---
+
+### Step 24 — Make webhook de-duplication actually reliable
+
+`messages.external_id` is indexed but **not unique**, so nothing at the database
+level stops the same inbound message being stored twice.
+
+The in-process guard (`_claim_inbound`) catches the common case, but it is a
+Python dictionary inside one worker. Gunicorn runs 2 workers here, and Meta
+retries deliveries — so two workers handling the same retry both check, both
+find nothing, and both insert. That is the "double outbound in the app, single
+message on Instagram" symptom.
+
+A unique index makes the database the arbiter, which is the only place that
+works across processes.
+
+**Look first.** This must return zero rows:
+
+```sql
+SELECT external_id, count(*)
+  FROM messages
+ WHERE external_id IS NOT NULL
+ GROUP BY external_id
+HAVING count(*) > 1
+ ORDER BY 2 DESC;
+```
+
+If it returns anything, **stop and tell me** — the duplicates have to be merged
+before a unique index can be created, and which copy to keep depends on what
+else references them.
+
+**Then create it.** Partial, on purpose:
+
+```sql
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_messages_external_id
+  ON messages (external_id)
+ WHERE external_id IS NOT NULL;
+```
+
+Two details that matter:
+
+- **`WHERE external_id IS NOT NULL`** — 226 rows locally have no external id
+  (manual replies, seeded rows). Postgres allows many NULLs in a unique index,
+  but a partial index also keeps the index smaller and states the intent.
+- **`CONCURRENTLY`** — builds without locking the table against writes. Webhooks
+  are arriving while you run this. It cannot be run inside a transaction block,
+  so paste it on its own, **not** wrapped in `BEGIN`/`COMMIT`.
+
+**Verify:**
+
+```sql
+SELECT indexname, indexdef FROM pg_indexes
+ WHERE tablename = 'messages' AND indexname = 'uq_messages_external_id';
+```
+
+**Note for the code side:** with this in place, a duplicate insert raises
+`IntegrityError` instead of succeeding. The inbound path should treat that as
+"already handled, nothing to do" rather than an error — see `_claim_inbound`.

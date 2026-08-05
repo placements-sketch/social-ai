@@ -18,6 +18,7 @@ Pipeline steps:
 from datetime import datetime, timezone
 
 from app.ai.generator import generate_reply
+from sqlalchemy.exc import IntegrityError
 from app.integrations.shopify import get_product_info, get_stock_level, search_products
 from app.integrations.meta import send_instagram_reply, send_whatsapp_reply, send_facebook_reply
 from app.integrations.tiktok import send_tiktok_reply
@@ -1856,6 +1857,27 @@ def _save_message(user_id, channel, content, intent, direction,
         db.session.add(msg)
         db.session.commit()
         return msg
+
+    except IntegrityError:
+        # Lost a race on messages.external_id — another worker saved this exact
+        # message between our idempotency check above and this commit. Meta
+        # retries deliveries and Gunicorn runs several workers, so two of them
+        # genuinely can be inside this function for the same message at once;
+        # the check-then-insert above cannot close that window and the unique
+        # index is what actually does (see Step 24 in PRODUCTION_CHANGES.md).
+        #
+        # This is a SUCCESS, not a failure: the message is stored, which is all
+        # the caller wanted. Returning None here would have the caller treat a
+        # correctly de-duplicated webhook as a save failure and log an error
+        # about it — noise that looks exactly like the bug we just fixed.
+        db.session.rollback()
+        existing = None
+        if external_id:
+            from app.models import Message
+            existing = Message.query.filter_by(external_id=external_id).first()
+        log_event("info", "services._save_message.duplicate",
+                  f"Message {external_id} was already saved by another worker")
+        return existing
 
     except Exception as e:
         log_event("error", "services._save_message", str(e))
