@@ -1338,3 +1338,88 @@ SELECT id, ig_username, ig_login_user_id, ig_business_account_id,
 
 Remember the app is still in Development mode: a DM will only arrive from an
 account that also holds a role. Test with one that does.
+
+---
+
+### Step 22 — Remove seed and test conversations from the live inbox
+
+**Why.** The inbox chips advertise `Facebook 12`, `WhatsApp 7`, `TikTok 4`. None
+of those channels has ever been connected — Step 18 switched them off precisely
+because we cannot reply on them. So those 23 conversations cannot be real. They
+are demo rows, and their ids say so out loud:
+
+```
+seed:david_ochieng_fb   seed:254712345678   fb_seed_grace   tiktok_seed_comm_1
+```
+
+They are not harmless decoration. They inflate every count an operator reads,
+they sit in the queue looking like unanswered customers, and they make the
+"TikTok isn't connected yet" empty state unreachable — you click TikTok
+expecting the setup hint and get four fabricated threads instead.
+
+The same applies to Instagram rows left behind by testing: `1111111111`,
+`notif_test_user_4`, `test_user_keyword_1`, `seed:amina_ke`.
+
+**The rule, so this is defensible rather than a hand-picked list:**
+
+1. Any conversation on a channel that has never been connected is not real.
+2. A real Instagram customer is always identified by an IGSID — 15+ digits.
+   Anything else in `users.external_id` on an Instagram thread was typed by us.
+
+**Look before you delete.** Run this first and read it:
+
+```sql
+SELECT c.channel,
+       u.external_id,
+       u.name,
+       count(*) AS threads,
+       max(c.last_message_at) AS newest
+  FROM conversations c
+  JOIN users u ON u.id = c.user_id
+ WHERE c.channel NOT LIKE 'instagram%'
+    OR u.external_id !~ '^[0-9]{15,}$'
+ GROUP BY 1, 2, 3
+ ORDER BY 1, 2;
+```
+
+Every row should be obviously ours. **If any row looks like a real customer,
+stop** and tell me before running the delete.
+
+**Then delete, children first.** No `ON DELETE CASCADE` on these, so order
+matters:
+
+```sql
+BEGIN;
+
+CREATE TEMP TABLE junk_convos AS
+SELECT c.id
+  FROM conversations c
+  JOIN users u ON u.id = c.user_id
+ WHERE c.channel NOT LIKE 'instagram%'
+    OR u.external_id !~ '^[0-9]{15,}$';
+
+DELETE FROM conversation_reads     WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM conversion_attributions WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM logs                   WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM messages               WHERE conversation_id IN (SELECT id FROM junk_convos);
+DELETE FROM conversations          WHERE id IN (SELECT id FROM junk_convos);
+
+-- Customer records orphaned by the above. Left behind they would resurface in
+-- customer profiling as people who never existed.
+DELETE FROM users
+ WHERE NOT EXISTS (SELECT 1 FROM conversations c WHERE c.user_id = users.id)
+   AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.user_id = users.id);
+
+-- Expect: instagram_dm / instagram_comment only, and a total that matches
+-- the number of genuine IGSID threads.
+SELECT channel, count(*) FROM conversations GROUP BY 1 ORDER BY 2 DESC;
+
+COMMIT;
+```
+
+Run the `SELECT` inside the transaction and check it before `COMMIT`. If it
+looks wrong, `ROLLBACK;` instead — nothing is lost.
+
+**After this, the empty state earns its keep:** clicking TikTok shows "TikTok
+isn't connected yet" instead of four invented conversations, and the platform
+chips describe only traffic that actually arrived.

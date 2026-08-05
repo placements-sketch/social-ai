@@ -31,13 +31,80 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const { login } = useAuth()
+  const { login, loginWithGoogle } = useAuth()
   const navigate = useNavigate()
   const emailRef = useRef(null)
+  const googleRef = useRef(null)
+  const [googleReady, setGoogleReady] = useState(false)
 
   // Land in the first field. On a screen whose only purpose is a two-field
   // form, making people click first is friction for nothing.
   useEffect(() => { emailRef.current?.focus() }, [])
+
+  // Google sign-in, rendered only when the server says it is configured.
+  //
+  // Asking the server rather than reading a build-time env var: the client id
+  // lives in Render, and a frontend built before it was set would show a dead
+  // button forever. This way the button appears exactly when it can work, and
+  // the password form below is untouched either way — Google is a shortcut, not
+  // a dependency, so nothing here may ever block signing in the normal way.
+  // The context recreates loginWithGoogle on every render, so it cannot be an
+  // effect dependency — the effect would re-run forever, appending a script tag
+  // and a new Google button each time. A ref holds the current one and the
+  // effect runs exactly once.
+  const onCredential = useRef(null)
+  onCredential.current = async ({ credential }) => {
+    setError('')
+    setIsLoading(true)
+    const { ok, error: msg } = await loginWithGoogle(credential)
+    if (ok) navigate('/dashboard')
+    else setError(msg || 'Google sign-in failed.')
+    setIsLoading(false)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const start = async () => {
+      let clientId = ''
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/google/config`)
+        const cfg = await res.json()
+        if (!cfg.enabled || !cfg.client_id) return
+        clientId = cfg.client_id
+      } catch { return }          // offline or old backend → password form only
+      if (cancelled) return
+
+      const init = () => {
+        if (cancelled || !window.google?.accounts?.id || !googleRef.current) return
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (resp) => onCredential.current?.(resp),
+        })
+        window.google.accounts.id.renderButton(googleRef.current, {
+          theme: 'filled_black', size: 'large', width: 320,
+          text: 'signin_with', shape: 'pill', logo_alignment: 'center',
+        })
+        setGoogleReady(true)
+      }
+
+      if (window.google?.accounts?.id) return init()
+      // One script tag, reused if the user navigates back to this page.
+      let s = document.getElementById('google-gsi')
+      if (!s) {
+        s = document.createElement('script')
+        s.src = 'https://accounts.google.com/gsi/client'
+        s.async = true
+        s.defer = true
+        s.id = 'google-gsi'
+        document.head.appendChild(s)
+      }
+      s.addEventListener('load', init, { once: true })
+    }
+
+    start()
+    return () => { cancelled = true }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -132,6 +199,29 @@ export default function Login() {
                 <p className="text-xs text-red-200 leading-relaxed">{error}</p>
               </div>
             )}
+          </div>
+
+          {/* Google sits ABOVE the form because it is the faster path for the
+              people who have it, and below-the-form placement reads as a
+              fallback. It renders into a div Google owns — its button is
+              iframe-based and cannot be restyled, so the divider carries the
+              visual join instead.
+
+              Nothing here gates the password form: if Google is unconfigured,
+              blocked, or slow, this whole block is simply absent. */}
+          {/* The target div is always mounted — Google's renderButton needs a
+              real node to draw into, so gating it on `googleReady` would mean
+              the node never exists when we ask, and the button never appears.
+              Visibility is what's conditional, not existence. */}
+          <div className={googleReady ? 'mt-6' : 'hidden'}>
+            <div ref={googleRef} className="flex justify-center [color-scheme:light]" />
+            <div className="flex items-center gap-3 mt-6">
+              <span className="h-px flex-1 bg-white/[0.07]" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/25">
+                or use your password
+              </span>
+              <span className="h-px flex-1 bg-white/[0.07]" />
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">

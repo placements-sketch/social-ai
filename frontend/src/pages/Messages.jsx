@@ -3,7 +3,7 @@ import {
   Instagram, Smartphone, MessageCircle, Bot, User, UserCheck,
   RefreshCw, Edit, Send, ArrowLeft, Info, Loader2, Users, X, Trash2,
   CheckCircle2, RotateCcw, ExternalLink, MessageSquare, Zap, Clock, Search,
-  AlertCircle, ImageOff,
+  AlertCircle, ImageOff, Inbox,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -310,6 +310,10 @@ export default function Messages() {
   const [platformFilter, setPlatformFilter] = useState('all')  // instagram | facebook | …
   const [surfaceFilter, setSurfaceFilter] = useState('all')    // dm | comment
   const [channelCounts, setChannelCounts] = useState({})       // { instagram_dm: 20, … }
+  // Same shape, different scope: counted with the surface filter lifted, so the
+  // DMs/Comments row can respect the chosen platform without zeroing itself.
+  const [surfaceChannelCounts, setSurfaceChannelCounts] = useState({})
+  const [channelAvailability, setChannelAvailability] = useState({}) // { tiktok: false, … }
   const [statusFilter, setStatusFilter] = useState(null)        // null | unclaimed | human | ai | resolved
   const [page, setPage] = useState(1)
   const [totalConvos, setTotalConvos] = useState(0)
@@ -466,7 +470,10 @@ export default function Messages() {
     const load = async () => {
       try {
         const { getConversationCounts } = await import('../api/messages')
-        const counts = await getConversationCounts()
+        const counts = await getConversationCounts({
+          channel: channelFilter, platform: platformFilter, surface: surfaceFilter,
+          search, bucket: statusFilter || null, assigned_to: assignedFilter || null,
+        })
         if (!cancelled) {
           setStatusCounts(counts.by_status || null)
           setAiGloballyOffCounts({
@@ -482,6 +489,8 @@ export default function Messages() {
           // carries the flag and every role can read it.
           setAiGloballyOff(!!counts.ai_globally_off)
           setChannelCounts(counts.by_channel || {})
+          setSurfaceChannelCounts(counts.by_surface_channel || counts.by_channel || {})
+          setChannelAvailability(counts.channels || {})
         }
       } catch { /* chips fall back to counting the loaded page */ }
     }
@@ -490,7 +499,7 @@ export default function Messages() {
       if (document.visibilityState === 'visible') load()
     }, 15000)
     return () => { cancelled = true; clearInterval(t) }
-  }, [])
+  }, [channelFilter, platformFilter, surfaceFilter, search, statusFilter, assignedFilter])
 
   // ── Poll the conversation list for new conversations / messages.
   // Silent refresh: doesn't toggle loadingList so the list never flickers.
@@ -1017,25 +1026,39 @@ const handleSend = async (retryOf = null) => {
   // never disagree. Platforms are derived from what actually exists in the
   // inbox rather than hardcoded — a channel nobody has ever messaged on is a
   // chip that always reads 0.
+  const PLATFORM_LABELS = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', tiktok: 'TikTok' }
+
   const platformChips = (() => {
     const totals = {}
     for (const [ch, n] of Object.entries(channelCounts)) {
       const p = ch.split('_')[0]
       totals[p] = (totals[p] || 0) + n
     }
+    // Every platform the system knows about, not only those with traffic — a
+    // channel you haven't connected is exactly the one you need to be told
+    // about, and hiding it makes the inbox look like the whole world.
+    // Connected-but-quiet and not-connected are then distinguished by the
+    // empty state rather than by a chip silently missing.
+    for (const p of Object.keys(channelAvailability)) {
+      if (!(p in totals)) totals[p] = 0
+    }
     const all = Object.values(totals).reduce((a, b) => a + b, 0)
-    const LABELS = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', tiktok: 'TikTok' }
     return [
       { key: 'all', label: 'All channels', count: all },
       ...Object.entries(totals)
-        .sort((a, b) => b[1] - a[1])
-        .map(([p, n]) => ({ key: p, label: LABELS[p] || p, count: n })),
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+        .map(([p, n]) => ({
+          key: p,
+          label: PLATFORM_LABELS[p] || p,
+          count: n,
+          connected: channelAvailability[p] !== false,
+        })),
     ]
   })()
 
   const surfaceTabs = (() => {
     let dm = 0, comment = 0
-    for (const [ch, n] of Object.entries(channelCounts)) {
+    for (const [ch, n] of Object.entries(surfaceChannelCounts)) {
       if (ch.endsWith('_comment')) comment += n
       else dm += n            // whatsapp and any future bare channel are DMs
     }
@@ -1198,22 +1221,60 @@ const handleSend = async (retryOf = null) => {
             <button onClick={loadList} className="text-xs text-black font-semibold hover:text-gray-700">Retry</button>
           </div>
         )}
-        {!loadingList && !listError && filteredConversations.length === 0 && (
+        {/* A platform that isn't connected gets its own answer.
+            "No conversations" is true but useless there — it reads as "nobody
+            has messaged you on TikTok" when the real answer is "we aren't
+            listening to TikTok". One is a quiet day, the other is a setup step,
+            and they want opposite responses. */}
+        {!loadingList && !listError && filteredConversations.length === 0
+          && platformFilter !== 'all' && channelAvailability[platformFilter] === false && (
+          <div className="px-6 py-12 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-3">
+              <Inbox size={20} />
+            </div>
+            <p className="text-sm font-bold text-gray-900">
+              {PLATFORM_LABELS[platformFilter] || platformFilter} isn’t connected yet
+            </p>
+            <p className="text-xs text-gray-500 mt-1.5 leading-relaxed max-w-[15rem] mx-auto">
+              Once {PLATFORM_LABELS[platformFilter] || platformFilter} is connected in Settings,
+              messages and comments from it will appear here.
+            </p>
+            {/* Admins only — Settings is admin-gated, so offering the link to
+                an agent sends them to a 403. They can see WHY the list is
+                empty, which is the part that was missing. */}
+            {user?.role === 'admin' && (
+              <a
+                href="/settings?tab=channels"
+                className="mt-3 inline-block text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                Open channel settings
+              </a>
+            )}
+          </div>
+        )}
+
+        {!loadingList && !listError && filteredConversations.length === 0
+          && !(platformFilter !== 'all' && channelAvailability[platformFilter] === false) && (
           <div className="px-6 py-12 text-center">
             <p className="text-xs text-gray-500">
               {statusFilter
                 ? `No ${STATUS_FILTERS.find(f => f.key === statusFilter)?.label.toLowerCase()} conversations`
                 : 'No conversations'}
-              {channelFilter && channelFilter !== 'all' && ` in ${platformLabel(channelFilter)}`}
+              {platformFilter !== 'all' && ` in ${PLATFORM_LABELS[platformFilter] || platformFilter}`}
+              {surfaceFilter !== 'all' && ` (${surfaceFilter === 'dm' ? 'DMs' : 'comments'})`}
               {search && ` matching “${search}”`}.
             </p>
             {/* An empty bucket now means the bucket is genuinely empty — the
                 filter runs in SQL over the whole inbox. But channel and search
                 narrow it further, so when one of those is what emptied the
                 list, offer the way back rather than leaving a dead end. */}
-            {(channelFilter !== 'all' || search || statusFilter) && (
+            {(channelFilter !== 'all' || platformFilter !== 'all' || surfaceFilter !== 'all' || search || statusFilter) && (
               <button
-                onClick={() => { setStatusFilter(null); setChannelFilter('all'); setSearchInput(''); setSearch('') }}
+                onClick={() => {
+                  setStatusFilter(null); setChannelFilter('all')
+                  setPlatformFilter('all'); setSurfaceFilter('all')
+                  setSearchInput(''); setSearch('')
+                }}
                 className="mt-2 text-xs font-semibold text-brand-600 hover:text-brand-700"
               >
                 Clear all filters

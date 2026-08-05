@@ -44,9 +44,18 @@ async function handle(fetchPromise) {
  * to measure them.
  * @returns {Promise<{needs_human:number, unread:number, unassigned:number}>}
  */
-export function getConversationCounts() {
+export function getConversationCounts(filters = {}) {
+  // The sidebar calls this bare and gets whole-inbox numbers. The inbox passes
+  // its active filters, and the facet counts narrow to match the list — each
+  // facet excluding its own filter, server-side. Without this the chips went on
+  // describing all 69 conversations above a list narrowed to 46.
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(filters)) {
+    if (v && v !== 'all') qs.set(k, v)
+  }
+  const suffix = qs.toString() ? `?${qs}` : ''
   return handle(
-    fetch(`${API_BASE}/conversations/counts`, { method: 'GET', headers: authHeaders() })
+    fetch(`${API_BASE}/conversations/counts${suffix}`, { method: 'GET', headers: authHeaders() })
   )
 }
 

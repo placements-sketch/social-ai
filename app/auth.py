@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from app import db
 from app.models import AuthUser, AuditLog
 import re
+import os
 from app import limiter
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -60,6 +61,33 @@ def log_audit(user_id, action, resource_type=None, resource_id=None, changes=Non
     db.session.commit()
 
 
+def _issue_session(user, method='password'):
+    """
+    Mint the session for an already-authenticated user.
+
+    One definition, because there are now two front doors — password and Google
+    — and the things that happen on the way in are security-relevant: the
+    24-hour expiry, the role claim the frontend routes on, the last_login stamp
+    the "never signed in" column reads, and the audit row. A second login path
+    that quietly issued a token without one of these would be a hole nobody
+    would notice, because the user would simply be logged in and everything
+    would look fine.
+    """
+    user.last_login = datetime.utcnow()
+    db.session.commit()
+
+    # identity MUST be a string for Flask-JWT-Extended 4.x
+    token = create_access_token(
+        identity=str(user.id),
+        additional_claims={'role': user.role, 'email': user.email},
+        expires_delta=timedelta(hours=24)
+    )
+
+    log_audit(user.id, 'login', changes={'method': method})
+
+    return jsonify({'token': token, 'user': user.to_dict()}), 200
+
+
 @auth_bp.route('/login', methods=['POST'])
 @limiter.limit("10 per minute")
 def login():
@@ -86,27 +114,135 @@ def login():
         if user.status != 'active':
             return jsonify({'error': 'User account is not active'}), 403
 
-        user.last_login = datetime.utcnow()
-        db.session.commit()
-
-        # identity MUST be a string for Flask-JWT-Extended 4.x
-        token = create_access_token(
-            identity=str(user.id),
-            additional_claims={'role': user.role, 'email': user.email},
-            expires_delta=timedelta(hours=24)
-        )
-
-        log_audit(user.id, 'login')
-
-        return jsonify({
-            'token': token,
-            'user': user.to_dict()
-        }), 200
+        return _issue_session(user, method='password')
 
     except Exception as e:
         from app.utils.logger import log_event
         log_event("error", "auth.login", f"Login failed: {str(e)[:200]}")
         return jsonify({'error': 'Login failed. Please try again.'}), 500
+
+
+GOOGLE_ISSUERS = {'accounts.google.com', 'https://accounts.google.com'}
+
+
+def _verify_google_id_token(credential, client_id):
+    """
+    Verify a Google ID token and return its claims, or (None, reason).
+
+    Google checks the signature; we check that the token was minted FOR US.
+    That second half is the part that matters. A valid, correctly-signed Google
+    ID token issued to any other application in the world is trivially
+    obtainable — if we skipped the `aud` check, anyone could take a token from
+    some unrelated site they'd signed into and present it here as proof of
+    identity. Signature validity says "Google issued this"; only `aud` says
+    "Google issued this to us".
+    """
+    import requests as _requests
+    try:
+        resp = _requests.get(
+            'https://oauth2.googleapis.com/tokeninfo',
+            params={'id_token': credential},
+            timeout=8,
+        )
+    except Exception as e:
+        return None, f'Could not reach Google to verify sign-in ({str(e)[:80]})'
+
+    if resp.status_code != 200:
+        return None, 'Google did not recognise this sign-in'
+
+    claims = resp.json()
+
+    if claims.get('aud') != client_id:
+        return None, 'This sign-in was issued for a different application'
+    if claims.get('iss') not in GOOGLE_ISSUERS:
+        return None, 'Unexpected token issuer'
+    # Google returns these as strings.
+    if str(claims.get('email_verified', '')).lower() not in ('true', '1'):
+        return None, 'That Google account has no verified email address'
+    if not claims.get('email'):
+        return None, 'Google did not return an email address'
+
+    return claims, None
+
+
+@auth_bp.route('/google', methods=['POST'])
+@limiter.limit("10 per minute")
+def google_login():
+    """
+    Sign in with Google.
+
+    Request body: { "credential": "<Google ID token>" }
+
+    This is a FASTER DOOR, not a NEW one. It authenticates people who already
+    have an account here and changes nothing else:
+
+      - It never creates users. Accounts are provisioned by an admin, with a
+        role; letting Google create them would mean anyone with a Gmail address
+        could walk in, and the role model would be decoration.
+      - It refuses deactivated accounts, exactly as the password path does.
+        Otherwise Google sign-in would become the way around offboarding.
+      - It sits beside passwords rather than replacing them, so an outage at
+        Google cannot lock every admin out of the platform.
+    """
+    try:
+        client_id = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+        if not client_id:
+            # Configuration gap, not a user error. Say so plainly rather than
+            # failing as "invalid sign-in", which would send someone hunting
+            # through Google's console for a problem that is on our side.
+            return jsonify({'error': 'Google sign-in is not configured on this server'}), 503
+
+        data = request.get_json(silent=True) or {}
+        credential = (data.get('credential') or '').strip()
+        if not credential:
+            return jsonify({'error': 'Missing Google credential'}), 400
+
+        claims, reason = _verify_google_id_token(credential, client_id)
+        if not claims:
+            from app.utils.logger import log_event
+            log_event("warning", "auth.google.rejected", reason)
+            return jsonify({'error': reason}), 401
+
+        email = claims['email'].lower().strip()
+        user = AuthUser.query.filter_by(email=email).first()
+
+        if not user:
+            # Deliberately explicit. The generic "invalid email or password" of
+            # the password path exists to avoid confirming which emails have
+            # accounts — but here the person has already proved they own this
+            # address, so there is nothing left to leak, and "no account" is
+            # the one thing they need to be told to get unstuck.
+            from app.utils.logger import log_event
+            log_event("info", "auth.google.no_account", f"No account for {email}")
+            return jsonify({
+                'error': f'No account exists for {email}. Ask an administrator '
+                         'to create one, then sign in with Google.'
+            }), 403
+
+        if user.status != 'active':
+            from app.utils.logger import log_event
+            log_event("warning", "auth.google.inactive", f"Deactivated account: {email}")
+            return jsonify({'error': 'User account is not active'}), 403
+
+        return _issue_session(user, method='google')
+
+    except Exception as e:
+        from app.utils.logger import log_event
+        log_event("error", "auth.google", f"Google login failed: {str(e)[:200]}")
+        return jsonify({'error': 'Google sign-in failed. Please try again.'}), 500
+
+
+@auth_bp.route('/google/config', methods=['GET'])
+def google_config():
+    """
+    Whether to offer the Google button, and the client id it needs.
+
+    Unauthenticated on purpose — it is read by the login page, before anyone
+    has a token. It exposes only the OAuth client id, which is public by
+    design: it ships in the page source of every site using Google sign-in.
+    """
+    client_id = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+    return jsonify({'enabled': bool(client_id), 'client_id': client_id}), 200
 
 
 @auth_bp.route('/signup', methods=['POST'])

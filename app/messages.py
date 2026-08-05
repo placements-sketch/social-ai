@@ -142,6 +142,113 @@ def _ai_globally_enabled() -> bool:
 INBOX_BUCKETS = ('unclaimed', 'human', 'ai', 'resolved')
 
 
+def _channel_availability() -> dict:
+    """
+    {platform: enabled} folded from the channels table — instagram is on when
+    either of its two surfaces is.
+
+    Read defensively: an unreadable channels table must not blank the inbox
+    filters, so every platform falls back to "enabled" and the UI simply stops
+    offering its setup hint.
+    """
+    try:
+        from app.models import Channel
+        out = {}
+        for c in Channel.query.all():
+            platform = (c.channel or '').split('_')[0]
+            if not platform:
+                continue
+            out[platform] = out.get(platform, False) or bool(c.enabled)
+        return out
+    except Exception as e:
+        log_event('warning', 'messages.channel_availability_failed', str(e)[:160])
+        return {}
+
+
+def _apply_inbox_filters(query, current_user, skip=()):
+    """
+    Narrow `query` by the inbox filters on the current request.
+
+    ONE definition, used by both the list and the counts, because they were two:
+    the list filtered on platform/surface/search and the counts did not, so
+    selecting Instagram narrowed the list to 46 while every chip above it went
+    on describing all 69. A count that doesn't answer the same question as the
+    list it sits above is worse than no count.
+
+    `skip` names facets to leave out. Facet counts are computed with every
+    OTHER filter applied but not their own — otherwise selecting Instagram
+    would zero the Facebook chip and you could never click your way back out.
+    """
+    channel = request.args.get('channel', type=str)
+    platform = request.args.get('platform', type=str)     # instagram | facebook | …
+    surface = request.args.get('surface', type=str)       # dm | comment
+    status = request.args.get('status', type=str)
+    bucket = request.args.get('bucket', type=str)
+    assigned_to = request.args.get('assigned_to', type=str)
+    search = request.args.get('search', type=str)
+
+    # `channel` is a compound column — instagram_dm, instagram_comment — so
+    # filtering on it forced platform and surface together: you could ask for
+    # "Instagram DMs" but never "everything from Instagram" or "every comment,
+    # wherever it came from". Those are the two things you actually want when
+    # triaging. `channel` still works untouched for anything already passing it.
+    if 'channel' not in skip and channel and channel != 'all':
+        query = query.filter(Conversation.channel == channel)
+
+    if 'platform' not in skip and platform and platform != 'all':
+        # instagram -> instagram_dm, instagram_comment
+        query = query.filter(Conversation.channel.like(f'{platform}\\_%', escape='\\'))
+
+    if 'surface' not in skip and surface and surface != 'all':
+        # dm -> instagram_dm, facebook_dm
+        query = query.filter(Conversation.channel.like(f'%\\_{surface}', escape='\\'))
+
+    if 'status' not in skip and status and status != 'all':
+        query = query.filter(Conversation.status == status)
+
+    # Inbox filter chips. Applied in SQL so the list matches the chip's count
+    # rather than showing whichever members of the bucket happened to land in
+    # the page already loaded.
+    if 'bucket' not in skip and bucket in INBOX_BUCKETS:
+        query = _bucket_filter(query, bucket)
+
+    # Optional filters for supervisor/admin dashboards
+    if 'assigned_to' not in skip:
+        if assigned_to == 'me' and current_user:
+            query = query.filter(Conversation.assigned_to == current_user.id)
+        elif assigned_to == 'unassigned':
+            query = query.filter(Conversation.assigned_to.is_(None))
+        elif assigned_to and assigned_to.isdigit():
+            query = query.filter(Conversation.assigned_to == int(assigned_to))
+
+    term = (search or '').strip()
+    if 'search' not in skip and term:
+        like = f"%{term}%"
+        # A correlated EXISTS over messages, so a conversation matches on
+        # anything ever said in it — not just whichever line happens to be
+        # sitting in Conversation.last_message. Searching "refund" used to
+        # return nothing unless "refund" was the most recent message, which
+        # made the box feel broken on the one page where search matters most.
+        # EXISTS rather than a join: a join would emit one row per matching
+        # message and silently multiply the conversation across the results.
+        said_in_thread = (
+            Message.query
+            .filter(Message.conversation_id == Conversation.id,
+                    Message.content.ilike(like))
+            .exists()
+        )
+        query = query.join(User, Conversation.user_id == User.id).filter(
+            db.or_(
+                Conversation.last_message.ilike(like),
+                User.name.ilike(like),
+                User.external_id.ilike(like),
+                said_in_thread,
+            )
+        )
+
+    return query
+
+
 def _bucket_filter(query, bucket):
     """Narrow `query` to one inbox bucket. Unknown bucket → unchanged query."""
     if bucket == 'unclaimed':
@@ -200,6 +307,25 @@ def conversation_counts():
     # mail the list had already shown as read.
     unread_map = _unread_counts_for_user(current_user.id, open_convs) if current_user else {}
 
+    # Everything above this line is the SIDEBAR badge: deliberately unfiltered,
+    # because "you have work waiting" must not change when someone clicks a chip
+    # inside the inbox. Everything below is the inbox's own facet counts, which
+    # must track the filters exactly. Two different questions off one endpoint.
+    #
+    # Each facet is counted with every other active filter applied but its own
+    # excluded — so with Instagram selected the status chips describe the 46
+    # Instagram threads, while the platform chips still show what's on Facebook
+    # so you can click over to it.
+    status_scope = _apply_inbox_filters(query, current_user, skip=('bucket',))
+    platform_scope = _apply_inbox_filters(query, current_user, skip=('platform', 'channel'))
+    surface_scope = _apply_inbox_filters(query, current_user, skip=('surface', 'channel'))
+
+    def _by_channel(scope):
+        return dict(
+            scope.with_entities(Conversation.channel, db.func.count(Conversation.id))
+                 .group_by(Conversation.channel).all()
+        )
+
     # Status buckets for the inbox filter chips. Computed server-side over the
     # WHOLE scoped set: the chips used to count whatever the list had loaded,
     # which is one page of 20, so with 46 conversations "Resolved" read 11 when
@@ -214,20 +340,26 @@ def conversation_counts():
         # chip's number and the rows it reveals can never disagree. They used
         # to be two separate implementations — Python sums here, no filter at
         # all there — which is precisely how they drifted.
-        'by_status': {k: _bucket_filter(query, k).count() for k in INBOX_BUCKETS},
-        # Per-channel totals for the platform and surface chips, from ONE
+        'by_status': {k: _bucket_filter(status_scope, k).count() for k in INBOX_BUCKETS},
+        # Per-channel totals for the platform and surface chips, each from ONE
         # grouped query rather than a round trip per chip. The client folds
         # instagram_dm + instagram_comment into "Instagram" and the two _dm
-        # values into "DMs", so both rows read off the same numbers and cannot
-        # disagree with each other or with the list.
-        # Counted over `query` — the same scope the list shows with no status
-        # filter — so clicking Instagram reveals exactly the number on the chip.
-        # Counting only open ones would have read 9 above a list of 28.
-        'by_channel': dict(
-            query.with_entities(Conversation.channel,
-                                db.func.count(Conversation.id))
-                 .group_by(Conversation.channel).all()
-        ),
+        # values into "DMs".
+        #
+        # Two scopes, not one, because they are two questions: the platform row
+        # must respect the chosen surface (Comments selected → Instagram shows
+        # its 8 comments) and the surface row must respect the chosen platform
+        # (Instagram selected → 38 DMs / 8 comments, not 50 / 19). A single
+        # shared dict cannot answer both once either filter is live.
+        'by_channel': _by_channel(platform_scope),
+        'by_surface_channel': _by_channel(surface_scope),
+        # Which channels exist and which are switched on. The inbox needs this
+        # to tell "connected, nothing yet" apart from "not connected" — two
+        # states that both show an empty list and want opposite responses
+        # (wait vs go and set it up). Included here rather than read from
+        # /api/channels because that endpoint is admin+supervisor only, and an
+        # agent looking at an empty inbox deserves the same explanation.
+        'channels': _channel_availability(),
 
         # The global kill switch is a settings flag checked at reply time — it
         # never touches conversations.ai_enabled. So while it is off, every
@@ -250,9 +382,6 @@ def list_conversations():
     """List conversations for the inbox."""
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=DEFAULT_PER_PAGE, type=int)
-    channel = request.args.get('channel', type=str)
-    status = request.args.get('status', type=str)
-    search = request.args.get('search', type=str)
 
     if page < 1:
         page = 1
@@ -279,70 +408,11 @@ def list_conversations():
             )
         )
 
-    # Platform and surface are separate questions.
-    #
-    # `channel` is a compound column — instagram_dm, instagram_comment — so
-    # filtering on it forced the two together: you could ask for "Instagram
-    # DMs" but never "everything from Instagram" or "every comment, wherever it
-    # came from". Those are the two things you actually want when triaging.
-    # `channel` still works untouched for anything already passing it.
-    platform = request.args.get('platform', type=str)     # instagram | facebook | …
-    surface = request.args.get('surface', type=str)       # dm | comment
-
-    if channel and channel != 'all':
-        query = query.filter(Conversation.channel == channel)
-
-    if platform and platform != 'all':
-        # instagram -> instagram_dm, instagram_comment
-        query = query.filter(Conversation.channel.like(f'{platform}\\_%', escape='\\'))
-
-    if surface and surface != 'all':
-        # dm -> instagram_dm, facebook_dm
-        query = query.filter(Conversation.channel.like(f'%\\_{surface}', escape='\\'))
-
-    if status and status != 'all':
-        query = query.filter(Conversation.status == status)
-
-    # Inbox filter chips. Applied in SQL so the list matches the chip's count
-    # rather than showing whichever members of the bucket happened to land in
-    # the page already loaded.
-    bucket = request.args.get('bucket', type=str)
-    if bucket in INBOX_BUCKETS:
-        query = _bucket_filter(query, bucket)
-
-    # Optional filters for supervisor/admin dashboards
-    assigned_to = request.args.get('assigned_to', type=str)
-    if assigned_to == 'me' and current_user:
-        query = query.filter(Conversation.assigned_to == current_user.id)
-    elif assigned_to == 'unassigned':
-        query = query.filter(Conversation.assigned_to.is_(None))
-    elif assigned_to and assigned_to.isdigit():
-        query = query.filter(Conversation.assigned_to == int(assigned_to))
-
-    term = (search or '').strip()
-    if term:
-        like = f"%{term}%"
-        # A correlated EXISTS over messages, so a conversation matches on
-        # anything ever said in it — not just whichever line happens to be
-        # sitting in Conversation.last_message. Searching "refund" used to
-        # return nothing unless "refund" was the most recent message, which
-        # made the box feel broken on the one page where search matters most.
-        # EXISTS rather than a join: a join would emit one row per matching
-        # message and silently multiply the conversation across the results.
-        said_in_thread = (
-            Message.query
-            .filter(Message.conversation_id == Conversation.id,
-                    Message.content.ilike(like))
-            .exists()
-        )
-        query = query.join(User, Conversation.user_id == User.id).filter(
-            db.or_(
-                Conversation.last_message.ilike(like),
-                User.name.ilike(like),
-                User.external_id.ilike(like),
-                said_in_thread,
-            )
-        )
+    # Platform, surface, status, bucket, assignee and search — see
+    # _apply_inbox_filters, which the counts endpoint calls with the same
+    # request so the chips above the list can never describe a different set
+    # from the list itself.
+    query = _apply_inbox_filters(query, current_user)
 
     total = query.count()
 
@@ -362,7 +432,9 @@ def list_conversations():
     # conversation — the most recent match — in a single query for the page,
     # rather than one query per row.
     snippet_map = {}
+    term = (request.args.get('search', type=str) or '').strip()
     if term and conversations:
+        like = f"%{term}%"
         ids = [c.id for c in conversations]
         rows = (
             db.session.query(Message.conversation_id, Message.content, Message.direction)

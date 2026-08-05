@@ -408,3 +408,54 @@ follows it with "is this still available?", the system now understands what
 "this" refers to instead of searching the catalogue for the word "still". And
 the things that used to fail in silence — a send that didn't go, an AI switch
 that didn't take, a photo whose link expired — now say so.
+
+---
+
+## The filter chips and the list now answer the same question
+
+**The bug, as it looked on screen.** Select **Instagram** and the list narrows
+to 46 conversations — but every number around it carries on describing all 69:
+
+```
+Instagram 46   ← list shows 46
+Unclaimed 2 · With agent 5 · Stalled 29 · Resolved 33   = 69
+All 69 · DMs 50 · Comments 19                            = 69
+```
+
+Both rows were counted over the whole inbox and neither knew a filter existed.
+The list endpoint applied `platform` / `surface` / `search`; the counts endpoint
+had its own, shorter copy of the filter logic that did not. Two implementations
+of the same idea, which is how they drifted.
+
+**The fix.** One `_apply_inbox_filters()` in `app/messages.py`, called by both
+endpoints off the same request. They cannot disagree because there is nothing
+left to disagree about.
+
+**Each facet excludes its own filter.** This is the part worth understanding. If
+selecting Instagram narrowed *everything*, the Facebook chip would read 0 and
+you could never click your way back out — the filter would be a trap. So each
+row is counted with every *other* active filter applied but its own lifted:
+
+| Row | Counted with… |
+|---|---|
+| Platform chips | surface, status, search applied — platform lifted |
+| DMs / Comments | platform, status, search applied — surface lifted |
+| Status chips | platform, surface, search applied — status lifted |
+
+Verified against the real database:
+
+```
+(no filter)                   list 46   status chips sum 46   surface 34 dm / 12 comment
+platform=instagram            list 28   status chips sum 28   surface 20 dm / 8 comment
+platform=instagram surface=comment  list 8   status chips sum 8
+platform=facebook             list 7    status chips sum 7
+```
+
+The status chips sum to the list total under every combination — which is the
+property that was broken.
+
+**The sidebar badge is deliberately excluded.** It is served by the same
+endpoint but computed *before* any filter is applied. "You have work waiting"
+must not change because someone clicked a chip inside the inbox — those are two
+different questions, and conflating them would make the badge lie in the other
+direction.

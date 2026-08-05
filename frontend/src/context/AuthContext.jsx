@@ -154,6 +154,33 @@ const verifyToken = async (token) => {
     }
   }
 
+  // Google sign-in. Returns the server's own message on failure rather than a
+  // boolean, because here the reason IS the instruction: "no account exists for
+  // you@gmail.com — ask an administrator" tells someone exactly what to do
+  // next, and collapsing that to "sign-in failed" would strand them.
+  const loginWithGoogle = async (credential) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch(`${API_URL}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Google sign-in failed')
+
+      localStorage.setItem('authToken', data.token)
+      setUser(data.user)
+      return { ok: true }
+    } catch (err) {
+      setError(err.message)
+      return { ok: false, error: err.message }
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const logout = async () => {
     const token = localStorage.getItem('authToken')
     if (token) {
@@ -171,7 +198,7 @@ const verifyToken = async (token) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, error, login, loginWithGoogle, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )
