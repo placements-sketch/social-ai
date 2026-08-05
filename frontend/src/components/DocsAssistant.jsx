@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { BookOpen, X, Send, Loader2, RotateCcw } from 'lucide-react'
+import { BookOpen, X, Send, Loader2, RotateCcw, AlertCircle } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuth } from '../context/AuthContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -62,6 +63,13 @@ function Rich({ text }) {
 }
 
 export default function DocsAssistant() {
+  const { user } = useAuth()
+  // Only the people who would write the documentation. An agent seeing this
+  // would learn only that colleagues are confused too.
+  const canSeeGaps = user?.role === 'admin' || user?.role === 'supervisor'
+  const [gaps, setGaps] = useState(null)
+  const [showGaps, setShowGaps] = useState(false)
+
   const [open, setOpen] = useState(false)
   const [turns, setTurns] = useState([])      // [{role, content}]
   const [input, setInput] = useState('')
@@ -72,6 +80,16 @@ export default function DocsAssistant() {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [turns, busy])
   useEffect(() => { if (open) inputRef.current?.focus() }, [open])
+
+  // Loaded when the panel opens, not on every page load — this is a background
+  // curiosity, not something worth a request on every screen an admin visits.
+  useEffect(() => {
+    if (!open || !canSeeGaps || gaps) return
+    fetch(`${API_BASE}/docs/gaps?days=30`, { headers: authHeaders() })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d && setGaps(d))
+      .catch(() => { /* the assistant still works without this */ })
+  }, [open, canSeeGaps, gaps])
 
   // Escape closes it. A panel that traps you is worse than no panel.
   useEffect(() => {
@@ -165,6 +183,48 @@ export default function DocsAssistant() {
             </header>
 
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+              {/* What the docs could NOT answer. Shown to supervisors and
+                  admins in the empty state, because the moment you open this
+                  panel is exactly when you are thinking about documentation.
+                  Grouped and counted, so it reads as a work list: the question
+                  at the top is the explainer worth writing next. */}
+              {turns.length === 0 && canSeeGaps && gaps?.gaps?.length > 0 && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <button
+                    onClick={() => setShowGaps(v => !v)}
+                    className="flex items-start gap-2 w-full text-left"
+                  >
+                    <AlertCircle size={14} className="text-amber-600 shrink-0 mt-px" />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-xs font-bold text-amber-900">
+                        {gaps.distinct_questions} question{gaps.distinct_questions === 1 ? '' : 's'} the docs couldn't answer
+                      </span>
+                      <span className="block text-[11px] text-amber-700 mt-0.5 leading-snug">
+                        Asked {gaps.total_unanswered} time{gaps.total_unanswered === 1 ? '' : 's'} in the last 30 days.
+                        {showGaps ? ' Hide' : ' Show'} the list.
+                      </span>
+                    </span>
+                  </button>
+                  {showGaps && (
+                    <ul className="mt-2.5 space-y-1.5 border-t border-amber-200 pt-2.5">
+                      {gaps.gaps.slice(0, 8).map((g, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="text-[10px] font-bold tabular-nums text-amber-700 bg-amber-100 rounded-full min-w-[18px] h-[18px] inline-flex items-center justify-center px-1 shrink-0 mt-px">
+                            {g.count}
+                          </span>
+                          <span className="text-[11px] text-amber-900 leading-snug break-words">
+                            {g.question}
+                            {g.never_covered === 0 && (
+                              <span className="text-amber-600"> — partly covered</span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               {turns.length === 0 && (
                 <div>
                   <p className="text-xs text-gray-500 leading-relaxed">

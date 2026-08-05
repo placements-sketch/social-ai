@@ -22,6 +22,7 @@ If the corpus grows past ~150k tokens this has to change. That is a long way
 off: it would take roughly ten times the documentation we have now.
 """
 import os
+import re
 import time
 
 from flask import Blueprint, request, jsonify, current_app
@@ -193,6 +194,51 @@ SYSTEM_INSTRUCTIONS = (
 )
 
 
+# ── Detecting what the documentation could not answer ────────────────────────
+#
+# The assistant is only as good as what has been written down, and until now a
+# gap was invisible: fifty agents could ask the same undocumented question, each
+# get "I'm not sure", and nobody would ever find out. Logging those turns the
+# assistant into a way of DISCOVERING which explainer to write next, instead of
+# a place where the same gap is quietly hit over and over.
+#
+# The model tags its own answer, because it is the only thing that knows whether
+# it actually found what was asked. Inferring it from the wording ("I'm not
+# sure…") would be a guessing game against phrasing we deliberately vary, and
+# would misfire the moment someone asks in Swahili.
+COVERAGE_INSTRUCTION = (
+    "\n\nFINALLY, AND SEPARATELY FROM YOUR ANSWER:\n"
+    "End every reply with a coverage tag on its very own last line, exactly in "
+    "this form:\n"
+    "<<COVERAGE:full>>   — the documents fully answered the question\n"
+    "<<COVERAGE:partial>> — you answered some of it, but part was not documented\n"
+    "<<COVERAGE:none>>   — the documents did not cover this at all\n"
+    "Judge it on the DOCUMENTS, not on how satisfying your reply was. A polite "
+    "answer built from general knowledge is 'none'. A question about live data "
+    "or business policy, which is outside what you can ever answer, is 'none'.\n"
+    "This tag is stripped before the person sees it. It is how we find out which "
+    "documentation to write next, so be honest — over-reporting 'full' hides a "
+    "real gap from the people who could close it."
+)
+
+# Tolerant on purpose: whitespace, casing and stray asterisks around the tag all
+# vary in practice, and a tag that leaks into an agent's chat window is a much
+# worse failure than one we cannot parse.
+_COVERAGE_RE = re.compile(r'[*_\s]*<<\s*COVERAGE\s*:\s*(full|partial|none)\s*>>[*_\s]*',
+                          re.IGNORECASE)
+
+
+def _split_coverage(answer: str):
+    """(clean_answer, coverage or None). Strips the tag wherever it landed."""
+    found = _COVERAGE_RE.search(answer or '')
+    coverage = found.group(1).lower() if found else None
+    # sub() rather than trimming the last line — the model occasionally puts it
+    # before a trailing pleasantry, and a half-removed tag is the leak we are
+    # trying to avoid.
+    cleaned = _COVERAGE_RE.sub('', answer or '').strip()
+    return cleaned, coverage
+
+
 ROLE_WORDS = {
     'agent': 'a customer experience agent',
     'supervisor': 'a supervisor',
@@ -292,7 +338,7 @@ def ask_docs():
                 # corpus would be re-read at full price on every question.
                 {'type': 'text', 'text': ROLE_MODEL},
                 {'type': 'text', 'text': _who_is_asking(user)},
-                {'type': 'text', 'text': SYSTEM_INSTRUCTIONS},
+                {'type': 'text', 'text': SYSTEM_INSTRUCTIONS + COVERAGE_INSTRUCTION},
             ],
             messages=messages,
         )
@@ -306,11 +352,25 @@ def ask_docs():
     answer = next((b.text for b in resp.content
                    if getattr(b, 'type', None) == 'text' and getattr(b, 'text', None)), '')
 
+    answer, coverage = _split_coverage(answer)
+
     if not answer:
         log_event('warning', 'docs_assistant.empty_answer', f'stop_reason={resp.stop_reason}')
         return jsonify({
             'error': 'That answer got cut short. Ask again, or try a shorter question.'
         }), 502
+
+    # A gap is worth its own log line, at warning level, so it stands out from
+    # the ordinary answered-a-question noise and can be pulled out on its own.
+    if coverage in ('none', 'partial'):
+        log_event('warning', 'docs_assistant.gap',
+                  f'Not in the docs: {question[:180]}',
+                  payload={
+                      'question': question[:500],
+                      'coverage': coverage,
+                      'asked_by': user.email,
+                      'role': user.role,
+                  })
 
     usage = getattr(resp, 'usage', None)
     log_event('info', 'docs_assistant.answered',
@@ -321,7 +381,117 @@ def ask_docs():
                   'cache_write': getattr(usage, 'cache_creation_input_tokens', None),
               })
 
-    return jsonify({'answer': answer, 'sources': files}), 200
+    return jsonify({'answer': answer, 'sources': files, 'coverage': coverage}), 200
+
+
+@docs_assistant_bp.route('/docs/gaps', methods=['GET'])
+@jwt_required()
+def docs_gaps():
+    """
+    Questions the documentation could not answer, most-asked first.
+
+    This is a WORK LIST, not a log. Grouped by question rather than listed
+    chronologically, because the actionable signal is "eleven people asked this"
+    — a flat feed of 200 lines buries that, and the whole point is knowing which
+    explainer to write next.
+
+    Supervisor and admin: they are the ones who would write or commission the
+    documentation. An agent seeing it would only learn that their colleagues are
+    confused too.
+    """
+    user = AuthUser.query.get(current_user_id())
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    if user.role not in ('admin', 'supervisor'):
+        return jsonify({'error': 'Not authorized'}), 403
+
+    days = min(max(request.args.get('days', default=30, type=int), 1), 365)
+
+    from datetime import datetime, timedelta
+    from app.models import Log
+
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = (Log.query
+            .filter(Log.source == 'docs_assistant.gap', Log.created_at >= since)
+            .order_by(Log.created_at.desc())
+            .limit(1000)
+            .all())
+
+    # Group on a loose normalisation — lowercase, punctuation and filler words
+    # stripped. "What does stalled mean?" and "what does Stalled - AI off mean"
+    # are the same gap, and counting them separately would hide how common it is.
+    groups = {}
+    for r in rows:
+        payload = r.payload or {}
+        question = (payload.get('question') or r.message or '').strip()
+        key = _gap_key(question)
+        if not key:
+            continue
+        g = groups.setdefault(key, {
+            'question': question, 'count': 0, 'never_covered': 0,
+            'roles': set(), 'last_asked': None,
+        })
+        g['count'] += 1
+        if payload.get('coverage') == 'none':
+            g['never_covered'] += 1
+        if payload.get('role'):
+            g['roles'].add(payload['role'])
+        stamp = r.created_at.isoformat() if r.created_at else None
+        if stamp and (g['last_asked'] is None or stamp > g['last_asked']):
+            g['last_asked'] = stamp
+
+    out = sorted(groups.values(), key=lambda g: (-g['count'], g['question']))
+    for g in out:
+        g['roles'] = sorted(g['roles'])
+
+    return jsonify({
+        'days': days,
+        'total_unanswered': len(rows),
+        'distinct_questions': len(out),
+        'gaps': out[:50],
+    }), 200
+
+
+# Dropped when grouping questions, so wording differences don't split one gap
+# into several. Deliberately small: strip too much and unrelated questions
+# collapse into each other, which would invent a gap nobody actually has.
+_STOPWORDS = {
+    'a', 'an', 'the', 'is', 'are', 'be', 'do', 'does', 'did', 'i', 'we', 'you',
+    'my', 'me', 'our', 'us', 'to', 'of', 'in', 'on', 'at', 'for', 'and', 'or',
+    'it', 'this', 'that', 'there', 'can', 'could', 'should', 'would', 'get',
+    'how', 'what', 'when', 'why', 'where', 'who', 'which', 'please', 'tell',
+    'about', 'if', 'so', 'im', 'ive',
+}
+
+
+def _singular(word: str) -> str:
+    """deliveries -> delivery, orders -> order. Crude on purpose."""
+    if len(word) > 4 and word.endswith('ies'):
+        return word[:-3] + 'y'
+    if len(word) > 3 and word.endswith('s') and not word.endswith('ss'):
+        return word[:-1]
+    return word
+
+
+def _gap_key(question: str) -> str:
+    """
+    A loose fingerprint, so the same gap asked different ways counts once.
+
+    Word ORDER is discarded and plurals are collapsed, because these two are one
+    question and were being counted as two:
+
+        "What is our refund policy for late deliveries?"
+        "Whats our refund policy when a delivery is late?"
+
+    Splitting them halves the count on exactly the gaps that matter most — the
+    ones lots of people hit — which defeats the purpose of grouping at all.
+    """
+    words = re.sub(r'[^a-z0-9 ]', ' ', (question or '').lower()).split()
+    # Singularise BEFORE dropping stopwords, so "whats" reduces to "what" and
+    # is then recognised as one.
+    meaningful = sorted({w for w in (_singular(x) for x in words)
+                         if w and w not in _STOPWORDS})
+    return ' '.join(meaningful)[:120]
 
 
 @docs_assistant_bp.route('/docs/topics', methods=['GET'])
