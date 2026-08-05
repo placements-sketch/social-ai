@@ -305,6 +305,11 @@ export default function Messages() {
   const [selected, setSelected]         = useState(null)   // null = show list on mobile
   const [showContext, setShowContext]   = useState(false)  // mobile context panel toggle
   const [channelFilter, setChannelFilter] = useState('all') // filters by DB `channel`
+  // Platform and surface are asked separately now — see the two rows in the
+  // list header. The server takes them as independent params.
+  const [platformFilter, setPlatformFilter] = useState('all')  // instagram | facebook | …
+  const [surfaceFilter, setSurfaceFilter] = useState('all')    // dm | comment
+  const [channelCounts, setChannelCounts] = useState({})       // { instagram_dm: 20, … }
   const [statusFilter, setStatusFilter] = useState(null)        // null | unclaimed | human | ai | resolved
   const [page, setPage] = useState(1)
   const [totalConvos, setTotalConvos] = useState(0)
@@ -406,7 +411,7 @@ export default function Messages() {
       // Canonical contract: send `channel` (not `platform`); response is
       // { conversations, total, page, per_page }.
       const data = await listConversations({
-        channel: channelFilter,
+        channel: channelFilter, platform: platformFilter, surface: surfaceFilter,
         search,
         page: 1,
         per_page: PAGE_SIZE,
@@ -421,7 +426,7 @@ export default function Messages() {
     } finally {
       setLoadingList(false)
     }
-  }, [channelFilter, search, statusFilter, assignedFilter])
+  }, [channelFilter, platformFilter, surfaceFilter, search, statusFilter, assignedFilter])
 
   const loadMore = useCallback(async () => {
     if (loadingMore) return
@@ -429,7 +434,8 @@ export default function Messages() {
     try {
       const next = page + 1
       const data = await listConversations({
-        channel: channelFilter, search, page: next, per_page: PAGE_SIZE,
+        channel: channelFilter, platform: platformFilter, surface: surfaceFilter,
+        search, page: next, per_page: PAGE_SIZE,
         bucket: statusFilter || null,
         assigned_to: assignedFilter || null,
       })
@@ -445,13 +451,13 @@ export default function Messages() {
       setPage(next)
     } catch { /* leave the list as-is; the button stays available */ }
     finally { setLoadingMore(false) }
-  }, [channelFilter, search, statusFilter, assignedFilter, page, loadingMore, totalConvos])
+  }, [channelFilter, platformFilter, surfaceFilter, search, statusFilter, assignedFilter, page, loadingMore, totalConvos])
 
   useEffect(() => {
     // Load conversations on initial mount and when filters change
     const t = setTimeout(loadList, search ? 300 : 0)
     return () => clearTimeout(t)
-  }, [loadList, search, channelFilter, statusFilter, assignedFilter])
+  }, [loadList, search, channelFilter, platformFilter, surfaceFilter, statusFilter, assignedFilter])
 
   // Status counts come from the server so the chips describe the whole inbox
   // rather than the page you happen to have loaded.
@@ -475,6 +481,7 @@ export default function Messages() {
           // human queue, and guaranteed no reply. This endpoint already
           // carries the flag and every role can read it.
           setAiGloballyOff(!!counts.ai_globally_off)
+          setChannelCounts(counts.by_channel || {})
         }
       } catch { /* chips fall back to counting the loaded page */ }
     }
@@ -495,7 +502,8 @@ export default function Messages() {
         // user has already loaded — replacing wholesale would have snapped a
         // scrolled list back to the first 20 every 10 seconds.
         const data = await listConversations({
-          channel: channelFilter, search, page: 1, per_page: PAGE_SIZE,
+          channel: channelFilter, platform: platformFilter, surface: surfaceFilter,
+          search, page: 1, per_page: PAGE_SIZE,
         bucket: statusFilter || null,
         assigned_to: assignedFilter || null,
       })
@@ -514,7 +522,7 @@ export default function Messages() {
     }
     const timer = setInterval(silentRefresh, 10000)
     return () => clearInterval(timer)
-  }, [channelFilter, search, statusFilter, assignedFilter, totalConvos])
+  }, [channelFilter, platformFilter, surfaceFilter, search, statusFilter, assignedFilter, totalConvos])
 
   // Typing indicator: show ~3s after a new inbound message arrives,
   // OR until the AI reply appears (whichever first).
@@ -1005,6 +1013,39 @@ const handleSend = async (retryOf = null) => {
     }
   }
 
+  // Chip rows, folded from one per-channel count so both rows and the list can
+  // never disagree. Platforms are derived from what actually exists in the
+  // inbox rather than hardcoded — a channel nobody has ever messaged on is a
+  // chip that always reads 0.
+  const platformChips = (() => {
+    const totals = {}
+    for (const [ch, n] of Object.entries(channelCounts)) {
+      const p = ch.split('_')[0]
+      totals[p] = (totals[p] || 0) + n
+    }
+    const all = Object.values(totals).reduce((a, b) => a + b, 0)
+    const LABELS = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', tiktok: 'TikTok' }
+    return [
+      { key: 'all', label: 'All channels', count: all },
+      ...Object.entries(totals)
+        .sort((a, b) => b[1] - a[1])
+        .map(([p, n]) => ({ key: p, label: LABELS[p] || p, count: n })),
+    ]
+  })()
+
+  const surfaceTabs = (() => {
+    let dm = 0, comment = 0
+    for (const [ch, n] of Object.entries(channelCounts)) {
+      if (ch.endsWith('_comment')) comment += n
+      else dm += n            // whatsapp and any future bare channel are DMs
+    }
+    return [
+      { key: 'all', label: 'All', count: dm + comment },
+      { key: 'dm', label: 'DMs', count: dm },
+      { key: 'comment', label: 'Comments', count: comment },
+    ]
+  })()
+
   // ── Conversation list panel ──────────────────────────────────────────────
   const ConvList = (
     <div className={clsx(
@@ -1019,19 +1060,31 @@ const handleSend = async (retryOf = null) => {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
+        {/* PLATFORM — where it came from.
+            Was one row mixing platform and surface ("Instagram DM",
+            "Facebook DM"), which made the two impossible to ask separately:
+            you could not see everything from Instagram, or every comment
+            across channels. They are now two rows, and the server filters on
+            each independently. */}
         <div className="flex gap-1.5 overflow-x-auto hide-scrollbar sm:flex-wrap">
-          {channels.map(p => (
+          {platformChips.map(({ key, label, count }) => (
             <button
-              key={p}
-              onClick={() => setChannelFilter(p)}
+              key={key}
+              onClick={() => setPlatformFilter(key)}
               className={clsx(
-                'text-[11px] px-2.5 py-1 rounded-full font-semibold transition-all whitespace-nowrap shrink-0 sm:shrink',
-                channelFilter === p
+                'text-[11px] px-2.5 py-1 rounded-full font-semibold transition-all whitespace-nowrap shrink-0 sm:shrink inline-flex items-center gap-1.5',
+                platformFilter === key
                   ? 'bg-brand-500 text-black'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               )}
             >
-              {p === 'all' ? 'All' : platformLabel(p)}
+              {label}
+              {count > 0 && (
+                <span className={clsx(
+                  'text-[10px] font-bold tabular-nums px-1 rounded',
+                  platformFilter === key ? 'bg-black/15' : 'bg-gray-200 text-gray-500'
+                )}>{count}</span>
+              )}
             </button>
           ))}
         </div>
@@ -1087,6 +1140,33 @@ const handleSend = async (retryOf = null) => {
               </button>
             )
           })}
+        </div>
+
+        {/* SURFACE — a DM and a public comment are different jobs. A comment is
+            visible to everyone who sees the post, so it is often the more
+            urgent of the two; a segmented control rather than another chip row
+            because these three are mutually exclusive and always present. */}
+        <div className="flex rounded-xl bg-gray-100 p-0.5 gap-0.5">
+          {surfaceTabs.map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setSurfaceFilter(key)}
+              className={clsx(
+                'flex-1 text-[11px] font-semibold py-1.5 rounded-lg transition-all inline-flex items-center justify-center gap-1.5',
+                surfaceFilter === key
+                  ? 'bg-brand-500 text-black shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              )}
+            >
+              {label}
+              {count > 0 && (
+                <span className={clsx(
+                  'text-[10px] font-bold tabular-nums',
+                  surfaceFilter === key ? 'text-black/55' : 'text-gray-400'
+                )}>{count}</span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
       {/* A deep link silently hiding most of the inbox would look like an

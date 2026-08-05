@@ -62,7 +62,7 @@ export function getConversationCounts() {
  *          search?:string, bucket?:string, assigned_to?:string}} opts
  * @returns {Promise<{conversations:Array, total:number, page:number, per_page:number}>}
  */
-export function listConversations({ page = 1, per_page = 20, channel = null, status = null, search = null, bucket = null, assigned_to = null } = {}) {
+export function listConversations({ page = 1, per_page = 20, channel = null, status = null, search = null, bucket = null, assigned_to = null, platform = null, surface = null } = {}) {
   const params = new URLSearchParams()
   params.set('page', page)
   params.set('per_page', per_page)
@@ -71,6 +71,10 @@ export function listConversations({ page = 1, per_page = 20, channel = null, sta
   if (search) params.set('search', search)
   if (bucket) params.set('bucket', bucket)
   if (assigned_to) params.set('assigned_to', assigned_to)
+  // Platform (instagram) and surface (dm | comment) are independent of
+  // each other and of `channel`, which stays for anything still using it.
+  if (platform && platform !== 'all') params.set('platform', platform)
+  if (surface && surface !== 'all') params.set('surface', surface)
 
   return handle(
     fetch(`${API_BASE}/conversations?${params.toString()}`, {

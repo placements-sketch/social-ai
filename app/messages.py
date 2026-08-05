@@ -215,6 +215,19 @@ def conversation_counts():
         # to be two separate implementations — Python sums here, no filter at
         # all there — which is precisely how they drifted.
         'by_status': {k: _bucket_filter(query, k).count() for k in INBOX_BUCKETS},
+        # Per-channel totals for the platform and surface chips, from ONE
+        # grouped query rather than a round trip per chip. The client folds
+        # instagram_dm + instagram_comment into "Instagram" and the two _dm
+        # values into "DMs", so both rows read off the same numbers and cannot
+        # disagree with each other or with the list.
+        # Counted over `query` — the same scope the list shows with no status
+        # filter — so clicking Instagram reveals exactly the number on the chip.
+        # Counting only open ones would have read 9 above a list of 28.
+        'by_channel': dict(
+            query.with_entities(Conversation.channel,
+                                db.func.count(Conversation.id))
+                 .group_by(Conversation.channel).all()
+        ),
 
         # The global kill switch is a settings flag checked at reply time — it
         # never touches conversations.ai_enabled. So while it is off, every
@@ -266,8 +279,26 @@ def list_conversations():
             )
         )
 
+    # Platform and surface are separate questions.
+    #
+    # `channel` is a compound column — instagram_dm, instagram_comment — so
+    # filtering on it forced the two together: you could ask for "Instagram
+    # DMs" but never "everything from Instagram" or "every comment, wherever it
+    # came from". Those are the two things you actually want when triaging.
+    # `channel` still works untouched for anything already passing it.
+    platform = request.args.get('platform', type=str)     # instagram | facebook | …
+    surface = request.args.get('surface', type=str)       # dm | comment
+
     if channel and channel != 'all':
         query = query.filter(Conversation.channel == channel)
+
+    if platform and platform != 'all':
+        # instagram -> instagram_dm, instagram_comment
+        query = query.filter(Conversation.channel.like(f'{platform}\\_%', escape='\\'))
+
+    if surface and surface != 'all':
+        # dm -> instagram_dm, facebook_dm
+        query = query.filter(Conversation.channel.like(f'%\\_{surface}', escape='\\'))
 
     if status and status != 'all':
         query = query.filter(Conversation.status == status)
