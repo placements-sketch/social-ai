@@ -154,6 +154,26 @@ const verifyToken = async (token) => {
     }
   }
 
+  // Ask for a sign-in code. Lives here rather than in the login page so it
+  // resolves the API base the same way every other call does — the page had
+  // its own copy reading VITE_API_URL, a variable that does not exist, so it
+  // fell back to same-origin and posted to the Vercel frontend instead of the
+  // backend. One definition, one thing to get right.
+  const requestLoginCode = async (email) => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not send a code. Try again.')
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  }
+
   // Sign in with an emailed one-time code. Returns the server's own message on
   // failure rather than a boolean, because here the reason IS the instruction:
   // "that code has expired — request a new one" and "incorrect code, 3 attempts
@@ -199,7 +219,7 @@ const verifyToken = async (token) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, loginWithCode, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, error, login, requestLoginCode, loginWithCode, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

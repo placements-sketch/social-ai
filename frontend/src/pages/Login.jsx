@@ -31,7 +31,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const { login, loginWithCode } = useAuth()
+  const { login, requestLoginCode, loginWithCode } = useAuth()
   const navigate = useNavigate()
   const emailRef = useRef(null)
   const codeRef = useRef(null)
@@ -86,22 +86,16 @@ export default function Login() {
     e?.preventDefault()
     setError('')
     setIsLoading(true)
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/otp/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Could not send a code. Try again.')
+    const { ok, error: msg } = await requestLoginCode(email)
+    if (ok) {
       // The server deliberately answers the same way whether or not the address
       // has an account, so this screen must not claim a code "has been sent" —
-      // it says what it can honestly say and moves on to the code box either
-      // way. Anything else would leak who has an account here.
+      // it moves on to the code box either way, and the heading above says only
+      // what is true. Anything else would leak who has an account here.
       setCodeSent(true)
       setCooldown(60)
-    } catch (err) {
-      setError(err.message)
+    } else {
+      setError(msg)
     }
     setIsLoading(false)
   }
