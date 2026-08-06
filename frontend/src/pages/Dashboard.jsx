@@ -106,6 +106,10 @@ const ESCALATION_LABELS = {
   ai_unavailable:     'AI unavailable',
   image_unconfirmed:  "Photo we couldn't identify",
   image_unmatched:    'Photo matched nothing',
+  // Some escalations store a whole sentence as `detail`; map the exact
+  // strings so they render as short labels instead of being clipped.
+  'Customer sent a photo we could not match to any product': 'Photo matched nothing',
+  'Customer sent a photo we could not confidently identify': "Photo we couldn't identify",
   generation_failed:  'AI unavailable',
   bad_request:        'AI unavailable',
   smart_detection:    'AI judged it needed a person',
@@ -1368,10 +1372,24 @@ export default function Dashboard() {
                         {kpis.escalation_breakdown.map(({ reason, count }) => (
                           <span
                             key={reason}
-                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-50 border border-purple-100 text-[12px]"
+                            /* No border. In dark mode `border-purple-100` maps
+                               to a light value that reads as a thick outline
+                               around every chip — louder than the numbers it
+                               was meant to frame. The tint alone separates
+                               them. */
+                            title={ESCALATION_LABELS[reason] ? undefined : reason}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-50 text-[12px]"
                           >
                             <span className="font-bold text-purple-700">{count}</span>
-                            <span className="text-gray-600">{ESCALATION_LABELS[reason] || reason}</span>
+                            {/* Unmapped reasons fall back to the raw `detail`,
+                                which is a full sentence for some escalations
+                                ("Customer sent a photo we could not match to
+                                any product"). Clipped, with the full text on
+                                hover, so one long reason can't push the row
+                                onto three lines. */}
+                            <span className="text-gray-600 truncate max-w-[14rem]">
+                              {ESCALATION_LABELS[reason] || reason}
+                            </span>
                           </span>
                         ))}
                       </div>
