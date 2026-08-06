@@ -587,6 +587,14 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         model  = current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
         max_tokens = current_app.config.get("CLAUDE_MAX_TOKENS", 300)
 
+        # A comment-to-DM answer carries the product, the price, the sizes,
+        # delivery and a link. 300 tokens is sized for a comment reply and would
+        # cut that off mid-sentence — and a truncated reply is worse than a
+        # terse one, because it looks broken rather than brief. Raise the
+        # ceiling only for this case; every other reply keeps the tuned budget.
+        if context_data.get("deliver_as_dm"):
+            max_tokens = max(max_tokens, 700)
+
         # ── Build Shopify context block (unchanged from before) ──────────
         context_lines = []
 
@@ -784,6 +792,26 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 "explicitly in this reply, in KES. Do not leave the customer to ask for it."
             )
 
+        # The customer commented on a post; we replied publicly saying we had
+        # sent them a DM with the details, and THIS is that DM. They have been
+        # told to expect a full answer, so answering only the narrow question
+        # they asked ("what sizes?" -> "XS, S, M, L, XL") makes the public reply
+        # a small lie and forces them to ask three more questions to get to a
+        # decision. Give them everything needed to say yes.
+        if context_data.get("deliver_as_dm"):
+            context_lines.append(
+                "This reply is being sent as a private DM, opened because the "
+                "customer commented on one of our posts. We have already replied "
+                "under that post telling them we sent a DM WITH ALL THE DETAILS, "
+                "so this message has to earn that. Cover, in a natural order and "
+                "only from the data above: the product name; the price in KES; "
+                "what sizes/variants are in stock; delivery cost and timeframe; "
+                "and the link to buy. Omit only what is genuinely not in the data "
+                "— never guess a figure to fill a gap. Answer whatever they "
+                "actually asked FIRST, then the rest. It is a DM, so a few short "
+                "lines are fine; do not compress it into one sentence."
+            )
+
         context_block = "\n".join(context_lines) if context_lines else "No specific product data available."
         intents_str   = ", ".join(intents) if intents else "general inquiry"
 
@@ -832,14 +860,36 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
             if _si_parts else ""
         )
 
+        # Where the words LAND, not where the question arrived. A comment routed
+        # into a DM is written for the DM: telling the model "instagram comment"
+        # here is what made it answer like one — clipped, public, minimal — in a
+        # private thread where the opposite is wanted.
+        delivery_channel = ('instagram_dm' if context_data.get("deliver_as_dm")
+                            else channel)
+
+        # The length slider is tuned for the channel messages normally arrive
+        # on, and at the low end it says "under 2 sentences" — which is why the
+        # first DM that went out was a size list and a question. That setting is
+        # right for a public comment and wrong for a DM we have publicly
+        # advertised as containing all the details, so this one case overrides
+        # it. The tone, formality and sales sliders still apply; only the length
+        # budget changes, and only far enough to fit the facts.
+        length_line = (
+            "This is a DM the customer was told to expect, so give it room: "
+            "4-8 short lines. Each fact on its own line or in a tight "
+            "paragraph — no wall of text, no padding."
+            if context_data.get("deliver_as_dm")
+            else _length_directive(slider_length)
+        )
+
         system_prompt = f"""{base_prompt}
 
-You are responding via {channel.replace('_', ' ')}.
+You are responding via {delivery_channel.replace('_', ' ')}.
 
 --- Response style ---
 {tone_line}
 {_formal_directive(slider_formal)}
-{_length_directive(slider_length)}
+{length_line}
 {_sales_directive(slider_sales)}
 
 --- Rules ---

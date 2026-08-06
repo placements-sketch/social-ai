@@ -160,6 +160,37 @@ Note the directive is popped out of the rule directives before the rest are
 merged into `context_data`; it is a routing instruction, not context, and the
 generator should never see it.
 
+#### Telling the generator where its words will land
+
+Deferring was not enough on its own. The first DM that went out read:
+
+> It comes in: XS, S, M, L, XL. Would you like to place an order? 😊
+
+Correct, and useless — underneath a public reply announcing "a DM with **all
+the details**". No price, no delivery, no link. Three things caused it, and all
+three were about the message being written for the wrong place:
+
+1. The system prompt said *"You are responding via instagram comment"*, because
+   that is the channel the message arrived on. So it wrote a comment.
+2. The **length slider** was applying its low bucket — "Keep replies under 2
+   sentences when possible". The reply was exactly two sentences. The setting
+   was doing its job; it is simply the wrong job for a DM.
+3. `CLAUDE_MAX_TOKENS` is 300, sized for comment replies. A full briefing would
+   have been cut off mid-sentence, which reads as broken rather than brief.
+
+A single flag, `context_data['deliver_as_dm']`, now fixes all three: the prompt
+says `instagram dm`, the length line is replaced with "4-8 short lines", the
+token ceiling lifts to 700, and an instruction requires the product name, the
+price in KES, in-stock sizes, delivery cost and timeframe, and the buy link.
+
+The instruction ends with *"Omit only what is genuinely not in the data — never
+guess a figure to fill a gap."* Asking for more detail is exactly the request
+that invites invented prices, and the constraint against fabricating figures has
+to be restated where the pressure is applied.
+
+Nothing else changes: tone, formality and the sales slider still apply, and
+every other reply in the system keeps the tuned length and token budget.
+
 ### `ask_order_number`
 
 Implemented as **asking for the full name and email**, not an order number.

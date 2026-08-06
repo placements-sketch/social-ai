@@ -1152,6 +1152,18 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # generator, which would otherwise see a stray dict among its flags.
     dm_handoff = rule_directives.pop('_dm_handoff', None)
 
+    # The generator is about to be told it is writing a public comment, because
+    # that is the channel the message arrived on — so it writes like one: short,
+    # answer only what was asked. But this answer is going into a DM, underneath
+    # a public promise that it contains "all the details". A three-word size
+    # list does not honour that.
+    #
+    # This flag is the only thing that tells the generator where its words will
+    # actually land. Without it we advertise a full briefing and deliver a
+    # comment.
+    if dm_handoff:
+        context_data['deliver_as_dm'] = True
+
     # Hand any rule-set directives to the AI step.
     if rule_directives:
         context_data.update(rule_directives)
