@@ -1828,3 +1828,59 @@ a DM. For a rule whose entire purpose is moving buying conversations off a
 public post, a false positive costs one unnecessary DM — cheap next to a missed
 customer. Watch it for a week; if the DM volume is noisy, the phrases to drop
 first are the broad single words, not the multi-word ones.
+
+---
+
+### Step 29 — Delete the keyword list; let the AI decide
+
+Steps 27 and 28 were both the same move: a comment did not match, so add more
+words. That loop has no end. Every phrasing we have not imagined yet is a
+customer answered in public when they should have been answered in a DM.
+
+The list is now unnecessary, because the praise decision moved to the
+classifier (`app/ai/classifier.py`, new `praise` intent, and Step 3.2 in
+`services.py`). Public comments are filtered like this:
+
+| The AI reads it as | What happens |
+|---|---|
+| praise **alone** — "love this 😍", "🔥🔥🔥", "@amina look" | the comment is liked, no reply |
+| anything else, including praise **plus** a question | full pipeline → DM with the details |
+
+So by the time automation rules run at Step 3.6, every comment still standing
+is one somebody wants an answer to. The rule no longer needs to guess which
+ones from the wording — it can simply say "comments".
+
+```sql
+BEGIN;
+
+UPDATE automation_rules
+   SET trigger = 'Any Instagram comment that isn''t praise',
+       trigger_config = '{"type": "channel", "channels": ["instagram_comment"]}'::jsonb,
+       updated_at = now()
+ WHERE name = 'Comment → DM';
+
+SELECT id, name, enabled, sort_order, trigger, trigger_config, action_config
+  FROM automation_rules WHERE name = 'Comment → DM';
+
+COMMIT;
+```
+
+`facebook_comment` is deliberately not listed. We cannot reply on that channel
+at all yet (Step 18), so a rule promising a DM there would fail every time.
+
+**What this costs.** Every public comment now goes to Haiku for
+classification, including the ones we end up only liking — previously the
+keyword heuristic rejected them for free. That is the price of judging meaning
+instead of vocabulary, and at our comment volume it is negligible.
+
+**What still gets there first.** Rules are first-match-wins, and `Out of Stock`
+is evaluated in the second pass (Step 4.6, after the Shopify fetch) where it
+answers with its own template and returns. A comment about a sold-out item will
+therefore get the out-of-stock reply publicly and no DM. Left as is: telling
+someone the item is gone is the more useful message, and it is honest to say it
+where they asked.
+
+**The fallback matters.** If the classifier is unavailable, `_praise_only()`
+reverts to the old `is_question()` heuristic rather than treating "not praise"
+as a decision. A degraded classifier must never silently become "reply to
+everything" on a public post.

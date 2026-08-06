@@ -76,6 +76,7 @@ NO_REPLY_SETTINGS_UNREADABLE   = "settings_unreadable"
 NO_REPLY_CHANNEL_DISABLED      = "channel_disabled"
 NO_REPLY_CONVERSATION_AI_OFF   = "conversation_ai_off"
 NO_REPLY_NOT_A_QUESTION        = "not_a_question"
+NO_REPLY_PRAISE                = "praise_no_question"
 NO_REPLY_SUPERSEDED            = "superseded_by_newer_message"
 NO_REPLY_DISPATCH_FAILED       = "dispatch_failed"
 NO_REPLY_EXCEPTION             = "pipeline_exception"
@@ -89,6 +90,7 @@ NO_REPLY_BY_DESIGN = {
     NO_REPLY_CHANNEL_DISABLED,
     NO_REPLY_CONVERSATION_AI_OFF,
     NO_REPLY_NOT_A_QUESTION,
+    NO_REPLY_PRAISE,
     NO_REPLY_SUPERSEDED,
     NO_REPLY_OWN_ACCOUNT,
 }
@@ -101,6 +103,7 @@ NO_REPLY_LABELS = {
     NO_REPLY_CHANNEL_DISABLED:    "Channel disabled",
     NO_REPLY_CONVERSATION_AI_OFF: "AI off for this chat",
     NO_REPLY_NOT_A_QUESTION:      "Comment wasn't a question",
+    NO_REPLY_PRAISE:              "Praise — liked, not replied to",
     NO_REPLY_SUPERSEDED:          "Answered as part of a later message",
     NO_REPLY_DISPATCH_FAILED:     "Send to platform failed",
     NO_REPLY_EXCEPTION:           "Pipeline error",
@@ -707,6 +710,25 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
 
     # Update the inbound record's intent now that we know it.
     _patch_inbound_intent(inbound_record, intents)
+
+    # ── Step 3.2: Praise gets a like, not a reply ────────────────────────
+    # "Love this 😍" wants nothing from us, and answering it under a public
+    # post is noise. But leaving it in silence is a wasted moment with someone
+    # who just said something nice, so we like it instead.
+    #
+    # This is the gate that used to be a keyword heuristic at Step 2. It reads
+    # the classifier's verdict now, so "obsessed, take my money" is answered
+    # (praise AND order_request) while "🔥🔥🔥" is liked (praise alone).
+    if channel.endswith('_comment') and _praise_only(classification, message):
+        liked, like_err = _like_comment(channel, external_id)
+        _mark_ineligible_for_ai(inbound_record)
+        _record_no_reply(
+            NO_REPLY_PRAISE, channel, user_id,
+            conversation_id=(inbound_record.conversation_id
+                             if inbound_record else None),
+            detail=("liked the comment" if liked
+                    else f"like unavailable ({like_err}) — left unanswered"))
+        return AI_SUPPRESSED
 
     # ── Step 3.5: Handoff check — should this conversation go to a human? ──
     handoff = _check_handoff_for_inbound(message, intents, inbound_record, llm_handoff=_llm_handoff)
@@ -1354,10 +1376,21 @@ def _ai_should_respond(channel: str, user_id: str, message: str | None = None):
         return False, NO_REPLY_SETTINGS_UNREADABLE
 
     def _comment_gate(is_q_input):
-        """Comments must look like a question; DMs always pass."""
-        from app.utils.intent import is_question
-        if channel.endswith("_comment") and is_q_input is not None:
-            return (True, None) if is_question(is_q_input) else (False, NO_REPLY_NOT_A_QUESTION)
+        """
+        Comments used to have to LOOK like a question to get past here, judged
+        by is_question() — a list of question words and stock phrases. It threw
+        away real customers for phrasing: "need this in a 38" and "obsessed,
+        take my money" contain no question word and asked for plenty.
+
+        The judgement moved to Step 3.2, one step later, where the classifier
+        has actually read the message. The trade is one Haiku call per public
+        comment, including the ones we end up not answering. That is the price
+        of deciding on meaning instead of vocabulary, and it is small.
+
+        is_question() has not been deleted — Step 3.2 still falls back to it if
+        the classifier is unavailable, because a degraded classifier must not
+        silently turn into "reply to everything" on a public post.
+        """
         return True, None
 
     try:
@@ -1875,6 +1908,15 @@ def _save_message(user_id, channel, content, intent, direction,
         # public comments: "Love this 😍" is deliberately left unanswered
         # because comments are public and we don't reply to praise, yet it
         # counted as a conversation the AI failed to answer.
+        #
+        # The praise decision now belongs to the classifier at Step 3.2, which
+        # has not run yet — this row has to exist before anything can read it.
+        # is_question() therefore survives here as a first guess, and Step 3.2
+        # corrects it via _mark_ineligible_for_ai() once the AI has actually
+        # read the message. The two disagree in one direction only: a comment
+        # this heuristic waves through and the classifier then judges to be
+        # praise. That correction is written before the pipeline returns, so
+        # nothing downstream reads the guess.
         ai_eligible = None
         if direction == "inbound":
             try:
@@ -2056,6 +2098,78 @@ def _finalize_outbound_message(placeholder, content, ai_response_time_ms=None,
             pass
         return None
     
+
+def _praise_only(classification, message):
+    """
+    True when the customer asked for nothing — a compliment, a reaction, an
+    emoji, a friend tagged.
+
+    Judged on the classifier's intents, so it turns on meaning rather than
+    vocabulary. Praise alongside anything else is NOT praise-only: "obsessed!
+    does it come in navy?" still gets answered, because there is a real
+    question sitting inside the compliment.
+
+    If the classifier degraded to the keyword fallback it never saw the
+    message, and its intents carry no opinion about praise at all — everything
+    unrecognised lands in "unknown", which would read here as "not praise" and
+    make the bot answer every "🔥🔥🔥" on a public post. So the old heuristic
+    stands in for exactly that case. Under-replying on a public post is the
+    cheaper mistake.
+    """
+    from app.ai.classifier import NON_ACTIONABLE_INTENTS
+
+    if classification.get('degraded'):
+        from app.utils.intent import is_question
+        return not is_question(message or '')
+
+    intents = classification.get('intents') or []
+    return bool(intents) and all(i in NON_ACTIONABLE_INTENTS for i in intents)
+
+
+def _like_comment(channel, comment_external_id):
+    """
+    Acknowledge a comment we are deliberately not replying to.
+
+    Returns (liked, error). Best-effort by design: whether Meta lets this
+    account like a comment depends on how the Instagram account was connected,
+    and a refusal here just returns us to the behaviour we had before — the
+    comment goes unanswered, which is what it was going to be anyway.
+    """
+    if not comment_external_id or channel != 'instagram_comment':
+        return False, 'unsupported channel'
+    try:
+        from app.integrations.meta import like_instagram_comment
+        return like_instagram_comment(comment_external_id)
+    except Exception as e:
+        log_event("warning", "services._like_comment", str(e)[:200])
+        return False, str(e)[:160]
+
+
+def _mark_ineligible_for_ai(inbound_record):
+    """
+    Take a praise comment back out of the AI's scorecard.
+
+    _save_message snapshots `ai_eligible` when the row is written, which is
+    before the classifier has run — at that point all it can do is guess from
+    the text. Now that the AI has actually read the message and we have chosen
+    not to reply, correct the snapshot. Without this, every "love this 😍"
+    counts as a conversation the AI failed to answer and the failure rate
+    climbs with the store's popularity.
+    """
+    if inbound_record is None:
+        return
+    try:
+        from app import db
+        inbound_record.ai_eligible = False
+        db.session.commit()
+    except Exception as e:
+        log_event("error", "services._mark_ineligible_for_ai", str(e)[:200])
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+
 
 def _patch_inbound_intent(inbound_record, intents):
     """Once intents are detected, write the label onto the inbound row."""

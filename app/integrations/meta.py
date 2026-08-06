@@ -782,6 +782,66 @@ def send_instagram_private_reply(comment_id: str, text: str,
         return None
 
 
+def like_instagram_comment(comment_id: str, account_id: str | None = None) -> tuple[bool, str | None]:
+    """
+    Like a comment, so praise gets acknowledged instead of ignored.
+
+    Returns (ok, error). Never raises. A False is not an incident — see below.
+
+    Meta added like/unlike for comments and replies during 2026, but the
+    published accounts of it disagree on whether it is reachable from Instagram
+    Login (which is what we use) or only from Facebook Business Login, and on
+    what the permission is called. Rather than pick a side, this tries the
+    documented shape and reports exactly what Meta answers, so production
+    settles the question instead of a blog post.
+
+    The caller must treat failure as a no-op. Not liking a nice comment is the
+    behaviour we have today; it is not worth a single degraded reply.
+    """
+    if not comment_id:
+        return False, "no comment id"
+
+    ig_user_id, ig_token = _ig_login_credentials(account_id)
+    if ig_token:
+        token = ig_token
+        url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{comment_id}/likes"
+        via = "instagram_login"
+    else:
+        _, token = _get_meta_credentials(account_id)
+        url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}/likes"
+        via = "facebook_login"
+
+    if not token:
+        return False, "no Instagram connection"
+
+    try:
+        r = requests.post(url, params={"access_token": token}, timeout=10)
+        body_preview = (r.text or "")[:300]
+
+        if r.status_code >= 400:
+            # Deliberately logged at warning, not error. The most likely cause
+            # is that this account's login type simply cannot like comments —
+            # a fact about our Meta setup, not a fault in the pipeline. Logging
+            # it as an error would put a permanent red line in Live Activity
+            # under every complimentary comment we receive.
+            log_event("warning", "integrations.meta.comment_like",
+                      f"Like not accepted ({r.status_code}) via {via}: {body_preview[:160]}",
+                      payload={"comment_id": comment_id, "status": r.status_code,
+                               "via": via, "response": body_preview})
+            return False, f"{r.status_code}: {body_preview[:160]}"
+
+        log_event("info", "integrations.meta.comment_like",
+                  f"Liked comment {comment_id}",
+                  payload={"comment_id": comment_id, "via": via})
+        return True, None
+
+    except requests.RequestException as e:
+        log_event("warning", "integrations.meta.comment_like",
+                  f"Like exception: {e}",
+                  payload={"comment_id": comment_id, "error": str(e)})
+        return False, str(e)[:160]
+
+
 # ─────────────────────────────────────────────
 # Facebook Messenger — stub (logs + no-op)
 # ─────────────────────────────────────────────
