@@ -139,7 +139,10 @@ export default function Settings({ embedded = false }) {
             <IntegrationsPanel data={integrations} loading={intLoading}
                                error={intError} reload={loadIntegrations} />
           ) : tab === 'business' ? (
-            <BusinessPanel settings={settings} setSettings={setSettings} />
+            <>
+              <BusinessPanel settings={settings} setSettings={setSettings} />
+              <BrandStoresPanel />
+            </>
           ) : tab === 'delivery' ? (
             <DeliveryPanel settings={settings} setSettings={setSettings} />
           ) : tab === 'notifications' ? (
@@ -883,6 +886,114 @@ function WebhookRegister() {
         </button>
       </div>
       {msg && <p className={`text-[12px] mt-2 font-medium ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
+    </div>
+  )
+}
+
+function BrandStoresPanel() {
+  // Shop Zetu is online-only. These are the shops belonging to the brands whose
+  // products we manage — Vivo and its sub-brands — and they are the ONLY
+  // addresses the assistant is allowed to give out. Anything not listed here it
+  // will say it doesn't have, rather than guess, because a wrong address sends
+  // a real person across Nairobi to a shop that isn't there.
+  const [stores, setStores] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/settings/brand-stores`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('Could not load stores')))
+      .then(d => setStores(d.stores || []))
+      .catch(err => setMsg({ type: 'error', text: err.message }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const patch = (i, key, val) =>
+    setStores(prev => prev.map((s, n) => n === i ? { ...s, [key]: val } : s))
+  const remove = (i) => setStores(prev => prev.filter((_, n) => n !== i))
+  const add = () => setStores(prev => [...prev, { name: '', address: '', area: '', phone: '', hours: '' }])
+
+  // Hours are identical across every branch today, so a new row copies the one
+  // above rather than making someone retype it and risk a branch that quietly
+  // disagrees with the other twenty.
+  const addLikeLast = () => setStores(prev => prev.length
+    ? [...prev, { name: '', address: '', area: '', phone: '', hours: prev[prev.length - 1].hours || '' }]
+    : [{ name: '', address: '', area: '', phone: '', hours: '' }])
+
+  const named = stores.filter(s => (s.name || '').trim())
+  const unnamed = stores.length - named.length
+
+  const save = async () => {
+    setMsg(null); setSaving(true)
+    try {
+      const res = await fetch(`${API_BASE}/settings/brand-stores`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({ stores }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed to save')
+      setStores(d.stores)
+      setMsg({ type: 'success', text: `Saved ${d.stores.length} store${d.stores.length === 1 ? '' : 's'}.` })
+    } catch (err) { setMsg({ type: 'error', text: err.message }) } finally { setSaving(false) }
+  }
+
+  const inputCls = 'w-full px-2.5 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500 transition'
+
+  return (
+    <div className="card rounded-2xl p-5 sm:p-6">
+      <PanelHeader icon={MapPin} title="Brand stores"
+        desc="Physical shops belonging to the brands we manage. The assistant may give out these addresses and no others — anything not listed here it will say it doesn't have rather than guess." />
+
+      {loading ? (
+        <p className="text-xs text-gray-500">Loading…</p>
+      ) : (
+        <>
+          <div className="space-y-3">
+            {stores.map((s, i) => (
+              <div key={i} className="rounded-xl border border-gray-200 p-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input className={inputCls} value={s.name || ''} placeholder="Vivo - Sarit Centre Mall"
+                      onChange={e => patch(i, 'name', e.target.value)} />
+                    <input className={inputCls} value={s.phone || ''} placeholder="+254 7…"
+                      onChange={e => patch(i, 'phone', e.target.value)} />
+                    <input className={inputCls} value={s.address || ''} placeholder="Ground Floor, New Wing"
+                      onChange={e => patch(i, 'address', e.target.value)} />
+                    <input className={inputCls} value={s.area || ''} placeholder="Karuna Road, Nairobi"
+                      onChange={e => patch(i, 'area', e.target.value)} />
+                    <input className={inputCls + ' sm:col-span-2'} value={s.hours || ''}
+                      placeholder="Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+                      onChange={e => patch(i, 'hours', e.target.value)} />
+                  </div>
+                  <button onClick={() => remove(i)} title="Remove this store"
+                    className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 shrink-0">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={addLikeLast}
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-700">
+            <Plus size={14} /> Add store
+          </button>
+
+          <div className="flex items-center gap-3 mt-5 pt-5 border-t border-gray-100">
+            <button onClick={save} disabled={saving}
+              className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl bg-gray-900 text-white hover:bg-black disabled:opacity-50">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {saving ? 'Saving…' : 'Save stores'}
+            </button>
+            <span className="text-xs text-gray-500">
+              {named.length} store{named.length === 1 ? '' : 's'} the assistant can name
+              {unnamed > 0 && <span className="text-amber-600"> · {unnamed} row{unnamed === 1 ? '' : 's'} without a name will be dropped</span>}
+            </span>
+          </div>
+          {msg && <p className={`text-[12px] mt-2 font-medium ${msg.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
+        </>
+      )}
     </div>
   )
 }

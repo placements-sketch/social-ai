@@ -580,17 +580,78 @@ def format_business_for_prompt() -> str:
     return "\n".join(lines)
 
 
-@settings_bp.route('/settings/business-locations', methods=['GET'])
+# Replaces GET /settings/business-locations, which read kind='locations' —
+# Shopify's FULFILMENT locations, warehouses and pickup points, not shops a
+# customer can walk into. Nothing ever called it, so the only thing it could
+# have done was mislead whoever wired a UI to it first.
+STORE_FIELDS = ('name', 'address', 'area', 'phone', 'hours')
+
+
+@settings_bp.route('/settings/brand-stores', methods=['GET'])
 @jwt_required()
-def business_locations():
+def get_brand_stores():
     if not _require_admin():
         return jsonify({'error': 'Only admins can view settings'}), 403
     from app.models import StoreInfoCache
-    row = StoreInfoCache.query.filter_by(kind='locations').first()
+    row = StoreInfoCache.query.filter_by(kind='brand_stores').first()
     return jsonify({
-        'locations': (row.data if (row and isinstance(row.data, list)) else []),
+        'stores': (row.data if (row and isinstance(row.data, list)) else []),
         'updated_at': row.updated_at.isoformat() if (row and row.updated_at) else None,
     }), 200
+
+
+@settings_bp.route('/settings/brand-stores', methods=['PUT'])
+@jwt_required()
+def put_brand_stores():
+    """
+    Replace the whole list. A store is only kept if it has a name.
+
+    Whole-list replacement rather than per-row edits because the list is short,
+    always edited as a table, and the alternative needs stable ids on rows that
+    have none. The cost is that two admins saving at once lose one set of
+    edits; the benefit is that a half-applied reorder can't leave the assistant
+    reciting an address that belongs to a different branch.
+    """
+    if not _require_admin():
+        return jsonify({'error': 'Only admins can edit settings'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    incoming = payload.get('stores')
+    if not isinstance(incoming, list):
+        return jsonify({'error': 'Expected a "stores" array'}), 400
+
+    cleaned = []
+    for item in incoming:
+        if not isinstance(item, dict):
+            continue
+        store = {k: str(item.get(k) or '').strip() for k in STORE_FIELDS}
+        # A nameless row is a half-filled form, not a shop. Dropping it here
+        # keeps the prompt free of "  - | Ground Floor | +254…" lines, which
+        # read to the model as a store whose name it simply doesn't know.
+        if store['name']:
+            cleaned.append(store)
+
+    from app.models import StoreInfoCache
+    row = StoreInfoCache.query.filter_by(kind='brand_stores').first()
+    if row is None:
+        row = StoreInfoCache(kind='brand_stores', data=cleaned)
+        db.session.add(row)
+    else:
+        row.data = cleaned
+        row.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    # The prompt reads through a process-local cache, so without this the
+    # assistant keeps giving the old address until the worker restarts.
+    try:
+        from app.store_info import _cache_invalidate
+        _cache_invalidate('brand_stores')
+    except Exception:
+        pass
+
+    log_event("info", "settings.brand_stores_saved",
+              f"Brand store list saved — {len(cleaned)} stores")
+    return jsonify({'stores': cleaned}), 200
 
 @settings_bp.route('/settings/reset', methods=['POST'])
 @jwt_required()
