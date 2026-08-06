@@ -527,12 +527,27 @@ def media_audit():
         before_connection = (
             bool(connected_at and m.created_at and m.created_at < connected_at)
         )
+        # WHICH FIELDS came back, not just whether the call succeeded.
+        #
+        # "ok" was hiding the actual problem: a response can arrive with a
+        # permalink and nothing else, which passes every success check while
+        # leaving the card blank AND the AI with no idea what the post is —
+        # producing "which product are you asking about?" on a comment sitting
+        # directly under the product. A request that succeeds and returns
+        # nothing useful is the failure mode worth naming.
+        d = data or {}
         results.append({
             'media_id': m.media_id,
             'message_at': m.created_at.isoformat() if m.created_at else None,
             'predates_connection': before_connection,
             'ok': bool(data),
             'error': error,
+            'media_type': d.get('media_type'),
+            'has_caption': bool(d.get('caption')),
+            'has_media_url': bool(d.get('media_url')),
+            'has_thumbnail': bool(d.get('thumbnail_url')),
+            'has_permalink': bool(d.get('permalink')),
+            'fields_returned': sorted(k for k, v in d.items() if v),
         })
 
     older = [r for r in results if r['predates_connection']]
@@ -543,6 +558,21 @@ def media_audit():
 
     older_all_fail = bool(older) and all(not r['ok'] for r in older)
     newer_all_ok = bool(newer) and all(r['ok'] for r in newer)
+
+    empty_ok = [r for r in results
+                if r['ok'] and not (r['has_caption'] or r['has_media_url']
+                                    or r['has_thumbnail'])]
+    if empty_ok:
+        return jsonify({
+            'connection_connected_at': connected_at.isoformat() if connected_at else None,
+            'ig_username': getattr(conn, 'ig_username', None),
+            'tested': len(results),
+            'verdict': (f'{len(empty_ok)} of {len(results)} posts returned SUCCESSFULLY but '
+                        'with no caption, image or thumbnail — only a permalink. That is why '
+                        'the card is blank and the AI has no idea what the post shows. This is '
+                        'a FIELD problem, not an access problem: check fields_returned below.'),
+            'results': results,
+        }), 200
 
     if older_all_fail and newer_all_ok:
         verdict = ('CONFIRMED — every failure predates the current connection and '
