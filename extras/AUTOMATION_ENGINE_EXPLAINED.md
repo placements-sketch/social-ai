@@ -113,20 +113,52 @@ and sent a real customer-facing reply off the back of a typo.
 Moves a public comment into a DM. This needed a new integration function —
 `send_instagram_private_reply()` — because you **cannot** message a commenter
 through the normal send API: you have their comment-author ID, not their IGSID.
-Meta's `/{comment_id}/private_replies` endpoint resolves that. It works once per
-comment, within 7 days, and only if the person accepts DMs.
+Meta resolves that from the comment. It works once per comment, within 7 days,
+and only if the person accepts DMs.
 
-The order matters: **the DM is attempted first.** If Meta refuses, the public
-reply falls back to wording that does not claim a DM was sent.
+The two Instagram logins do not share an endpoint here, unlike every other
+sender in `meta.py`:
 
-| Outcome | Public reply |
+| Login | Endpoint | Body |
+|---|---|---|
+| Instagram Login | `POST {ig_user_id}/messages` | `{"recipient": {"comment_id": …}}` |
+| Facebook Login | `POST {comment_id}/private_replies` | `{"message": "…"}` |
+
+Under Instagram Login a private reply is simply a message whose recipient is
+named by comment instead of by IGSID. It also answers with `message_id` rather
+than `id`, so the response is normalised before returning — otherwise the DM
+saves with a NULL `external_id` and the inbox reads it as undelivered.
+
+#### The DM carries the real answer
+
+The action originally answered at rule-match time, which is Step 3.6 — *before*
+the Shopify match, the price and the stock level are fetched at Step 4. So the
+DM could only ever be a fixed string from `action_config`. The result was a
+public reply promising "we've sent you a DM with all the details" followed by a
+DM that opened with "what would you like to know?" — the customer had just told
+us, in the comment, and we discarded it to ask again.
+
+It now defers instead. The rule sets a `_dm_handoff` directive, the pipeline
+runs normally and the AI generates its real answer, and Step 6 routes it:
+
+| Where | What lands there |
 |---|---|
-| DM opened | "Check your DMs!" |
-| DM refused | "Thanks for asking! Drop us a DM and we'll help you out." |
+| The DM | the AI's actual answer — product, price, stock, link |
+| Under the post | the short teaser, e.g. "Check your inbox! 💌" |
 
-Verified both ways — the "check your DMs" claim only ever goes out when a DM
-actually went out. Telling a customer to check an inbox that has nothing in it
-is worse than answering them in the open.
+**The DM is attempted first**, and the teaser is only posted once the DM has
+succeeded. The "check your DMs" claim can therefore never go out to an empty
+inbox. If Meta refuses, the answer is posted publicly instead — the customer
+gets it where they asked rather than being pointed at nothing.
+
+| Outcome | Public reply | DM |
+|---|---|---|
+| DM opened | "Check your inbox! 💌" | the full answer |
+| DM refused | the full answer | — |
+
+Note the directive is popped out of the rule directives before the rest are
+merged into `context_data`; it is a routing instruction, not context, and the
+generator should never see it.
 
 ### `ask_order_number`
 

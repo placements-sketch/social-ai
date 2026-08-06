@@ -1126,6 +1126,10 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                       conversation_id=(inbound_record.conversation_id if inbound_record else None))
             return s_reply
 
+    # Routing instruction, not context — pull it out before the rest go to the
+    # generator, which would otherwise see a stray dict among its flags.
+    dm_handoff = rule_directives.pop('_dm_handoff', None)
+
     # Hand any rule-set directives to the AI step.
     if rule_directives:
         context_data.update(rule_directives)
@@ -1186,6 +1190,58 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
             return AI_SUPPRESSED
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
+    # A trigger_dm_flow rule matched back at Step 3.6, so the answer we just
+    # generated belongs in a DM rather than under the post. The DM goes first:
+    # the public teaser says a DM was sent, and we will not post that claim
+    # until it is true. Meta refuses this more often than you would expect —
+    # private replies work once per comment and only within 7 days of it — so
+    # the failure path answers publicly instead of promising nothing.
+    if dm_handoff:
+        from app.integrations.meta import send_instagram_private_reply
+        dm = send_instagram_private_reply(dm_handoff['comment_id'], reply)
+        if dm:
+            _save_message(user_id=user_id, channel="instagram_dm",
+                          content=reply, intent=None,
+                          direction="outbound", external_id=dm.get("id"))
+            teaser = dm_handoff['public_reply']
+            teaser_ext_id = _dispatch_reply(channel=channel, user_id=user_id,
+                                            reply=teaser,
+                                            comment_external_id=external_id)
+            _save_message(user_id=user_id, channel=channel, content=teaser,
+                          intent=None, direction="outbound",
+                          external_id=teaser_ext_id)
+            log_event("info", "services.automation_reply",
+                      f"Rule '{dm_handoff['rule_name']}' moved the answer to a DM",
+                      payload={"user_external_id": user_id, "channel": channel,
+                               "comment_id": dm_handoff['comment_id'],
+                               "action": "trigger_dm_flow"},
+                      conversation_id=conversation_id)
+            if placeholder is not None:
+                try:
+                    from app import db
+                    db.session.delete(placeholder)
+                    db.session.commit()
+                except Exception:
+                    try:
+                        from app import db
+                        db.session.rollback()
+                    except Exception:
+                        pass
+            return reply
+
+        # Fall through and answer under the post. The customer still gets their
+        # answer; they just get it where they asked. The configured fallback
+        # text is only used when it exists — an empty one must not blank out a
+        # perfectly good reply.
+        reply = dm_handoff.get('public_reply_fallback') or reply
+        log_event("warning", "services.automation_reply",
+                  f"Rule '{dm_handoff['rule_name']}': Meta refused the DM — "
+                  f"answering under the post instead",
+                  payload={"user_external_id": user_id, "channel": channel,
+                           "comment_id": dm_handoff['comment_id'],
+                           "action": "trigger_dm_flow"},
+                  conversation_id=conversation_id)
+
     new_ext_id = _dispatch_reply(channel=channel, user_id=user_id, reply=reply,
                                  comment_external_id=external_id, product_url=product_url)
 
@@ -2393,35 +2449,32 @@ def _run_automation_action(rule, action, *, channel, user_id, external_id,
 
         # ── Public comment reply + open a DM ─────────────────────────────
         elif atype == "trigger_dm_flow":
-            public_reply = action.get("public_reply") or "Just sent you a DM!"
-            dm_message = action.get("dm_message") or (
-                "Hi! You asked about this on our post — happy to help here. "
-                "What would you like to know?"
-            )
+            # This action used to answer here and stop the pipeline, which meant
+            # the DM could only ever be a static string from action_config. The
+            # public reply promised "all the details" and the DM then opened
+            # with "what would you like to know?" — we had just been told, in
+            # the comment, and we throw it away to ask again.
+            #
+            # The details do not exist yet at this point in the pipeline: the
+            # Shopify match, the price and the stock level are all fetched at
+            # Step 4, below. So instead of answering, hand the pipeline a
+            # directive and let the AI generate its real answer as normal. Step
+            # 6 then routes that answer into the DM and posts the teaser
+            # publicly. Same two messages, except the DM is worth opening.
             if not external_id:
                 _log("no comment id on the inbound message — cannot open a DM", "warning")
                 return out
 
-            # The DM is the point of the rule, so open it first; if Meta
-            # refuses (the 7-day window, or the person blocks DMs) we still
-            # want the public reply to go out, but we should not promise a DM
-            # that never arrived.
-            from app.integrations.meta import send_instagram_private_reply
-            dm = send_instagram_private_reply(external_id, dm_message)
-            if dm:
-                _save_message(user_id=user_id, channel="instagram_dm",
-                              content=dm_message, intent=None,
-                              direction="outbound", external_id=dm.get("id"))
-                out['reply'] = public_reply
-                _log("DM opened, public reply posted")
-            else:
-                # Say something true instead. Sending "Check your DMs!" when no
-                # DM exists is worse than answering in the open.
-                out['reply'] = action.get("public_reply_fallback") or (
-                    "Thanks for asking! Drop us a DM and we'll help you out."
-                )
-                _log("private reply refused by Meta — posted a fallback that "
-                     "doesn't promise a DM", "warning")
+            out['directives']['_dm_handoff'] = {
+                'comment_id': external_id,
+                'public_reply': action.get("public_reply") or "Just sent you a DM!",
+                # Only used if Meta refuses the DM. Saying "check your DMs" when
+                # no DM exists is worse than simply answering in the open, so
+                # the fallback is to publish the AI's answer as a comment.
+                'public_reply_fallback': action.get("public_reply_fallback"),
+                'rule_name': rule.name,
+            }
+            _log("deferred to Step 6 — the AI's answer becomes the DM")
 
         # ── Shape the AI's reply rather than replacing it ────────────────
         elif atype == "include_price":

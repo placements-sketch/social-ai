@@ -80,7 +80,8 @@ VALID_ACTION_TYPES = {
 #
 #   reply_template   -> services.py::_run_automation_action sends the canned reply
 #   ask_order_number -> asks for the name + email the order lookup needs
-#   trigger_dm_flow  -> public comment reply + opens a DM (Graph private_replies)
+#   trigger_dm_flow  -> AI's answer goes to the DM, teaser goes under the post
+#                       (services.py Step 3.6 defers, Step 6 routes)
 #   include_price    -> directive on context_data; generator.py states the price
 #   human_escalate   }
 #   notify_agent     }- handoff.py::_match_automation_rule routes to a human

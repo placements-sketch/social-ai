@@ -1775,3 +1775,56 @@ Facebook Login:   POST {comment_id}/private_replies   {"message": "..."}
 The Instagram Login route also answers with `message_id` rather than `id`, so
 the response is normalised before returning — otherwise the DM would save with
 a NULL `external_id` and read as undelivered.
+
+---
+
+### Step 28 — "how do i get this?" is the strongest buy signal and the rule ignores it
+
+Step 27 fixed the punctuation but kept the keyword list narrow: `price`,
+`how much`, `cost`, `how many`, `available`. A live test posted two comments on
+the same product:
+
+| Comment | Matched | What happened |
+|---|---|---|
+| `how much is this?` | `how much` | DM opened ✅ |
+| `how do i get this?` | nothing | answered under the post |
+
+The second is the better lead. "How much" is price research; "how do I get this"
+is someone asking to buy. It got a public delivery blurb and no DM.
+
+It was not misclassified — the intent classifier read it as a delivery question,
+which it literally is, and answered it correctly. The gap is the keyword list,
+which was written around price and never around purchase intent.
+
+```sql
+BEGIN;
+
+UPDATE automation_rules
+   SET trigger_config = jsonb_set(
+         trigger_config, '{keywords}',
+         '["price", "how much", "cost", "how many", "available",
+           "how do i get", "how can i get", "how do i order",
+           "where can i get", "want this", "want one", "i''ll take",
+           "order this", "buy this", "still selling"]'::jsonb),
+       updated_at = now()
+ WHERE name = 'Comment → DM';
+
+SELECT id, name, enabled, trigger_config -> 'keywords' AS keywords
+  FROM automation_rules WHERE name = 'Comment → DM';
+
+COMMIT;
+```
+
+**Why keywords and not the `order_request` intent, which would be cleaner:**
+handoff runs at Step 3.5, one step *before* automation rules at Step 3.6, and
+`HANDOFF_INTENTS` already contains `order_request`. A comment classified that
+way is routed to a human and never reaches the rules at all. Retriggering on
+that intent would mean two systems claiming the same message. Keywords stay in
+the lane the rule already occupies.
+
+**The cost of a wider list:** matching is substring, so `available` fires on
+"is this available" and equally on "when will it be available again". Both go to
+a DM. For a rule whose entire purpose is moving buying conversations off a
+public post, a false positive costs one unnecessary DM — cheap next to a missed
+customer. Watch it for a week; if the DM volume is noisy, the phrases to drop
+first are the broad single words, not the multi-word ones.
