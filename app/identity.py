@@ -190,7 +190,19 @@ def resolve_notifications(rows):
     # The channel comes from the User row so the label says which platform they
     # are on. Without it every one of these reads "Customer · 0387", which is
     # better than the raw id and worse than it needs to be.
-    still = {e for e in ext_ids if e and e not in by_ext}
+    # ONLY things that are actually platform ids. candidate_ids() casts a
+    # wide net over the text, and display_for_external_id() returns
+    # anything non-numeric unchanged — so mapping every leftover candidate
+    # made humanise() replace ordinary words with themselves and prefix an
+    # '@' on each one. The notifications panel read '@Conversation
+    # @waiting, @un@assigned'.
+    #
+    # handles_for_external_ids() never had this problem because it drops
+    # anything with no matching User row. The fallback has no such filter,
+    # so it needs its own: same shape test display_for_external_id uses to
+    # decide something is an id at all.
+    still = {e for e in ext_ids
+             if e and e not in by_ext and e.isdigit() and len(e) >= 15}
     if still:
         try:
             from app.models import User
