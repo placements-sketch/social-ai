@@ -1898,6 +1898,27 @@ const handleSend = async (retryOf = null) => {
                         : (firstName(msg.sender_user) || 'Agent')}
                       {' · '}{msg.created_at ? formatTimeOfDay(msg.created_at) : msg.time}
                     </span>
+                    {/* An outbound row with no external_id never reached the
+                        platform. Meta returns an id for anything it accepts, so
+                        a blank one means the send failed — and until now the
+                        bubble rendered identically to a delivered message. Every
+                        comment reply during the FB_ACCESS_TOKEN outage looked
+                        answered in here while the customer saw silence, and an
+                        agent scrolling the thread had no way to tell.
+
+                        Deliberately not applied to inbound (the customer's own
+                        messages always carry one) or to older rows with a null
+                        id from before we recorded it — hence the created_at
+                        guard being absent: we only trust this for messages we
+                        sent, where the field has always been written on success. */}
+                    {msg.from !== 'user' && !msg.external_id && (
+                      <span
+                        title="This never reached the platform — the customer has not seen it"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold uppercase tracking-wide shrink-0"
+                      >
+                        <AlertCircle size={9} /> Not delivered
+                      </span>
+                    )}
                   </div>
                   {editingMsgId === msg.id ? (
                     <div className="flex flex-col gap-2 w-full">

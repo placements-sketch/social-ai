@@ -2717,7 +2717,21 @@ def _notify_assigned_agent_of_inbound(inbound_record, message_text):
 
         # Higher severity if AI is off (because the agent really needs to reply
         # themselves) vs on (because AI will at least keep things moving).
-        sev = 'urgent' if not conv.ai_enabled else 'info'
+        # Always info. This used to be urgent whenever the conversation had
+        # AI switched off — sound reasoning per-conversation, and it inverted
+        # the moment the GLOBAL kill switch went on, because then every chat
+        # has ai_enabled false and every inbound message is urgent-red. A
+        # signal that is always on carries nothing.
+        #
+        # A customer writing in is also not an error. Urgent styling wins an
+        # AlertOctagon on a red field, which is the vocabulary of something
+        # being broken; using it for the thing the product exists for teaches
+        # agents that red means 'probably nothing'.
+        #
+        # The genuinely urgent case — nobody picking a conversation up — is
+        # already owned by unclaimed_alert_minutes, which measures whether
+        # anyone responded rather than guessing from a toggle.
+        sev = 'info'
 
         create_notification(
             user_id=conv.assigned_to,

@@ -109,10 +109,24 @@ def _connection_for(account_id: str | None):
         if account_id:
             match = q.filter(
                 db_or(MetaConnection.ig_business_account_id == str(account_id),
+                      # Matched too, now that a miss returns None instead of
+                      # falling back. Under Instagram Login the webhook reports
+                      # the login user id, and without this line a correctly
+                      # addressed message to the LIVE account would find no
+                      # match and lose its credentials entirely.
+                      MetaConnection.ig_login_user_id == str(account_id),
                       MetaConnection.page_id == str(account_id))
             ).first()
             if match:
                 return match
+            # A named account with no active connection gets NOTHING. Falling
+            # through to "most recent active connection" is how a DM addressed
+            # to the deactivated shopzetu account came to be answered with
+            # mileszetu's token — the customer wrote to one business and was
+            # replied to by another. The fallback below is for callers that
+            # never knew which account they meant; a caller that named one and
+            # was wrong must fail, not be quietly redirected.
+            return None
         return q.order_by(MetaConnection.connected_at.desc()).first()
     except Exception as e:
         log_event("warn", "integrations.meta.connection_lookup_failed", str(e))
