@@ -267,20 +267,44 @@ export default function AISettings({ embedded = false }) {
       <div className="card p-5 space-y-4">
         <h2 className="text-sm font-bold text-gray-900">Personality Sliders</h2>
 
-        {/* A bare "50%" says nothing about what the assistant will actually do.
-            Each slider now reads back its own position in words. */}
+        {/* A bare "50%" says nothing about what the assistant will actually do,
+            so each slider reads back its position in words as well as digits.
+
+            The wording is not a paraphrase — it is the generator's own bucket,
+            rewritten in plain English. generator.py::_slider_bucket picks on
+            `value <= ceiling` at 25 / 50 / 75 / 100, four bands. This page used
+            to describe three, split at 33 and 66, which meant the label and the
+            instruction disagreed across whole stretches of the scale: at 60 the
+            page read "Warm but businesslike" while the model was being told
+            "Lean professional. Avoid slang." Someone tuning by the label was
+            tuning against a description of something else.
+
+            If you change a bucket in generator.py, change it here too. */}
         {[
           { key: 'slider_formal', label: 'Formality', left: 'Casual', right: 'Formal',
-            says: (v) => v < 33 ? 'Chatty and informal' : v > 66 ? 'Polished and professional' : 'Warm but businesslike' },
+            says: (v) => v <= 25 ? 'Casual — contractions welcome'
+                       : v <= 50 ? 'Casual but polite'
+                       : v <= 75 ? 'Professional, no slang'
+                                 : 'Formal — no contractions' },
           { key: 'slider_length', label: 'Response length', left: 'Brief', right: 'Detailed',
-            says: (v) => v < 33 ? 'Short, to the point' : v > 66 ? 'Full explanations' : 'A sentence or two' },
+            says: (v) => v <= 25 ? 'Under 2 sentences'
+                       : v <= 50 ? '2–3 sentences'
+                       : v <= 75 ? '4–6 sentences'
+                                 : 'Up to 8 — anticipates follow-ups' },
           { key: 'slider_sales', label: 'Sales focus', left: 'Neutral', right: 'Salesy',
-            says: (v) => v < 33 ? 'Answers only, no pitching' : v > 66 ? 'Actively suggests products' : 'Mentions products when relevant' },
+            says: (v) => v <= 25 ? 'Answers only, no pitching'
+                       : v <= 50 ? 'Light nudge when relevant'
+                       : v <= 75 ? 'Suggests a product after answering'
+                                 : 'Always closes with a call to action' },
         ].map(({ key, label, left, right, says }) => (
           <div key={key} className="space-y-2">
             <div className="flex items-end justify-between gap-3">
               <label className="text-xs font-semibold text-gray-900">{label}</label>
-              <span className="text-[12px] text-gray-500 text-right">{says(formData[key])}</span>
+              <span className="text-[12px] text-gray-500 text-right">
+                <span className="tabular-nums font-semibold text-gray-900">{formData[key]}</span>
+                <span className="mx-1.5 text-gray-300">·</span>
+                {says(formData[key])}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 w-10">{left}</span>
