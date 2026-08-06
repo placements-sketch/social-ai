@@ -196,7 +196,14 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
 
             log_event("info", "handoff.auto_assigned",
                       f"Conversation {conversation.id} auto-assigned to {agent.full_name}",
-                      payload={"agent_id": agent.id, "reason": reason, "detail": detail},
+                      # Name and email included because the activity feed reads
+                      # them straight from here — without them the line rendered
+                      # as "Auto-assigned to undefined", which is exactly the
+                      # moment you need to know WHO picked it up.
+                      payload={"agent_id": agent.id,
+                               "agent_name": agent.full_name,
+                               "agent_email": getattr(agent, 'email', None),
+                               "reason": reason, "detail": detail},
                       conversation_id=conversation.id)
 
             # Notify the assigned agent — this is what was missing, so agents

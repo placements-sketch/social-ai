@@ -590,7 +590,14 @@ export default function Dashboard() {
         network: 'network error', bad_output: 'malformed response', unknown: 'unknown error',
       }
       const r = reasonLabels[p.reason] || p.reason || 'unknown error'
-      return `AI reply failed — ${r} (fell back to mock)`
+      // The backend reports which fallback ran. It said "fell back to mock"
+      // unconditionally, which during the 6 Aug outage described the exact
+      // opposite of what happened — the reply was NOT sent, the conversation
+      // went to a person. Reading that line, you would go looking for a bad
+      // message that was never sent.
+      return p.fallback === 'template'
+        ? `AI reply failed — ${r} (sent a template instead)`
+        : `AI reply failed — ${r} (handed to a human, nothing sent)`
     }
 
     // Fallback to the raw message (cleaned up)
