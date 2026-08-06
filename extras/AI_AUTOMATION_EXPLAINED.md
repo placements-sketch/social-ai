@@ -55,11 +55,31 @@ Five presets. The starting point for everything below.
 They used to read "Formality 50%", which tells you nothing about what the
 assistant will actually do. Each now reads its position back in words:
 
-| Slider | Left | Right |
-|---|---|---|
-| **Formality** | Chatty and informal | Polished and professional |
-| **Response length** | Short, to the point | Full explanations |
-| **Sales focus** | Answers only, no pitching | Actively suggests products |
+Each also shows its number, so you can read the exact value back rather than
+eyeballing the handle position.
+
+The words are not a paraphrase. They are the generator's own buckets, which
+`_slider_bucket()` picks on `value <= ceiling` at **25 / 50 / 75 / 100** — four
+bands, not three:
+
+| Value | Formality | Response length | Sales focus |
+|---|---|---|---|
+| **0-25** | Casual — contractions welcome | Under 2 sentences | Answers only, no pitching |
+| **26-50** | Casual but polite | 2-3 sentences | Light nudge when relevant |
+| **51-75** | Professional, no slang | 4-6 sentences | Suggests a product after answering |
+| **76-100** | Formal — no contractions | Up to 8 — anticipates follow-ups | Always closes with a call to action |
+
+This page previously described three bands split at 33 and 66, which meant the
+label and the instruction disagreed across whole stretches of the scale. At 60,
+the page read "Warm but businesslike" while the model was being told "Lean
+professional. Avoid slang." Anyone tuning by the label was tuning against a
+description of something else.
+
+**One case ignores the length slider on purpose.** A comment routed into a DM
+is written to a fixed "4-8 short lines" instead, because the public reply has
+already promised the customer all the details — see
+[AUTOMATION_ENGINE_EXPLAINED.md](AUTOMATION_ENGINE_EXPLAINED.md). Tone,
+formality and sales focus still apply there.
 
 ### System prompt — the powerful one
 
@@ -134,6 +154,111 @@ does.
 Only the grip handle on the left is draggable. The whole card used to be, so
 hovering anywhere — including over Edit and Delete — suggested you were about to
 drag something.
+
+---
+
+## 4a. Deciding a conversation needs a person
+
+You cannot write down every reason a customer needs a human. Complaints and
+abuse are easy to name; wholesale enquiries, press requests, legal demands,
+safety issues, payment disputes and "I have asked this three times now" are
+not, and next week brings one nobody thought of.
+
+So the classifier decides, on the same principle as the praise gate for public
+comments: **judge the situation, not the vocabulary.**
+
+### What changed
+
+There is a list of escalation keywords — `refund`, `broken`, `manager`,
+`missing`, `damaged`, `angry` and a dozen more. It used to run **first**, and
+win outright. The AI's judgement was consulted only if no keyword matched.
+
+That cost in both directions. It missed anything phrased outside the
+vocabulary. And a bare word match cannot tell a problem from a mention of one:
+
+| Message | Old verdict | Actually |
+|---|---|---|
+| "do you do refunds if the size is wrong?" | escalated (`refund`, `wrong item`) | a policy question |
+| "is the zip broken like the reviews say?" | escalated (`broken`) | a product question |
+| "am I missing something, is there a code?" | escalated (`missing`) | a discount question |
+| "who's the manager at Moi Avenue?" | escalated (`manager`) | a shop question |
+
+Each of those pulled an agent onto a question the assistant could answer from
+the catalogue.
+
+### The order now
+
+1. **Automation rules.** An admin configured this deliberately — a standing
+   instruction outranks a judgement call.
+2. **The classifier's verdict**, plus the intents that always need a person
+   (`complaint`, `order_request`). Both come from the same reading of the
+   message.
+3. **Keywords — only if the classifier never ran.**
+
+When the classifier is healthy and says no, that is the answer. Running the
+keyword list underneath it would reinstate every false positive above.
+
+### The escape hatch
+
+`other` is now a valid handoff reason, and the prompt is explicit that it is
+not a synonym for "unsure" — it is for real situations nobody listed. Without
+it the classifier had two bad options: force a genuine escalation into a label
+that misdescribes it, or not escalate.
+
+### Why `degraded` is carried separately
+
+"The AI read this and saw nothing needing a person" and "the AI never ran" both
+arrive as `{should: False}`. They mean opposite things. The classifier now
+reports `degraded`, and it is threaded through to the handoff check — because
+without it, a classifier outage reads as a clean bill of health, and every
+complaint that week gets answered by a bot.
+
+In the degraded path the keywords come back, deliberately over-eager. A
+customer routed to a person unnecessarily is inconvenienced; abuse or a
+complaint left with a bot is not. The fallback logs
+`handoff.keyword_fallback` so those escalations are distinguishable afterwards.
+
+---
+
+## 4b. When the AI cannot answer at all
+
+The API can refuse: rate limits, timeouts, an expired key, an account out of
+credit. Something still has to happen to the customer waiting.
+
+**It used to send a template.** `_mock_reply()` assembled a sentence from
+whatever product data was already in hand. On 6 August 2026 the Anthropic
+account ran out of credit and customers were sent:
+
+> Yes, the Afriwia Africana Kimono is available — we have 7 units in stock! ✅
+> Would you like to place an order? 😊
+
+Factually true, and useless. No price, no delivery, no link — and nothing in
+the inbox marking it as canned, so an agent reading the thread would have
+concluded the customer had been helped. Three subsystems were down at once
+(classifier, vision, generator) and the inbox looked completely normal.
+
+**It now escalates.** The conversation goes to `human_override`, an agent is
+auto-assigned, supervisors are notified, and the customer gets the standard
+handoff line — "I'm connecting you with a member of our team". No invented
+answer, and a person is already on it.
+
+The escalation is recorded as its own reason, `ai_unavailable`, rather than
+being folded in with the others. Two different questions both get asked, and
+they have different answers:
+
+- *How many customers needed a human?* — complaints, order requests. The system
+  working.
+- *How many times did our AI fall over?* — this. Not the system working.
+
+Two details worth knowing:
+
+- **A thread already with an agent is not re-escalated.** It would reassign the
+  conversation and fire a second round of notifications at whoever is mid-reply
+  to that customer.
+- **The template code is still there**, one environment variable away:
+  `AI_FAILURE_FALLBACK=template` restores the old behaviour exactly. The
+  default is `human`, and an unrecognised value falls back to `human` rather
+  than failing open into sending templates.
 
 ---
 

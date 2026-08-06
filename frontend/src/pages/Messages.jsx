@@ -2413,7 +2413,12 @@ function ContextContent({ conv }) {
                 ? 'The AI judged this needed a person'
                 : conv.handoff_reason === 'rule'
                   ? 'An escalation rule matched'
-                  : conv.handoff_reason}
+                  /* Not a judgement about the customer — a fault on our side.
+                     Worth saying plainly, because the agent picking this up has
+                     no AI summary to read and should not go looking for one. */
+                  : conv.handoff_reason === 'ai_unavailable'
+                    ? 'The AI could not answer — nothing was sent to the customer but the handoff line'
+                    : conv.handoff_reason}
           </p>
         </div>
       )}

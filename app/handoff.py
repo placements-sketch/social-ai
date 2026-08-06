@@ -25,7 +25,27 @@ from app.models import Conversation, AutomationRule, Log
 from app.utils.logger import log_event
 from app.notifications import create_notification
 
-# Default keywords that escalate. Easy to extend; later move to AISettings.
+# Fallback keywords, used ONLY when the classifier could not read the message.
+#
+# These used to run first and win outright, which had two costs. The obvious
+# one: no list can cover every way a person asks for help, so anything phrased
+# outside the vocabulary was never escalated by this path at all. The less
+# obvious one, and the more expensive: a bare word match cannot tell a problem
+# from a mention of one. Every line below escalates a conversation the assistant
+# could have handled —
+#
+#   "is the zip on this one broken like the reviews say?"   -> broken
+#   "am I missing something, is there a discount code?"      -> missing
+#   "do you do refunds if the size is wrong?"                -> refund, wrong item
+#   "who's the manager of the Moi Avenue shop?"              -> manager
+#
+# — and each one pulls an agent onto a question with an answer in the catalogue.
+#
+# The classifier reads meaning and decides now. This list survives as the
+# degraded path, on the same reasoning as the praise gate in services.py: when
+# the AI is unavailable, an over-eager keyword is the safer failure. A customer
+# routed to a person unnecessarily is inconvenienced; an abuse or complaint left
+# with a bot is not.
 HANDOFF_KEYWORDS = [
     "refund", "complaint", "complain", "speak to manager", "manager",
     "lawyer", "legal", "lawsuit", "sue", "cancel my order", "cancel order",
@@ -51,34 +71,62 @@ def check_handoff(message: str, intents: list[str], conversation: Conversation,
     """
     Decide whether this message should hand the conversation off to a human.
 
-    Order: fast deterministic checks first (keyword, complaint intent,
-    automation rule), then the LLM's semantic signal for anything phrased
-    outside the keyword vocabulary (explicit human request, abuse, strong
-    frustration). Returns a handoff dict or None.
+    The classifier decides. It has read the message; a keyword list has only
+    seen the words. The list of situations needing a person cannot be
+    enumerated — a legal threat, a wholesale enquiry, a press request, a
+    safety issue, someone stuck in a loop the assistant keeps failing to
+    understand — and every attempt to enumerate it both misses cases and
+    invents them out of innocent phrasing.
+
+    Order, and why:
+
+      1. Automation rules. An admin configured this deliberately; it is a
+         standing instruction, not a guess, so it outranks a judgement call.
+      2. The classifier's verdict, plus the escalating intents it returns
+         (complaint, order_request) — also its reading, arrived at separately.
+      3. Keywords, ONLY when the classifier is unavailable.
+
+    Returns a handoff dict or None.
     """
     text = (message or "").lower()
+    degraded = bool((llm_handoff or {}).get("degraded"))
 
-    # 1. Keyword trigger (deterministic, instant — critical words always win)
-    import re
-    for kw in HANDOFF_KEYWORDS:
-        if re.search(rf'\b{re.escape(kw)}\b', text):
-            return _trigger(conversation, reason="keyword", detail=kw)
-
-    # 2. Intent trigger
-    matched_intent = next((i for i in (intents or []) if i in HANDOFF_INTENTS), None)
-    if matched_intent:
-        return _trigger(conversation, reason="intent", detail=matched_intent)
-
-    # 3. Automation rule trigger
+    # 1. Automation rule trigger — explicit configuration wins.
     rule_match = _match_automation_rule(text)
     if rule_match:
         return _trigger(conversation, reason="rule", detail=rule_match.name)
 
-    # 4. LLM semantic signal — catches what keywords miss ("get me a human",
-    #    "you're stupid"). Only fires when the classifier is confident.
-    if llm_handoff and llm_handoff.get("should"):
-        return _trigger(conversation, reason="ai_detected",
-                        detail=llm_handoff.get("reason") or "smart_detection")
+    # 2. The classifier's own reading, in both the forms it produces: the
+    #    handoff verdict, and the intents that always need a person. Both come
+    #    from the same pass over the message.
+    if not degraded:
+        if llm_handoff and llm_handoff.get("should"):
+            return _trigger(conversation, reason="ai_detected",
+                            detail=llm_handoff.get("reason") or "smart_detection")
+
+        matched_intent = next((i for i in (intents or []) if i in HANDOFF_INTENTS), None)
+        if matched_intent:
+            return _trigger(conversation, reason="intent", detail=matched_intent)
+
+        # The classifier read it and saw nothing needing a person. Trust that
+        # and stop — running the keyword list here anyway would reinstate every
+        # false positive it was moved out of the way to avoid.
+        return None
+
+    # 3. Degraded: the classifier never saw the message. `intents` came from the
+    #    keyword detector, so both checks below are the same fallback tier.
+    import re
+    matched_intent = next((i for i in (intents or []) if i in HANDOFF_INTENTS), None)
+    if matched_intent:
+        return _trigger(conversation, reason="intent", detail=matched_intent)
+
+    for kw in HANDOFF_KEYWORDS:
+        if re.search(rf'\b{re.escape(kw)}\b', text):
+            log_event("info", "handoff.keyword_fallback",
+                      f"Classifier unavailable — escalated on the word '{kw}'",
+                      payload={"keyword": kw, "channel": conversation.channel},
+                      conversation_id=conversation.id)
+            return _trigger(conversation, reason="keyword", detail=kw)
 
     return None
 
@@ -264,6 +312,45 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
         "detail": detail,
         "bridging_reply": _bridging_reply_for(reason, detail, conversation.channel),
     }
+
+
+def escalate_ai_unavailable(conversation_id: int, failure_reason: str | None = None) -> dict | None:
+    """
+    Hand a conversation to a person because the AI could not answer at all.
+
+    Every other escalation in this file is a judgement about the CUSTOMER —
+    they are upset, they want to buy, they asked for a human. This one is about
+    US: the model refused, timed out or ran out of credit, and there is no
+    answer to send. The customer is owed a person either way.
+
+    Reason is recorded as `ai_unavailable` rather than folded into the generic
+    escalation bucket, because these two questions have different answers and
+    both get asked: "how many customers needed a human?" and "how many times
+    did our AI fall over?" A conversation escalated for a complaint is the
+    system working; one escalated because the API was out of credit is not.
+
+    Returns the same shape as _trigger(), or None if there is nothing to
+    escalate — a failure with no conversation behind it is still logged by the
+    generator, it just has no thread to route.
+    """
+    if not conversation_id:
+        return None
+
+    conversation = Conversation.query.get(conversation_id)
+    if conversation is None:
+        return None
+
+    # Already with a human. Escalating again would reassign the thread and fire
+    # a second round of notifications at whoever is mid-conversation with them.
+    if conversation.status == "human_override" and conversation.assigned_to:
+        log_event("info", "handoff.ai_unavailable_skipped",
+                  f"Conversation {conversation.id} already with an agent — "
+                  f"AI failure not re-escalated",
+                  payload={"failure_reason": failure_reason},
+                  conversation_id=conversation.id)
+        return None
+
+    return _trigger(conversation, "ai_unavailable", failure_reason or "generation_failed")
 
 
 def _match_automation_rule(text: str) -> AutomationRule | None:

@@ -29,13 +29,19 @@ VALID_INTENTS = {
 # classifier couldn't tell, which is a reason to look closer, not to assume
 # there is nothing to answer.
 NON_ACTIONABLE_INTENTS = {"praise"}
+# "other" exists because this set cannot be completed. Wholesale and press
+# enquiries, legal threats, safety issues, payment disputes, a customer stuck in
+# a loop the assistant keeps failing to understand — all need a person, none fit
+# a category above, and listing them would only push the problem to whatever
+# arrives next week. Without an escape hatch the classifier had to either force
+# a genuine escalation into a label that misdescribes it, or not escalate.
 VALID_HANDOFF_REASONS = {"explicit_human_request", "abuse", "frustration",
-                         "complaint", "ready_to_order"}
+                         "complaint", "ready_to_order", "other"}
 
 _SYSTEM = """You classify inbound customer messages for a Kenyan fashion & beauty store's support assistant. Reply with ONLY a JSON object — no prose, no code fences.
 
 Schema:
-{"intents": [ ... ], "handoff": {"should": true|false, "reason": "explicit_human_request"|"abuse"|"frustration"|"complaint"|null}}
+{"intents": [ ... ], "handoff": {"should": true|false, "reason": "explicit_human_request"|"abuse"|"frustration"|"complaint"|"ready_to_order"|"other"|null}}
 
 Allowed intents: greeting, stock_inquiry, price_inquiry, product_inquiry, delivery_inquiry, order_status, complaint, order_request, praise, unknown.
 
@@ -52,6 +58,10 @@ Handoff — set should=true ONLY when a human is genuinely needed:
 - abuse: insults, hostility, threats, profanity aimed at the store ("you're stupid").
 - frustration: STRONG frustration / clear escalation demand ("this is unacceptable", angrily demanding a refund).
 - complaint: a real problem needing a person (wrong/damaged/missing item, payment issue).
+- other: a person is needed and none of the labels above fit. This is not a catch-all for "unsure" — it is for real situations nobody listed: wholesale or bulk orders, press and partnership enquiries, collaborations, legal or regulatory demands, anything about someone's safety, a payment or chargeback dispute, a request that would commit the store to something outside normal policy (a discount, an exception, a refund we do not offer), or a customer who has now asked the same thing several times without getting an answer that lands. If a person is plainly needed, escalate with "other" rather than forcing it into a label that misdescribes it.
+
+Judge the SITUATION, not the vocabulary. A message can contain "refund", "broken" or "manager" and need no human at all — "do you do refunds if the size is wrong?" is a policy question, "is the zip broken like the reviews say?" is a product question, "who is the manager at Moi Avenue?" is a shop question. Equally, a message can contain none of those words and need a person immediately.
+
 Otherwise should=false with reason=null — mild dissatisfaction and ordinary questions should let the assistant try first."""
 
 

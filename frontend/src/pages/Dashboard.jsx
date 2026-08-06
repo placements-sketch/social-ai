@@ -99,6 +99,7 @@ const NO_REPLY_LABELS = {
   conversation_ai_off:         'AI off for this chat',
   not_a_question:              "Comment wasn't a question",
   praise_no_question:          'Praise — liked, not replied to',
+  ai_unavailable:              'AI unavailable — sent to a human',
   superseded_by_newer_message: 'Answered as part of a later message',
   dispatch_failed:             'Send to platform failed',
   pipeline_exception:          'Pipeline error',

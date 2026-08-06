@@ -77,6 +77,7 @@ NO_REPLY_CHANNEL_DISABLED      = "channel_disabled"
 NO_REPLY_CONVERSATION_AI_OFF   = "conversation_ai_off"
 NO_REPLY_NOT_A_QUESTION        = "not_a_question"
 NO_REPLY_PRAISE                = "praise_no_question"
+NO_REPLY_AI_UNAVAILABLE        = "ai_unavailable"
 NO_REPLY_SUPERSEDED            = "superseded_by_newer_message"
 NO_REPLY_DISPATCH_FAILED       = "dispatch_failed"
 NO_REPLY_EXCEPTION             = "pipeline_exception"
@@ -103,6 +104,7 @@ NO_REPLY_LABELS = {
     NO_REPLY_CHANNEL_DISABLED:    "Channel disabled",
     NO_REPLY_CONVERSATION_AI_OFF: "AI off for this chat",
     NO_REPLY_NOT_A_QUESTION:      "Comment wasn't a question",
+    NO_REPLY_AI_UNAVAILABLE:      "AI unavailable — sent to a human",
     NO_REPLY_PRAISE:              "Praise — liked, not replied to",
     NO_REPLY_SUPERSEDED:          "Answered as part of a later message",
     NO_REPLY_DISPATCH_FAILED:     "Send to platform failed",
@@ -696,7 +698,13 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # context; only the intent/handoff classification is per-message.
     classification = classify_message(message)
     intents = classification["intents"]
-    _llm_handoff = classification["handoff"]
+    # Carry `degraded` alongside the verdict. check_handoff() has to be able to
+    # tell "the AI read this and saw nothing needing a person" from "the AI
+    # never ran" — they produce the same {should: False} and mean opposite
+    # things. Without it, a classifier outage reads as a clean bill of health
+    # and every complaint that week is answered by a bot.
+    _llm_handoff = {**classification["handoff"],
+                    "degraded": bool(classification.get("degraded"))}
 
     log_event("info", "services.intents",
               f"Intents detected: {intents}",
@@ -1222,6 +1230,57 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                              conversation_id=inbound_record.conversation_id,
                              detail="newer inbound arrived during AI generation")
             return AI_SUPPRESSED
+
+    # ── Step 5c: The AI could not answer — give the customer a person ──────
+    # Claude refused, timed out or ran out of credit, so there is no reply to
+    # send. We used to send a template built from cached product data, which
+    # read like a real answer and was not one: no price, no delivery, no link,
+    # and nothing in the inbox marking it as canned.
+    #
+    # This runs AFTER the superseded check above on purpose. A customer who has
+    # already sent a newer message does not need an agent summoned for a turn we
+    # are about to discard anyway.
+    if ai_result.get('escalate'):
+        if placeholder is not None:
+            try:
+                from app import db
+                db.session.delete(placeholder)
+                db.session.commit()
+            except Exception:
+                try:
+                    from app import db
+                    db.session.rollback()
+                except Exception:
+                    pass
+
+        bridging = None
+        try:
+            from app.handoff import escalate_ai_unavailable
+            handoff_result = escalate_ai_unavailable(
+                conversation_id, failure_reason=ai_result.get('failure_reason'))
+            bridging = (handoff_result or {}).get('bridging_reply')
+        except Exception as e:
+            log_event("error", "services.ai_unavailable_escalation_failed",
+                      f"Could not escalate after AI failure: {e}",
+                      conversation_id=conversation_id)
+
+        # No bridging line means the thread was already with an agent, so the
+        # customer is being looked after by a person right now and does not
+        # need to be told twice that someone is coming.
+        if bridging:
+            bridge_ext_id = _dispatch_reply(channel=channel, user_id=user_id,
+                                            reply=bridging,
+                                            comment_external_id=external_id)
+            _save_message(user_id=user_id, channel=channel, content=bridging,
+                          intent=None, direction="outbound",
+                          external_id=bridge_ext_id)
+
+        _record_no_reply(
+            NO_REPLY_AI_UNAVAILABLE, channel, user_id,
+            conversation_id=conversation_id,
+            detail=(f"{ai_result.get('failure_reason') or 'generation_failed'}"
+                    f" — {'handed to an agent' if bridging else 'already with an agent'}"))
+        return bridging or AI_SUPPRESSED
 
     # ── Step 6: Send reply to the customer IMMEDIATELY (no delay to IG) ────
     # A trigger_dm_flow rule matched back at Step 3.6, so the answer we just

@@ -1884,3 +1884,110 @@ where they asked.
 reverts to the old `is_question()` heuristic rather than treating "not praise"
 as a decision. A degraded classifier must never silently become "reply to
 everything" on a public post.
+
+---
+
+### Step 30 — The brand is Shopzetu, one word
+
+Fixed in 45 places across the code, the frontend and the docs. Two things
+cannot be fixed there, and only one of them is ours.
+
+**Ours: the system prompt.** `ai_settings.system_prompt` is stored in the
+database, so the default in `settings.py` never reaches it. It currently opens:
+
+> You are Shop Zetu's customer support assistant. Shop Zetu is a Kenyan fashion
+> brand…
+
+That string is in front of the model on **every single reply**, which makes it
+the one place where the wrong spelling actually reaches a customer.
+
+```sql
+BEGIN;
+
+UPDATE ai_settings
+   SET system_prompt = replace(system_prompt, 'Shop Zetu', 'Shopzetu'),
+       updated_at = now()
+ WHERE system_prompt LIKE '%Shop Zetu%';
+
+-- Expect 0 rows.
+SELECT id FROM ai_settings WHERE system_prompt LIKE '%Shop Zetu%';
+
+COMMIT;
+```
+
+Also worth checking, since it is edited from the Settings page and may have
+been saved before this:
+
+```sql
+SELECT key, value FROM settings WHERE value::text LIKE '%Shop Zetu%';
+```
+
+**Not ours: everything mirrored from Shopify.** Four tables still contain the
+old spelling and must be left exactly as they are:
+
+| Table | Rows | What it actually is |
+|---|---|---|
+| `orders_cache.products` | 8003 | Real product titles — "Shop Zetu Basic Leggings - Black" |
+| `products_cache.name` | 1 | "Shop Zetu Credit Note" |
+| `customers_cache.city` | 3 | Real addresses — "Shop Zetu Warehouse Location", "Shop zetu moi avenue" |
+| `customers_cache.first_name` | 3 | Real customer records |
+
+These are mirrors. Rewriting them would make our figures disagree with
+Shopify's, which is the one thing we have committed not to do — and the next
+sync would overwrite the edit anyway, so the disagreement would be temporary
+*and* invisible. **If the product titles should read "Shopzetu", the change
+belongs in Shopify**, and it will arrive here on the next sync.
+
+The `customers_cache` rows are more than a naming question: one of them holds a
+customer's entire enquiry pasted into the `first_name` field ("I would want to
+discuss with you advertising on our magazine CIO Africa as Shop Zetu…"). That is
+a data-quality problem in Shopify, not a spelling one, and it is worth a look
+because that record appears in customer-facing lists.
+
+**Left alone deliberately:** the generated exports in `extras/` (six PDFs and
+one CSV). They are records of what was reported on a given day. New exports
+carry the corrected name — `reportExport.js` was part of the rename.
+
+---
+
+### Step 31 — Correction to Step 30: DO NOT run it. The brand IS "Shop Zetu"
+
+Step 30 renamed the brand to "Shopzetu" on my reading of a one-line
+instruction. That was wrong — it is **two words, "Shop Zetu"**. Every code and
+documentation change from Step 30 has been reverted; Step 30 stays in this file
+because these steps are a record, not a draft.
+
+**If you have not run Step 30's SQL: do nothing.** The database already holds
+"Shop Zetu" and is correct.
+
+**If you did run it**, the system prompt now says "Shopzetu" in front of the
+model on every reply:
+
+```sql
+BEGIN;
+
+UPDATE ai_settings
+   SET system_prompt = replace(system_prompt, 'Shopzetu', 'Shop Zetu'),
+       updated_at = now()
+ WHERE system_prompt LIKE '%Shopzetu%';
+
+-- Expect the opening line to read "You are Shop Zetu's customer support assistant."
+SELECT id, left(system_prompt, 80) FROM ai_settings;
+
+COMMIT;
+```
+
+Note the `replace()` here is safe in a way a blanket find-and-replace across the
+codebase would NOT have been: several legitimate uses of the one-word form
+exist and must survive — the `shopzetu.com` domain, the `shopzetu` Instagram
+handle, the `shopzetu-analytics-*` export filenames, and the references to "the
+real shopzetu team" in Step 14b. The revert was done by restoring the exact
+files rather than by substituting the string back, precisely so those were not
+caught in the reverse direction.
+
+**Still correct from Step 30, and still worth reading:** the four tables holding
+the old spelling in Shopify-mirrored data (`orders_cache.products`,
+`products_cache.name`, `customers_cache.city`, `customers_cache.first_name`)
+were never ours to edit, whichever way the brand is spelled. And the
+`customers_cache` row containing a customer's entire enquiry in the
+`first_name` field is still a real data-quality problem in Shopify.

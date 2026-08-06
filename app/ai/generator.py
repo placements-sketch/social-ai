@@ -20,6 +20,28 @@ USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
 LOW_STOCK_THRESHOLD = 3
 
 
+# ── What happens when Claude cannot answer ───────────────────────────────────
+# When the API refuses — no credit, rate limit, timeout — the reply used to
+# fall back to _mock_reply(): a template built from whatever product data we
+# already had. It reads like a real answer and it is not one. During the credit
+# outage on 6 Aug 2026 customers were sent "Yes, the Afriwia Africana Kimono is
+# available — we have 7 units in stock! ✅ Would you like to place an order?"
+# with no price, no delivery, no link, and nothing anywhere in the inbox marking
+# it as canned. An agent reading the thread would think the customer had been
+# helped.
+#
+#   'human'    (default) — escalate. The conversation goes to a person, the
+#                          customer gets the standard handoff line, and the
+#                          failure is counted against the AI.
+#   'template'           — the old behaviour, kept intact and one env var away.
+#
+# Read per call, not at import, so the mode is a deployment decision and the
+# tests can exercise both paths.
+def _failure_fallback_mode() -> str:
+    mode = (os.getenv("AI_FAILURE_FALLBACK") or "human").strip().lower()
+    return mode if mode in ("human", "template") else "human"
+
+
 def first_text(resp) -> str:
     """
     The first TEXT block of a Claude response.
@@ -1090,22 +1112,43 @@ Customer's detected intents: {intents_str}
         # customer it happened to, so it couldn't be counted against the
         # success rate and agents never saw failures on their own chats.
         # The caller already puts it in context_data for UTM building.
+        mode = _failure_fallback_mode()
         log_event("error", "ai.generator.failure",
-                  f"Claude reply failed ({reason}) — fell back to mock reply",
+                  f"Claude reply failed ({reason}) — "
+                  + ("escalating to a human" if mode == "human"
+                     else "fell back to mock reply"),
                   payload={
                       "reason": reason,            # rate_limit | timeout | auth | bad_request | api_error | network | bad_output | unknown
                       "detail": detail,
                       "error_type": type(e).__name__,
                       "channel": channel,
                       "intents": intents,
+                      "fallback": mode,
                   },
                   conversation_id=(context_data or {}).get('_utm_conversation_id'))
+
+        if mode == "template":
+            return {
+                'reply':          _mock_reply(intents, context_data),
+                'tokens_used':    0,
+                'model':          'mock',
+                'elapsed_ms':     0,
+                'utm_token':      None,
+                'product_url':    None,
+                'failure_reason': reason,   # surfaced to the caller too, for the message record
+            }
+
+        # No reply text at all. The caller must not treat this as something to
+        # send — `escalate` is the instruction, and `reply` is deliberately None
+        # so that anything which ignores the flag fails loudly instead of
+        # posting an empty message.
         return {
-            'reply':          _mock_reply(intents, context_data),
+            'reply':          None,
             'tokens_used':    0,
-            'model':          'mock',
+            'model':          'none',
             'elapsed_ms':     0,
             'utm_token':      None,
             'product_url':    None,
-            'failure_reason': reason,   # surfaced to the caller too, for the message record
+            'failure_reason': reason,
+            'escalate':       True,
         }
