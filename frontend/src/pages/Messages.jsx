@@ -2226,6 +2226,28 @@ const handleSend = async (retryOf = null) => {
                 </div>
               )}
 
+              {/* Reassignment can happen while this thread is open on screen.
+                  Freezing the composer rather than hiding the conversation is
+                  deliberate — the agent keeps the history they were working
+                  from, and can hand over properly, but cannot add to a thread
+                  somebody else now owns. Two people answering the same customer
+                  with different information is the failure this prevents.
+                  The server enforces it too; this is the courtesy half. */}
+              {active.can_reply === false ? (
+                <div className="px-2 sm:px-3 md:px-4 py-3">
+                  <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <Info size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-900">
+                      <p className="font-bold">This conversation isn’t assigned to you</p>
+                      <p className="mt-0.5 text-amber-800">
+                        You can read everything that happened here, but only the
+                        assigned agent can reply. Ask a supervisor to reassign it
+                        if you need to take it back.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 flex gap-1.5 sm:gap-2">
                 <input
                   className="input flex-1 text-xs sm:text-sm"
@@ -2244,6 +2266,7 @@ const handleSend = async (retryOf = null) => {
                   <span className="hidden sm:inline">Send</span>
                 </button>
               </div>
+              )}
             </div>
           )}
         </>

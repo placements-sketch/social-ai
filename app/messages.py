@@ -95,6 +95,27 @@ def _agent_can_access_conversation(agent_user: AuthUser, conversation: Conversat
     )
 
 
+def _agent_can_reply(agent_user, conversation) -> bool:
+    """
+    Seeing a conversation and being allowed to answer it are different rights.
+
+    _agent_can_access_conversation() lets an agent read any unassigned thread in
+    the human_override queue, which is correct — that is how work gets picked
+    up. But it also let them SEND, which means a conversation taken off an agent
+    stayed writable by them: a supervisor reassigns a delicate thread, the
+    original agent still has it open, types one more line, and the customer gets
+    two people answering with different information.
+
+    Replying requires the conversation to be yours. Admins and supervisors are
+    unrestricted, because overriding is the job. An agent who wants an
+    unassigned thread claims it first — the Claim button already exists, and
+    claiming is what makes the ownership visible to everyone else.
+    """
+    if not agent_user or agent_user.role != 'agent':
+        return True
+    return conversation.assigned_to == agent_user.id
+
+
 # The four inbox filter chips, expressed once as SQL.
 #
 # These are compound conditions — a bucket depends on status AND assigned_to
@@ -486,6 +507,9 @@ def get_conversation(conversation_id):
     # been resolved and enough time has passed, which is correct — but without
     # this the agent has no way to see the relationship behind the fork.
     payload = conv.to_dict(include_messages=True)
+    # The frontend freezes the composer on this. Computed per-request because it
+    # depends on who is asking, which conv.to_dict() has no way to know.
+    payload['can_reply'] = _agent_can_reply(current_user, conv)
     try:
         earlier = (Conversation.query
                    .filter(Conversation.user_id == conv.user_id,
@@ -555,6 +579,24 @@ def send_reply(conversation_id):
     # Check access control
     if not _agent_can_access_conversation(current_user, conv):
         return jsonify({'error': 'Forbidden'}), 403
+
+    # Enforced here as well as in the UI. The frozen composer is a courtesy; an
+    # agent with the page already open when the reassignment happened still has
+    # a live session and a working fetch, so the server is the thing that has
+    # to say no.
+    if not _agent_can_reply(current_user, conv):
+        log_event("info", "messages.reply_blocked",
+                  f"{current_user.full_name} tried to reply to a conversation "
+                  f"they are not assigned to",
+                  payload={"user_id": current_user.id,
+                           "assigned_to": conv.assigned_to},
+                  conversation_id=conv.id)
+        return jsonify({
+            'error': ("This conversation is no longer assigned to you. "
+                      "You can read the history, but only the assigned agent "
+                      "can reply."),
+            'code': 'not_assigned',
+        }), 403
 
     data = request.get_json(silent=True) or {}
     content = (data.get('content') or '').strip()
