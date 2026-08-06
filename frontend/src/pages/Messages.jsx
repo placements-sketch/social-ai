@@ -2462,7 +2462,14 @@ function ContextContent({ conv }) {
                      no AI summary to read and should not go looking for one. */
                   : conv.handoff_reason === 'ai_unavailable'
                     ? 'The AI could not answer — nothing was sent to the customer but the handoff line'
-                    : conv.handoff_reason}
+                    /* Deliberately says what it COULDN'T do, not what it thinks
+                       the item is. Showing a guess here would anchor the agent
+                       to the same wrong product the AI was about to name. */
+                    : conv.handoff_reason === 'image_unconfirmed'
+                      ? 'A photo we could not confidently identify — the AI did not guess'
+                      : conv.handoff_reason === 'image_unmatched'
+                        ? 'A photo that matched no product in the catalogue'
+                        : conv.handoff_reason}
           </p>
         </div>
       )}

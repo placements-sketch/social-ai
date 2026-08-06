@@ -78,6 +78,7 @@ NO_REPLY_CONVERSATION_AI_OFF   = "conversation_ai_off"
 NO_REPLY_NOT_A_QUESTION        = "not_a_question"
 NO_REPLY_PRAISE                = "praise_no_question"
 NO_REPLY_AI_UNAVAILABLE        = "ai_unavailable"
+NO_REPLY_IMAGE_UNCONFIRMED     = "image_match_unconfirmed"
 NO_REPLY_SUPERSEDED            = "superseded_by_newer_message"
 NO_REPLY_DISPATCH_FAILED       = "dispatch_failed"
 NO_REPLY_EXCEPTION             = "pipeline_exception"
@@ -105,6 +106,7 @@ NO_REPLY_LABELS = {
     NO_REPLY_CONVERSATION_AI_OFF: "AI off for this chat",
     NO_REPLY_NOT_A_QUESTION:      "Comment wasn't a question",
     NO_REPLY_AI_UNAVAILABLE:      "AI unavailable — sent to a human",
+    NO_REPLY_IMAGE_UNCONFIRMED:   "Photo we couldn't identify — sent to a human",
     NO_REPLY_PRAISE:              "Praise — liked, not replied to",
     NO_REPLY_SUPERSEDED:          "Answered as part of a later message",
     NO_REPLY_DISPATCH_FAILED:     "Send to platform failed",
@@ -996,11 +998,66 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                         # the runners-up in context lets the model talk about a
                         # different product than the one that was verified.
                         matches = [matches[idx]]
+                        # `image_match_verified` is still recorded, because it
+                        # is the measurement we need: how often vision said
+                        # "high" and was right is the entire business case for
+                        # replacing keyword search with embeddings.
                         context_data['image_match_verified'] = True
-                        context_data['image_only_match'] = False
+                        # But it no longer clears image_only_match, so a "high
+                        # confidence" verdict no longer buys the AI permission
+                        # to answer. Confidence here is the model's opinion of
+                        # its own guess, formed by comparing the photo against a
+                        # shortlist that keyword search may never have put the
+                        # right product into. It is confident about the best of
+                        # the options it was shown — which is a different claim
+                        # from "this is the item", and indistinguishable from it
+                        # in the output.
+                        #
+                        # Every image-only match now goes to a person.
                     else:
                         matches = [matches[idx]] + [m for i, m in enumerate(matches) if i != idx]
             matches = matches[:3]
+
+        # ── A photo we could not positively identify goes to a person ───────
+        # `image_only_match` survives to here only when the customer sent a
+        # picture, named nothing, and vision did NOT confirm the top candidate.
+        # The generator's answer to that was to hedge — no price, no link, no
+        # asserting the name. Honest, and still a guess dressed up as help, on
+        # exactly the case we know it gets wrong: a wrap-front palazzo and a
+        # plain one read identically to keyword search, so the shortlist vision
+        # is choosing from may not contain the right item at all.
+        #
+        # The neighbouring branch already escalates when NOTHING matched. This
+        # closes the more dangerous half — something matched, and we cannot
+        # tell if it is the right something. Until image embeddings replace the
+        # keyword step, a person identifies the garment.
+        if matches and context_data.get('image_only_match'):
+            _conv_id = getattr(inbound_record, 'conversation_id', None)
+            _bridge = None
+            try:
+                from app.models import Conversation
+                from app.handoff import _trigger
+                _conv = Conversation.query.get(_conv_id) if _conv_id else None
+                if _conv is not None:
+                    _bridge = (_trigger(_conv, reason="image_unconfirmed",
+                                        detail="Customer sent a photo we could not "
+                                               "confidently identify") or {}
+                               ).get('bridging_reply')
+            except Exception as e:
+                log_event("warning", "services.image_unconfirmed_escalation_failed",
+                          str(e)[:200], conversation_id=_conv_id)
+
+            if _bridge:
+                _ext = _dispatch_reply(channel=channel, user_id=user_id,
+                                       reply=_bridge, comment_external_id=external_id)
+                _save_message(user_id=user_id, channel=channel, content=_bridge,
+                              intent=None, direction="outbound", external_id=_ext)
+            _record_no_reply(
+                NO_REPLY_IMAGE_UNCONFIRMED, channel, user_id,
+                conversation_id=_conv_id,
+                detail=(f"best guess was '{(matches[0] or {}).get('name')}' — "
+                        f"{'handed to an agent' if _bridge else 'already with an agent'}"))
+            return _bridge or AI_SUPPRESSED
 
         if matches:
             context_data["products"] = matches              # full list for Claude
