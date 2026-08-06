@@ -147,7 +147,12 @@ def humanise(text_value, mapping):
     # would corrupt the longer one.
     for ext in sorted(mapping, key=len, reverse=True):
         if ext and ext in out:
-            out = re.sub(r'@?' + re.escape(ext), '@' + mapping[ext], out)
+            # '@' belongs on a username, not on a description. The fallback
+            # values are phrases — "Instagram user · 0387" — and "@Instagram
+            # user · 0387" reads as though somebody is called that.
+            repl = mapping[ext]
+            prefix = '' if (' ' in repl or '·' in repl) else '@'
+            out = re.sub(r'@?' + re.escape(ext), prefix + repl, out)
     return out
 
 
@@ -175,6 +180,26 @@ def resolve_notifications(rows):
     _by_conv, by_ext = handles_for_conversations(conv_ids)
     unresolved = {e for e in ext_ids if e and e not in by_ext}
     by_ext.update(handles_for_external_ids(unresolved))
+
+    # Anything still unresolved has no username anywhere — and used to be left
+    # exactly as written, which is how "Conversation escalated: 1137883694650387"
+    # reached the notifications panel. The lookup above can only find a name we
+    # have actually captured; for the rest, the readable fallback has to be
+    # applied here or it is never applied at all.
+    #
+    # The channel comes from the User row so the label says which platform they
+    # are on. Without it every one of these reads "Customer · 0387", which is
+    # better than the raw id and worse than it needs to be.
+    still = {e for e in ext_ids if e and e not in by_ext}
+    if still:
+        try:
+            from app.models import User
+            channels = {u.external_id: u.channel
+                        for u in User.query.filter(User.external_id.in_(still)).all()}
+        except Exception:
+            channels = {}
+        for ext in still:
+            by_ext[ext] = display_for_external_id(ext, channels.get(ext))
     return by_ext
 
 
