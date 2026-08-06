@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
+import { displayForExternalId } from '../utils/identity'
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { getAnalyticsSummary, getAlerts, getMyLogs } from '../api/dashboard'
@@ -501,9 +502,14 @@ export default function Dashboard() {
     // username was available the feed printed the raw platform ID — and on
     // Instagram that ID is an IGSID, a 16-digit number that identifies the
     // customer to nobody. The server now resolves the handle for us.
+    // Only prefix @ on a REAL handle. The fallback is a description, not a
+    // username — "@Instagram user · 7522" reads as though someone is actually
+    // called that.
     const userRef = p.handle
       ? `@${p.handle}`
-      : (p.user_external_id ? `@${p.user_external_id}` : 'a customer')
+      : (p.user_external_id
+          ? displayForExternalId(p.user_external_id, p.channel)
+          : 'a customer')
 
     // ── Inbound message
     if (src === 'services.inbound') {

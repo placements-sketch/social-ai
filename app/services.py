@@ -2768,7 +2768,7 @@ def _notify_assigned_agent_of_inbound(inbound_record, message_text):
         if conv is None or conv.assigned_to is None:
             return  # not assigned to anyone — nothing to do
 
-        handle = conv.user.external_id if conv.user else 'a customer'
+        handle = conv.user.handle if conv.user else 'a customer'
         channel_label = conv.channel.replace('_', ' ')
         preview = (message_text or '')[:120]
 

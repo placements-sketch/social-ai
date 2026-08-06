@@ -796,7 +796,7 @@ def update_conversation(conversation_id):
     if changes.get('status') == 'resolved':
         try:
             from app.notifications import notify_supervisors
-            handle = conv.user.external_id if conv.user else 'a customer'
+            handle = conv.user.handle if conv.user else 'a customer'
             channel_label = conv.channel.replace('_', ' ')
             notify_supervisors(
                 type_='conversation_resolved',

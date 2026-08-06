@@ -163,7 +163,7 @@ def assign(conversation_id):
                   "assigned_by_id": current_user.id, "assigned_by_email": current_user.email,
                   "is_reassign": is_reassign, "previous_assignee_id": previous_assignee,
                   "channel": conv.channel,
-                  "handle": (conv.user.external_id if conv.user else None),
+                  "handle": (conv.user.handle if conv.user else None),
               },
               conversation_id=conv.id)
 
@@ -270,7 +270,7 @@ def unassign(conversation_id):
                   "unassigned_by_id": current_user.id,
                   "unassigned_by_email": current_user.email,
                   "channel": conv.channel,
-                  "handle": (conv.user.external_id if conv.user else None),
+                  "handle": (conv.user.handle if conv.user else None),
               },
               conversation_id=conv.id)
 
@@ -386,7 +386,7 @@ def alert_unclaimed(threshold_minutes: int | None = None) -> dict:
             skipped += 1
             continue
 
-        handle = conv.user.external_id if conv.user else f'conversation {conv.id}'
+        handle = conv.user.handle if conv.user else f'conversation {conv.id}'
         log_event("error", "handoff.unclaimed",
                   f"{handle} has waited {waited} min in the queue with no agent assigned",
                   payload={"waited_minutes": waited, "channel": conv.channel,
@@ -434,7 +434,7 @@ def unclaimed_queue():
         'unclaimed': [{
             'conversation_id': conv.id,
             'channel': conv.channel,
-            'handle': conv.user.external_id if conv.user else None,
+            'handle': conv.user.handle if conv.user else None,
             'waited_minutes': waited,
             'queued_since': queued_since(conv).isoformat() if queued_since(conv) else None,
         } for conv, waited in rows],

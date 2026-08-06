@@ -211,7 +211,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
             # no toast on login).
             try:
                 from app.notifications import create_notification
-                handle = conversation.user.external_id if conversation.user else 'a customer'
+                handle = conversation.user.handle if conversation.user else 'a customer'
                 channel_label = conversation.channel.replace('_', ' ')
                 ready = (detail or '').lower() in ('order_request', 'ready_to_order')
                 create_notification(
@@ -264,7 +264,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
     # Skip the auto-assigned agent (if any) since they already got their own notification.
     try:
         from app.notifications import notify_supervisors
-        handle = conversation.user.external_id if conversation.user else 'a customer'
+        handle = conversation.user.handle if conversation.user else 'a customer'
         channel_label = conversation.channel.replace('_', ' ')
         assignee_blurb = ''
         if conversation.assigned_to:
@@ -310,7 +310,7 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                   "reason": reason,
                   "detail": detail,
                   "channel": conversation.channel,
-                  "handle": (conversation.user.external_id if conversation.user else None),
+                  "handle": (conversation.user.handle if conversation.user else None),
               },
               conversation_id=conversation.id)
     
