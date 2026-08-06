@@ -602,10 +602,22 @@ def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
         Meta's response dict on success (contains new reply's `id`), or
         None on failure. Failures are logged but never raised.
     """
-    _, token = _get_meta_credentials()
+    # Instagram Login FIRST, exactly like every other send in this file.
+    #
+    # This function was the last one still demanding the Facebook page token,
+    # and those env vars do not exist in production — they were removed when we
+    # migrated to Instagram Login. So every public comment reply failed on the
+    # very first line, while DMs went out fine. The customer saw silence under
+    # their comment, and the app showed the reply as sent because the failure
+    # only reached the log.
+    ig_user_id, ig_token = _ig_login_credentials()
+    use_ig_login = bool(ig_token)
+    token = ig_token
+    if not token:
+        _, token = _get_meta_credentials()
     if not token:
         log_event("error", "integrations.meta.comment_send",
-                  "FB_ACCESS_TOKEN not set — cannot reply to comment",
+                  "No Instagram connection — cannot reply to comment",
                   payload={"comment_id": comment_id})
         return None
 
@@ -616,16 +628,28 @@ def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
         return None
 
     safe_text = text[:1000]
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}/replies"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
     payload = {"message": safe_text}
 
     try:
-        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        if use_ig_login:
+            # Through ig_login_request so the unversioned retry applies — the
+            # version prefix is not routable for every node on
+            # graph.instagram.com, the same fault that broke verification and
+            # webhook subscription.
+            r, _body = ig_login_request(
+                'POST', f'{comment_id}/replies',
+                params={'access_token': token},
+                json=payload,
+                timeout=10,
+            )
+        else:
+            r = requests.post(
+                f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}/replies",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}",
+                         "Content-Type": "application/json"},
+                timeout=10,
+            )
         body_preview = (r.text or "")[:400]
 
         if r.status_code >= 400:
