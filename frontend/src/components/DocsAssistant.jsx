@@ -298,7 +298,13 @@ export default function DocsAssistant() {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() }
                 }}
                 placeholder="Ask a question…"
-                className="flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-xs text-gray-800 focus:outline-none focus:border-brand-500 max-h-28"
+                /* bg-white is load-bearing in DARK mode, which reads backwards
+                   until you know how the theme works: `.dark .bg-white` remaps
+                   to var(--surface). With no background class at all the
+                   textarea fell through to the browser default — white — and
+                   the dark stylesheet had no selector to catch it, leaving one
+                   glaring white box in an otherwise dark panel. */
+                className="flex-1 resize-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-brand-500 max-h-28"
               />
               <button
                 type="submit"
