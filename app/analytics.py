@@ -433,6 +433,36 @@ def summary():
         )
         escalated = len(esc_from_logs | esc_from_col)
 
+        # Why, not just how many. "2 escalated" tells you the number and
+        # nothing you can act on: two people asking for a human is the system
+        # working, two ai_unavailable is an outage, two image_unconfirmed is a
+        # matching problem worth fixing. Same figure, three different Mondays.
+        #
+        # Grouped on payload.detail rather than reason, because reason is the
+        # mechanism that caught it ('ai_detected', 'intent') while detail is
+        # what was actually wrong ('abuse', 'ready_to_order'). Falls back to
+        # reason when detail is absent on older rows.
+        try:
+            esc_rows = _scope_filter(
+                db.session.query(
+                    func.coalesce(
+                        text("logs.payload ->> 'detail'"),
+                        text("logs.payload ->> 'reason'"),
+                    ).label('why'),
+                    func.count(func.distinct(Log.conversation_id)),
+                ).filter(Log.source == 'handoff.triggered')
+                 .filter(Log.created_at >= start_dt)
+                 .filter(Log.created_at < end_dt),
+                Log, user,
+            ).group_by('why').all()
+            escalation_breakdown = sorted(
+                [{'reason': (w or 'unrecorded'), 'count': int(c)} for w, c in esc_rows],
+                key=lambda r: r['count'], reverse=True,
+            )
+        except Exception as e:
+            log_event("warn", "analytics.escalation_breakdown_failed", str(e))
+            escalation_breakdown = []
+
         # A human switching the AI off by hand — no escalation involved.
         human_override = _scope_filter(
             Conversation.query
@@ -657,6 +687,7 @@ def summary():
             'override_rate':       round(override_rate, 4),   # of AI-on-duty convos
             'overridden_in_handled': overridden_in_handled,   # numerator, for context
             'escalated_total':     escalated,
+            'escalation_breakdown': escalation_breakdown,
             'conversations_total': total_convs,
         }
 

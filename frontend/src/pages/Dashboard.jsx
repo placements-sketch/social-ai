@@ -92,6 +92,26 @@ const alertStyles = {
 // Mirrors NO_REPLY_LABELS in app/services.py — keep the two in sync.
 // 'no_reason_recorded' is synthesised by the analytics layer for conversations
 // no log accounts for; it is deliberately conspicuous.
+// Raw reasons are the code's vocabulary, not the reader's. 'ready_to_order' is
+// good news and 'ai_unavailable' is an incident; neither reads that way as a
+// snake_case token on a dashboard.
+const ESCALATION_LABELS = {
+  ready_to_order:     'Ready to order',
+  order_request:      'Ready to order',
+  complaint:          'Complaint',
+  abuse:              'Abuse',
+  frustration:        'Frustration',
+  explicit_human_request: 'Asked for a human',
+  other:              'Needed a person',
+  ai_unavailable:     'AI unavailable',
+  image_unconfirmed:  "Photo we couldn't identify",
+  image_unmatched:    'Photo matched nothing',
+  generation_failed:  'AI unavailable',
+  bad_request:        'AI unavailable',
+  smart_detection:    'AI judged it needed a person',
+  unrecorded:         'Not recorded',
+}
+
 const NO_REPLY_LABELS = {
   duplicate_webhook:           'Duplicate webhook',
   ai_master_switch_off:        'AI master switch off',
@@ -1333,6 +1353,31 @@ export default function Dashboard() {
                         <span className="text-[12px] text-gray-500 mt-1">{label}</span>
                       </div>
                     ))}
+                  </div>
+
+                  {/* Why they escalated. The count alone isn't actionable —
+                      two people asking for a human is the system working, two
+                      ai_unavailable is an outage, two image_unconfirmed is a
+                      matching problem. Same number, three different Mondays. */}
+                  {(kpis.escalation_breakdown?.length > 0) && (
+                    <div className="pt-3 mt-3 border-t border-gray-100">
+                      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">
+                        Why they escalated
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {kpis.escalation_breakdown.map(({ reason, count }) => (
+                          <span
+                            key={reason}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-50 border border-purple-100 text-[12px]"
+                          >
+                            <span className="font-bold text-purple-700">{count}</span>
+                            <span className="text-gray-600">{ESCALATION_LABELS[reason] || reason}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="hidden">
                   </div>
                 </>
               )
