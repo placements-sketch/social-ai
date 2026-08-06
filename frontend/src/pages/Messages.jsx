@@ -2233,7 +2233,7 @@ const handleSend = async (retryOf = null) => {
                   somebody else now owns. Two people answering the same customer
                   with different information is the failure this prevents.
                   The server enforces it too; this is the courtesy half. */}
-              {active.can_reply === false ? (
+              {activeConv.can_reply === false ? (
                 <div className="px-2 sm:px-3 md:px-4 py-3">
                   <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
                     <Info size={15} className="text-amber-600 shrink-0 mt-0.5" />
