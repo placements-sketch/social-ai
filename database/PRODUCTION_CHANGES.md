@@ -1675,3 +1675,103 @@ COMMIT;
 conversation was sent by a real person, the platform chips count real traffic,
 and clicking TikTok or WhatsApp shows "not connected yet" instead of inventing
 a conversation history for a channel that never existed.
+
+---
+
+### Step 27 — The Comment → DM rule could almost never match
+
+The rule exists and is enabled. It has been enabled since 25 May. It has
+essentially never fired, and the reason is one character.
+
+`trigger_config.keywords` is `["price?", "how much?"]`, and the matcher in
+`services.py::_match_automation_actions` is a plain substring test over the
+lowercased comment:
+
+```python
+keywords = [k.lower() for k in (tc.get("keywords") or [])]
+matched = any(k in text for k in keywords)
+```
+
+There is no tokenising and no punctuation stripping, so the `?` is part of the
+string being searched for. The keyword only matches when the question mark
+falls immediately after the phrase — that is, when the phrase *ends* the
+sentence:
+
+| Comment                             | Contains `how much?` | Fires |
+|-------------------------------------|----------------------|-------|
+| `How much?`                         | yes                  | ✅ |
+| `How much is delivery to Mombasa?`  | no                   | ❌ |
+| `how much for this babe`            | no                   | ❌ |
+| `What's the price?`                 | yes (`price?`)       | ✅ |
+| `Price?`                            | yes                  | ✅ |
+| `whats the price of this`           | no                   | ❌ |
+
+Real customers almost never stop at "how much?" — they name the thing they are
+asking about, which pushes the `?` to the end of the sentence and away from the
+keyword. So the AI answered these in the open, which looked correct and was
+correct, but the DM flow the rule was written for never got a chance.
+
+Dropping the `?` from the stored keywords fixes it. `price` also catches
+`priced` and `prices`, which is wanted here.
+
+**Look first — the local dev database is a stale mirror, so confirm what
+production actually holds before changing it:**
+
+```sql
+SELECT id, name, enabled, sort_order, trigger_config, action_config
+  FROM automation_rules
+ ORDER BY sort_order, id;
+```
+
+**Then, if row `Comment → DM` still shows the question marks:**
+
+```sql
+BEGIN;
+
+UPDATE automation_rules
+   SET trigger_config = jsonb_set(
+         trigger_config, '{keywords}',
+         '["price", "how much", "cost", "how many", "available"]'::jsonb),
+       action_config = action_config || jsonb_build_object(
+         'dm_message',
+         'Hi! 👋 You asked about this on our post — happy to give you the '
+         'full details here. Which item were you looking at?'),
+       enabled = true,
+       updated_at = now()
+ WHERE name = 'Comment → DM';
+
+-- Expect exactly one row, keywords without '?', and a dm_message present.
+SELECT id, name, enabled, trigger_config -> 'keywords' AS keywords,
+       action_config -> 'dm_message' AS dm_message
+  FROM automation_rules WHERE name = 'Comment → DM';
+
+COMMIT;
+```
+
+`dm_message` is set because the rule did not have one. The code falls back to a
+generic "What would you like to know?" while the public reply promises "we've
+sent you a DM with all the details" — a DM that then asks the customer to
+repeat themselves. The two halves now agree.
+
+**Ordering note:** rules are first-match-wins by `sort_order`. `Comment → DM`
+sits at 4, behind `Out of Stock` at 3. A price question about a sold-out item
+will therefore get the out-of-stock template and no DM. That is arguably the
+right precedence — telling someone it is unavailable matters more than moving
+the conversation — so it is left alone, but it is a real reason the rule can
+still stay quiet.
+
+**This rule cannot work without Step 27b.** `send_instagram_private_reply` was
+still on the retired Facebook page token, exactly like `send_instagram_comment_reply`
+was, so the DM half would have failed on its first line and posted the
+"drop us a DM" fallback instead. That is a code change, not SQL — see
+`app/integrations/meta.py`. Note the two logins do **not** share an endpoint
+here, unlike every other sender in that file:
+
+```
+Instagram Login:  POST {ig_user_id}/messages   {"recipient": {"comment_id": ...}}
+Facebook Login:   POST {comment_id}/private_replies   {"message": "..."}
+```
+
+The Instagram Login route also answers with `message_id` rather than `id`, so
+the response is normalised before returning — otherwise the DM would save with
+a NULL `external_id` and read as undelivered.

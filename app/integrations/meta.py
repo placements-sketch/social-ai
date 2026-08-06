@@ -681,7 +681,8 @@ def send_instagram_comment_reply(comment_id: str, text: str) -> dict | None:
                   payload={"comment_id": comment_id, "error": str(e)})
         return None
 
-def send_instagram_private_reply(comment_id: str, text: str) -> dict | None:
+def send_instagram_private_reply(comment_id: str, text: str,
+                                 account_id: str | None = None) -> dict | None:
     """
     Open a DM with someone who commented, via Meta's private-replies endpoint.
 
@@ -697,10 +698,35 @@ def send_instagram_private_reply(comment_id: str, text: str) -> dict | None:
     success, None on failure, never raises. Callers treat None as "the public
     reply still went out, the DM didn't".
     """
-    _, token = _get_meta_credentials()
+    # The two logins do NOT share an endpoint here, unlike every other sender
+    # in this file — so this is not a copy of the comment-reply migration.
+    #
+    #   Instagram Login:  POST {ig_user_id}/messages
+    #                     {"recipient": {"comment_id": ...}}
+    #   Facebook Login:   POST {comment_id}/private_replies
+    #                     {"message": "..."}
+    #
+    # Same idea, different node. Under Instagram Login a private reply is just
+    # a message whose recipient is named by comment instead of by IGSID, which
+    # is why it goes through the messages endpoint and returns `message_id`
+    # rather than `id`.
+    ig_user_id, ig_token = _ig_login_credentials(account_id)
+    if ig_token:
+        token = ig_token
+        url = f"{IG_LOGIN_GRAPH}/{IG_LOGIN_API_VERSION}/{ig_user_id}/messages"
+        payload = {
+            "recipient": {"comment_id": comment_id},
+            "message":   {"text": (text or "")[:1000]},
+        }
+    else:
+        _, token = _get_meta_credentials(account_id)
+        url = (f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+               f"/{comment_id}/private_replies")
+        payload = {"message": (text or "")[:1000]}
+
     if not token:
         log_event("error", "integrations.meta.private_reply",
-                  "No access token — cannot open a DM from this comment",
+                  "No Instagram connection — cannot open a DM from this comment",
                   payload={"comment_id": comment_id})
         return None
 
@@ -711,13 +737,11 @@ def send_instagram_private_reply(comment_id: str, text: str) -> dict | None:
         return None
 
     safe_text = text[:1000]
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{comment_id}/private_replies"
 
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    payload = {"message": safe_text}
 
     try:
         r = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -735,6 +759,12 @@ def send_instagram_private_reply(comment_id: str, text: str) -> dict | None:
             return None
 
         data = r.json() if r.text else {}
+        # The messages node answers with `message_id`, private_replies with
+        # `id`. The caller stores whatever lands in `id` as the message's
+        # external_id, so normalise here rather than making it guess — an
+        # outbound row with a NULL external_id reads as "never delivered".
+        if not data.get("id") and data.get("message_id"):
+            data["id"] = data["message_id"]
         log_event("info", "integrations.meta.private_reply",
                   f"DM opened from comment {comment_id}",
                   payload={
