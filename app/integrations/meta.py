@@ -119,6 +119,65 @@ def _connection_for(account_id: str | None):
         return None
 
 
+def account_is_serviced(account_id: str | None) -> bool:
+    """
+    True if we are supposed to handle events for this account at all.
+
+    `MetaConnection.is_active` is OUR flag. Meta has never heard of it, and
+    keeps delivering webhooks for every account that authorised the app — so
+    deactivating a connection stopped us sending AS that account and did
+    nothing whatsoever to stop us receiving FOR it.
+
+    What happened then is the part worth understanding. The inbound event ran
+    the full pipeline, and at send time _connection_for() looked for an active
+    connection matching the recipient, found none, and fell through to "most
+    recent active connection" — a fallback written for single-account setups.
+    So a DM to the deactivated account was answered using a DIFFERENT account's
+    token. A customer wrote to one business and got a reply generated for
+    another.
+
+    This is the gate that makes is_active mean what everyone assumed it meant.
+    Unknown account with no rows at all -> serviced, because that is the
+    pre-OAuth env-var deployment and refusing there would silence a working
+    install on upgrade.
+    """
+    ident = str(account_id or '').strip()
+    if not ident:
+        return True                      # nothing to judge — old behaviour
+    try:
+        from app.models import MetaConnection
+        if MetaConnection.query.count() == 0:
+            return True                  # env-var-only deployment
+        active = MetaConnection.query.filter_by(is_active=True).filter(
+            db_or(MetaConnection.ig_business_account_id == ident,
+                  MetaConnection.ig_login_user_id == ident,
+                  MetaConnection.page_id == ident)
+        ).first()
+        if active:
+            return True
+        # Only call it "deactivated" when we can see the row. Anything else is
+        # an account we have never connected, which is a different problem and
+        # deserves a different log line.
+        known = MetaConnection.query.filter(
+            db_or(MetaConnection.ig_business_account_id == ident,
+                  MetaConnection.ig_login_user_id == ident,
+                  MetaConnection.page_id == ident)
+        ).first()
+        log_event("info", "integrations.meta.account_not_serviced",
+                  (f"Ignoring webhook for @{known.ig_username} — that connection "
+                   f"is switched off" if known else
+                   f"Ignoring webhook for unknown account {ident}"),
+                  payload={"account_id": ident,
+                           "username": getattr(known, 'ig_username', None),
+                           "known": bool(known)})
+        return False
+    except Exception as e:
+        # Fail OPEN. A DB hiccup must not silently stop answering the account
+        # we DO service — that is a worse outage than the one this prevents.
+        log_event("warn", "integrations.meta.account_check_failed", str(e)[:200])
+        return True
+
+
 def _ig_login_credentials(account_id: str | None = None):
     """
     Returns (ig_user_id, ig_user_token) for the Instagram Login surface of the

@@ -318,6 +318,17 @@ def instagram_webhook():
     try:
         for entry in (data.get("entry") or []):
 
+            # Whose inbox is this? entry.id is the account the event belongs to.
+            # Meta delivers events for EVERY account that authorised this app,
+            # including ones we have switched off in meta_connections — it has
+            # no idea that flag exists. Dropping the whole entry here is the
+            # only place that decision can be made once for both DMs and
+            # comments; leaving it to send time meant the message was fully
+            # processed and then answered with another account's token.
+            from app.integrations.meta import account_is_serviced
+            if not account_is_serviced(entry.get("id")):
+                continue
+
             # Build the set of "our own" IDs to filter out — webhook fires
             # for outbound messages too, and we must NOT process them as
             # if a customer sent them.
