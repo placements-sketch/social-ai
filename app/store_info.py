@@ -95,11 +95,79 @@ def format_locations_for_prompt() -> str:
     this app does not represent.) So instead of listing addresses, we tell the
     AI the brand is online-only and delivers across Kenya.
     """
-    return (
+    base = (
         "Shop Zetu is an online-only store — it does NOT have any physical shops "
-        "or walk-in branches. All orders are placed online and delivered across "
-        "Kenya. If a customer asks to visit a store or asks where the shops are, "
-        "explain warmly that Shop Zetu is online-only and offer to help them order "
-        "online with delivery to their location. Never give a physical store "
-        "address, and never refer customers to Vivo or any other brand's stores."
+        "or walk-in branches of its own. All Shop Zetu orders are placed online "
+        "and delivered across Kenya. If a customer asks to visit a Shop Zetu "
+        "store or asks where our shops are, explain warmly that we are "
+        "online-only and offer to help them order online with delivery to their "
+        "location.\n"
+        # The blanket ban that used to end this block — "never refer customers
+        # to Vivo or any other brand's stores" — was written when Vivo was
+        # treated as a separate business this app did not represent. It is not:
+        # Shop Zetu manages products and stock for a number of brands, Vivo
+        # among them, and a customer asking where they can try a Vivo piece on
+        # is asking a reasonable question we can answer. Refusing on principle
+        # sent them away for no reason.
+        #
+        # What replaces it is narrower and safer: answer from what the business
+        # has actually written down, never from memory. An invented branch
+        # address sends a real person across Nairobi to a shop that isn't there.
+        "Shop Zetu manages products for other brands, some of which DO have "
+        "their own physical stores. If a customer asks where they can find a "
+        "particular brand in person, answer ONLY from the brand store list "
+        "below (or the 'About the business' section, if it says something "
+        "relevant). If the branch they want is not listed, say you don't have "
+        "details for that one and offer to help them order online instead. "
+        "Never state or guess a street address, branch, mall or phone number "
+        "that is not written down for you."
     )
+    return base + _format_brand_stores()
+
+
+def _format_brand_stores() -> str:
+    """
+    The brand stores block, or "" if none are configured.
+
+    Kept in StoreInfoCache under kind='brand_stores', NOT kind='locations'.
+    That key already belongs to sync_locations_now(), which overwrites it with
+    Shopify's fulfilment locations — warehouses and pickup points, not
+    customer-facing shops. Sharing the key would mean these addresses survive
+    exactly until the next Shopify sync, and then vanish without anyone
+    noticing.
+
+    Rendered compactly and factored: hours are stated once for all branches
+    rather than repeated per store. The naive layout ran to four lines each,
+    which on twenty-one stores is most of a page carried by every reply,
+    including "what sizes does this come in?".
+    """
+    try:
+        row = StoreInfoCache.query.filter_by(kind='brand_stores').first()
+        stores = row.data if (row and isinstance(row.data, list)) else []
+    except Exception:
+        return ""
+    if not stores:
+        return ""
+
+    lines = []
+    # State shared hours once if every branch agrees, which is the normal case.
+    hours = {(s.get('hours') or '').strip() for s in stores if s.get('hours')}
+    shared = hours.pop() if len(hours) == 1 else None
+
+    lines.append("\n\nBrand stores you MAY give addresses for (these are the "
+                 "brand's own shops, not Shop Zetu's):")
+    if shared:
+        lines.append(f"All branches: {shared}")
+    for s in stores:
+        if not (s.get('name') or '').strip():
+            continue
+        bits = [s['name'].strip()]
+        for key in ('address', 'area'):
+            if (s.get(key) or '').strip():
+                bits.append(s[key].strip())
+        if (s.get('phone') or '').strip():
+            bits.append(s['phone'].strip())
+        if not shared and (s.get('hours') or '').strip():
+            bits.append(s['hours'].strip())
+        lines.append("  - " + " | ".join(bits))
+    return "\n".join(lines)

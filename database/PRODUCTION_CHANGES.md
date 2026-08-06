@@ -1991,3 +1991,363 @@ the old spelling in Shopify-mirrored data (`orders_cache.products`,
 were never ours to edit, whichever way the brand is spelled. And the
 `customers_cache` row containing a customer's entire enquiry in the
 `first_name` field is still a real data-quality problem in Shopify.
+
+---
+
+### Step 32 — Vivo store addresses, so the assistant can answer "where can I try this on?"
+
+Shop Zetu is online-only, and the prompt block enforcing that used to end with
+**"never refer customers to Vivo or any other brand's stores."** That was
+written when Vivo was treated as a separate business this app did not
+represent. It is not — Shop Zetu manages products and stock for a number of
+brands, Vivo among them — so a customer asking where they can see a piece in
+person was being turned away for no reason. The ban is gone, replaced by a
+narrower rule: answer from the list below, never from memory. An invented
+branch sends a real person across Nairobi to a shop that is not there.
+
+**Note the key: `brand_stores`, NOT `locations`.** `kind='locations'` already
+belongs to `sync_locations_now()`, which overwrites it with Shopify's
+fulfilment locations — warehouses and pickup points, not customer-facing shops.
+Sharing the key would mean these addresses survive exactly until the next
+Shopify sync and then vanish with nothing to show they were ever there.
+
+Hours are identical across all 21 branches, so they are stored per-store but
+rendered once ("All branches: ...") rather than repeated twenty-one times. The
+whole block is ~700 tokens of static text in the cached part of the system
+prompt.
+
+```sql
+BEGIN;
+
+INSERT INTO store_info_cache (kind, data, updated_at)
+VALUES ('brand_stores', '[
+  {
+    "name": "Vivo - Capital Centre",
+    "address": "Ground Floor",
+    "area": "Mombasa Road, Nairobi",
+    "phone": "+254 742 036533",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Galleria Shopping Mall",
+    "address": "First Floor",
+    "area": "Langata Road, Nairobi",
+    "phone": "+254 701 099647",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Garden City Mall",
+    "address": "Ground Floor",
+    "area": "Thika Road, Nairobi",
+    "phone": "+254 724 201270",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Signature Mall",
+    "address": "Ground Floor",
+    "area": "Signature Mall, Mombasa Road",
+    "phone": "+254 704 913890",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Greenspan Mall Donholm",
+    "address": "Ground Floor",
+    "area": "Lower Savannah Dakar Road, Nairobi",
+    "phone": "+254 790 672271",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Imaara Mall",
+    "address": "First Floor",
+    "area": "Mombasa Road, Nairobi",
+    "phone": "+254 746 499820",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Mama Ngina Street",
+    "address": "Jubilee Exchange House, First Floor",
+    "area": "Central Business District, Nairobi",
+    "phone": "+254 700 516208",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Moi Avenue",
+    "address": "31 Moi Avenue",
+    "area": "Central Business District, Nairobi",
+    "phone": "+254 741 781602",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Sarit Centre Mall",
+    "address": "Ground Floor, New Wing",
+    "area": "Karuna Road, Nairobi",
+    "phone": "+254 700 369070",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - T-Mall",
+    "address": "Ground Floor",
+    "area": "Mai-Mahiu Road, Nairobi",
+    "phone": "+254 743 332423",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - The Hub, Karen",
+    "address": "First Floor",
+    "area": "Dagoretti Road, Nairobi",
+    "phone": "+254 798 049965",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - The Junction Mall",
+    "address": "Ground Floor",
+    "area": "Ngong Road, Nairobi",
+    "phone": "+254 704 915479",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - The Village Market",
+    "address": "Ground Floor, New Wing",
+    "area": "Limuru Road, Nairobi",
+    "phone": "+254 746 619337",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Thika Road Mall",
+    "address": "First Floor",
+    "area": "Thika Road, Nairobi",
+    "phone": "+254 112 801225",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Two Rivers Mall",
+    "address": "Ground Floor",
+    "area": "Limuru Road, Nairobi",
+    "phone": "+254 717 457724",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Yaya Centre",
+    "address": "First Floor",
+    "area": "Argwings Kodhek Road, Nairobi",
+    "phone": "+254 703 420785",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Athi River, Signature Mall",
+    "address": "Ground Floor",
+    "area": "Mlolongo, Athi River",
+    "phone": "+254 704 913890",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Kileleshwa",
+    "address": "1st Floor, Kobil Station",
+    "area": "Burugani/Mandera Road, Nairobi",
+    "phone": "+254 712 807263",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Runda Mall",
+    "address": "Ground Floor",
+    "area": "Kiambu Road, Nairobi",
+    "phone": "+254 745 531862",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Safari by Vivo - Sarit",
+    "address": "1st Floor, New Wing",
+    "area": "Sarit Centre, Karuna Road, Nairobi",
+    "phone": "+254 745 162579",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Zoya by Vivo - Sarit",
+    "address": "1st Floor, New Wing",
+    "area": "Sarit Centre, Karuna Road, Nairobi",
+    "phone": "+254 745 162113",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  }
+]'::jsonb, now())
+ON CONFLICT (kind) DO UPDATE
+   SET data = EXCLUDED.data, updated_at = now();
+
+-- Expect 21.
+SELECT kind, jsonb_array_length(data) AS stores, updated_at
+  FROM store_info_cache WHERE kind = 'brand_stores';
+
+COMMIT;
+```
+
+If `store_info_cache` has no unique constraint on `kind`, the upsert will fail;
+use this instead:
+
+```sql
+BEGIN;
+DELETE FROM store_info_cache WHERE kind = 'brand_stores';
+INSERT INTO store_info_cache (kind, data, updated_at)
+VALUES ('brand_stores', '[
+  {
+    "name": "Vivo - Capital Centre",
+    "address": "Ground Floor",
+    "area": "Mombasa Road, Nairobi",
+    "phone": "+254 742 036533",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Galleria Shopping Mall",
+    "address": "First Floor",
+    "area": "Langata Road, Nairobi",
+    "phone": "+254 701 099647",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Garden City Mall",
+    "address": "Ground Floor",
+    "area": "Thika Road, Nairobi",
+    "phone": "+254 724 201270",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Signature Mall",
+    "address": "Ground Floor",
+    "area": "Signature Mall, Mombasa Road",
+    "phone": "+254 704 913890",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Greenspan Mall Donholm",
+    "address": "Ground Floor",
+    "area": "Lower Savannah Dakar Road, Nairobi",
+    "phone": "+254 790 672271",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Imaara Mall",
+    "address": "First Floor",
+    "area": "Mombasa Road, Nairobi",
+    "phone": "+254 746 499820",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Mama Ngina Street",
+    "address": "Jubilee Exchange House, First Floor",
+    "area": "Central Business District, Nairobi",
+    "phone": "+254 700 516208",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Moi Avenue",
+    "address": "31 Moi Avenue",
+    "area": "Central Business District, Nairobi",
+    "phone": "+254 741 781602",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Sarit Centre Mall",
+    "address": "Ground Floor, New Wing",
+    "area": "Karuna Road, Nairobi",
+    "phone": "+254 700 369070",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - T-Mall",
+    "address": "Ground Floor",
+    "area": "Mai-Mahiu Road, Nairobi",
+    "phone": "+254 743 332423",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - The Hub, Karen",
+    "address": "First Floor",
+    "area": "Dagoretti Road, Nairobi",
+    "phone": "+254 798 049965",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - The Junction Mall",
+    "address": "Ground Floor",
+    "area": "Ngong Road, Nairobi",
+    "phone": "+254 704 915479",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - The Village Market",
+    "address": "Ground Floor, New Wing",
+    "area": "Limuru Road, Nairobi",
+    "phone": "+254 746 619337",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Thika Road Mall",
+    "address": "First Floor",
+    "area": "Thika Road, Nairobi",
+    "phone": "+254 112 801225",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Two Rivers Mall",
+    "address": "Ground Floor",
+    "area": "Limuru Road, Nairobi",
+    "phone": "+254 717 457724",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Yaya Centre",
+    "address": "First Floor",
+    "area": "Argwings Kodhek Road, Nairobi",
+    "phone": "+254 703 420785",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Athi River, Signature Mall",
+    "address": "Ground Floor",
+    "area": "Mlolongo, Athi River",
+    "phone": "+254 704 913890",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Kileleshwa",
+    "address": "1st Floor, Kobil Station",
+    "area": "Burugani/Mandera Road, Nairobi",
+    "phone": "+254 712 807263",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Vivo - Runda Mall",
+    "address": "Ground Floor",
+    "area": "Kiambu Road, Nairobi",
+    "phone": "+254 745 531862",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Safari by Vivo - Sarit",
+    "address": "1st Floor, New Wing",
+    "area": "Sarit Centre, Karuna Road, Nairobi",
+    "phone": "+254 745 162579",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  },
+  {
+    "name": "Zoya by Vivo - Sarit",
+    "address": "1st Floor, New Wing",
+    "area": "Sarit Centre, Karuna Road, Nairobi",
+    "phone": "+254 745 162113",
+    "hours": "Mon-Sat 9:30AM-8:00PM; Sun & public holidays 10:00AM-7:00PM"
+  }
+]'::jsonb, now());
+SELECT kind, jsonb_array_length(data) AS stores FROM store_info_cache WHERE kind = 'brand_stores';
+COMMIT;
+```
+
+**Two corrections to the source data**, both silent typos on the website, worth
+knowing in case someone diffs this against it later:
+
+- "Argwings Khodek Road" -> **Argwings Kodhek** Road (Yaya Centre)
+- "Ground Flour" / "1st Flour" -> Floor (Runda, Safari, Zoya)
+
+**One thing to check:** Signature Mall appears twice — "Vivo - Signature Mall,
+Mombasa Road" and "Vivo - Athi River, Signature Mall, Mlolongo" — and both
+carry the same phone number, +254 704 913890. They may be one shop listed
+twice, or two shops sharing a line. Both are in the list as given; if they are
+the same branch, delete one.
+

@@ -173,7 +173,15 @@ def _rules_directives(rules: dict) -> list[str]:
     else:
         out.append("Do not use emojis.")
     if rules.get('always_offer_alternatives_when_out_of_stock'):
-        out.append("If a product is out of stock, suggest 1-2 similar alternatives or offer to notify when restocked.")
+        # "Offer to notify when restocked" used to be part of this line, and it
+        # contradicted the system prompt's forbidden-phrases list — which bans
+        # "I'll notify you" and "I'll add you to the list" for the good reason
+        # that the assistant cannot send a follow-up message and no waitlist
+        # exists. One setting was instructing it to promise the exact thing
+        # another forbade, and whichever won, a customer was going to be told
+        # they would hear back about a restock that nobody had recorded.
+        out.append("If a product is out of stock, suggest 1-2 similar alternatives. "
+                   "Do NOT offer to notify them when it is back — we have no way to do that.")
     return out
 
 
