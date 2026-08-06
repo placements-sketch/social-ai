@@ -40,6 +40,20 @@ DEFAULTS = {
     },
     "business": {
         "store_name": "Shop Zetu",
+        # Freeform knowledge the assistant should have about the business.
+        #
+        # Every other field here answers one specific question — hours, phone,
+        # email — and there was nowhere to put anything that did not fit that
+        # shape. Shop Zetu is an amalgamation of brands, it is online-only, and
+        # Vivo products are also carried in Vivo's own physical stores. None of
+        # that is a field, all of it changes the answer, and until now the only
+        # place to say it was the system prompt — the one control that governs
+        # every reply on every channel and is deliberately hard to reach.
+        #
+        # Goes into the prompt verbatim under "About the business", so it is
+        # also the fastest way to correct the assistant when it states
+        # something wrong: write the true version here and it stops.
+        "about": "",
         "hours": "",
         "phone": "",
         "whatsapp": "",
@@ -549,6 +563,12 @@ def format_business_for_prompt() -> str:
     lines = []
     if b.get("store_name"):
         lines.append(f"Store name: {b['store_name']}")
+    # Before the contact details on purpose. This is the part that shapes what
+    # the assistant says rather than just supplying a fact to read out, and the
+    # model weights early context more heavily.
+    about = (b.get("about") or "").strip()
+    if about:
+        lines.append("About the business:\n" + about)
     if b.get("hours"):
         lines.append(f"Opening hours: {b['hours']}")
     contact = []

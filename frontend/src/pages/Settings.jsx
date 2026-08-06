@@ -678,6 +678,7 @@ function HandoffPanel({ settings, setSettings }) {
 function BusinessPanel({ settings, setSettings }) {
   const b = settings?.business || {}
   const [storeName, setStoreName] = useState(b.store_name ?? '')
+  const [about, setAbout] = useState(b.about ?? '')
   const [hours, setHours] = useState(b.hours ?? '')
   const [phone, setPhone] = useState(b.phone ?? '')
   const [whatsapp, setWhatsapp] = useState(b.whatsapp ?? '')
@@ -712,7 +713,7 @@ function BusinessPanel({ settings, setSettings }) {
       const res = await fetch(`${API_BASE}/settings`, {
         method: 'PATCH', headers: authHeaders(),
         body: JSON.stringify({ business: {
-          store_name: storeName.trim(), hours: hours.trim(),
+          store_name: storeName.trim(), about: about.trim(), hours: hours.trim(),
           phone: phone.trim(), whatsapp: whatsapp.trim(), email: email.trim(),
           timezone: timezone.trim(), week_starts_on: weekStart,
         } }),
@@ -728,7 +729,30 @@ function BusinessPanel({ settings, setSettings }) {
     <div className="space-y-4">
       <div className="card rounded-2xl p-5 sm:p-6">
         <PanelHeader icon={Store} title="Business info"
-          desc="Details your assistant uses when customers ask about hours or how to reach you. Shop Zetu is online-only." />
+          desc="What your assistant knows about the business — the background it answers from, plus the details customers ask for directly." />
+
+        {/* The one field here that is prose rather than a value. Everything
+            else answers a fixed question; this is for what does not fit a
+            field and still changes the answer. */}
+        <div className="mb-5">
+          <label className={labelCls}>What the assistant should know about us</label>
+          <textarea
+            className={inputCls + ' min-h-[140px] resize-y leading-relaxed'}
+            value={about}
+            onChange={e => setAbout(e.target.value)}
+            placeholder={`Shop Zetu is online-only — we have no walk-in shop of our own.
+We manage products, stock and delivery for a number of brands.
+Vivo is one of them, and Vivo products can also be bought in Vivo's own stores.
+Returns are accepted within 7 days, unworn and with tags on.`}
+          />
+          <p className="text-xs text-gray-500 mt-1.5">
+            Goes into every reply as background. Write it as facts, one per line —
+            it is read, not recited. This is also the quickest way to correct the
+            assistant: if it says something untrue, write the true version here.
+            For delivery fees and timeframes use <span className="font-semibold">Delivery &amp; orders</span> instead,
+            so a price lives in one place.
+          </p>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
           <div>
             <label className={labelCls}>Store name</label>
