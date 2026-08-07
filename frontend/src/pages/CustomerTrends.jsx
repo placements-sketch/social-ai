@@ -14,6 +14,24 @@ function compactKES(n) {
   return String(Math.round(n || 0))
 }
 
+// Both tooltips were hardcoded to a white card with a light border, so on a
+// dark page they were white slabs with unreadable content. These variables flip
+// with the theme (index.css defines them under :root and .dark).
+//
+// Note --text, not --text-primary: the latter does not exist here, and an
+// undefined CSS variable fails silently and inherits, which is a colour bug with
+// nothing on screen to explain it.
+const TOOLTIP_STYLE = {
+  fontSize: 12,
+  borderRadius: 8,
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  color: 'var(--text)',
+}
+const TOOLTIP_LABEL = { color: 'var(--text)', fontWeight: 600 }
+const TOOLTIP_ITEM = { color: 'var(--text)' }
+const TOOLTIP_CURSOR = { fill: 'var(--border)', fillOpacity: 0.35 }
+
 // Segment → colour, aligned with the app's segment palette.
 const SEG_COLORS = {
   vip: '#f59e0b', loyal: '#ec4899', regular: '#3b82f6', new: '#22c55e',
@@ -70,16 +88,23 @@ export default function CustomerTrends() {
         <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-1">
           <TrendingUp size={14} className="text-brand-500" /> Revenue by Segment
         </h2>
-        <p className="text-xs text-gray-400 mb-4">Where the money actually comes from — usually a different shape than headcount.</p>
+        <p className="text-xs text-gray-400 mb-4">
+          Shopify's "Total spent" per customer, grouped by segment. Segments are ours —
+          Shopify has no such grouping — but every shilling is its figure, and these bars
+          sum to the Revenue card exactly.
+        </p>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={revenueData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+            <CartesianGrid stroke="var(--border)" strokeOpacity={0.6} vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
                    tickFormatter={compactKES} />
             <Tooltip
               formatter={(v) => [`KES ${formatKES(v)}`, 'Revenue']}
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              contentStyle={TOOLTIP_STYLE}
+              labelStyle={TOOLTIP_LABEL}
+              itemStyle={TOOLTIP_ITEM}
+              cursor={TOOLTIP_CURSOR}
             />
             <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
               {revenueData.map((entry, i) => (
@@ -95,16 +120,22 @@ export default function CustomerTrends() {
         <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-1">
           <Clock size={14} className="text-brand-500" /> Customers by Recency
         </h2>
-        <p className="text-xs text-gray-400 mb-4">How long since each buyer's last order.</p>
+        <p className="text-xs text-gray-400 mb-4">
+          How long since each buyer's last order, from Shopify's last-order date. Buyers
+          only — the 125,102 who never ordered are not counted.
+        </p>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={recencyData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+            <CartesianGrid stroke="var(--border)" strokeOpacity={0.6} vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
                    tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
             <Tooltip
               formatter={(v) => [`${formatKES(v)} customers`, 'Buyers']}
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              contentStyle={TOOLTIP_STYLE}
+              labelStyle={TOOLTIP_LABEL}
+              itemStyle={TOOLTIP_ITEM}
+              cursor={TOOLTIP_CURSOR}
             />
             <Bar dataKey="customers" fill="#3b82f6" radius={[4, 4, 0, 0]} />
           </BarChart>

@@ -1027,8 +1027,19 @@ def customer_trends():
         GROUP BY segment
         ORDER BY revenue DESC
     """)).fetchall()
+    # Shopify's figure, not ours.
+    #
+    # This divided every segment by 1.16 to strip VAT — the same invented
+    # arithmetic removed from the Revenue KPI. The consequence was worse here
+    # than there: the bars silently failed to sum to the headline, so anyone
+    # adding them up got 643M against a Revenue card reading 746M, with nothing
+    # on screen explaining the 103M.
+    #
+    # What stays ours is the GROUPING. Shopify has no concept of these segments
+    # — they are computed by compute_segment() from its data. So this is
+    # Shopify's money, arranged by our rules, and the subtitle says so.
     revenue_by_segment = [
-        {'segment': r[0], 'revenue': ex_vat(r[1]), 'customers': int(r[2])}
+        {'segment': r[0], 'revenue': float(r[1] or 0), 'customers': int(r[2])}
         for r in seg_rows
     ]
 
