@@ -36,10 +36,10 @@ const allNav = [
   // questions — and whether reading the latter verbatim is worth the
   // read_reports scope plus a GraphQL client.
   //
-  // { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
-  //   children: [
-  //     { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
-  //   ] },
+  { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
+    children: [
+      { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
+    ] },
   { to: '/products',  icon: Package,   label: 'Products',  roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics', roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
