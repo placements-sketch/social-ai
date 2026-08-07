@@ -1592,6 +1592,23 @@ query Ql($q: String!) {
 """
 
 
+# When Shopify last said "rate limited", and how long we stay away afterwards.
+#
+# Without this the limiter never recovers: every page load fires the query, the
+# refusal itself counts against the bucket, and the bucket can never refill. The
+# chart stayed empty for hours on a store that was answering fine — we were
+# holding the door shut ourselves.
+#
+# Per-process, so N workers back off independently; that is fine, they each make
+# far fewer calls than the loop they replace.
+_QL_COOLDOWN = timedelta(seconds=90)
+_QL_BLOCKED_UNTIL = None
+
+
+def _ql_rate_limited(msg: str) -> bool:
+    return 'rate limit' in (msg or '').lower()
+
+
 def shopifyql(query: str):
     """
     Run a ShopifyQL query. Returns (rows, error) where rows are dicts keyed by
@@ -1602,10 +1619,34 @@ def shopifyql(query: str):
     with no data. Surfaced as an error here so it cannot be mistaken for "the
     store made nothing".
     """
+    global _QL_BLOCKED_UNTIL
+
+    # Still cooling off — fail fast without spending a call. The caller's cache
+    # fallback takes over, which is the whole point of having one.
+    if _QL_BLOCKED_UNTIL and datetime.utcnow() < _QL_BLOCKED_UNTIL:
+        return None, "Rate limited — backing off, showing cached figures"
+
     data, err = shopify_graphql(_SHOPIFYQL, {'q': query})
+
+    # One retry, because the limiter is bursty: a query refused now often
+    # succeeds a beat later, and a single sleep here is cheaper than leaving the
+    # chart empty for six hours until the cache TTL comes round again.
+    if err and _ql_rate_limited(err):
+        import time as _time
+        _time.sleep(2.0)
+        data, err = shopify_graphql(_SHOPIFYQL, {'q': query})
+
     if err:
+        if _ql_rate_limited(err):
+            _QL_BLOCKED_UNTIL = datetime.utcnow() + _QL_COOLDOWN
+            log_event("info", "integrations.shopify.ql_cooldown",
+                      f"Rate limited — pausing ShopifyQL for {_QL_COOLDOWN.seconds}s")
         return None, err
 
+    _QL_BLOCKED_UNTIL = None
+    return _ql_rows(data, query)
+
+def _ql_rows(data, query):
     node = (data or {}).get('shopifyqlQuery') or {}
     # parseErrors arrives as a list of plain STRINGS here — not the list of
     # {code, message} objects the docs describe, and not the bare string the
