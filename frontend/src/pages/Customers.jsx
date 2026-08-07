@@ -329,22 +329,17 @@ export default function Customers() {
       )}
 
       {/* ─── KPI STRIP ──────────────────────────────────────── */}
-      {/* Every figure here is ALL TIME, and says so. It has to be: the source
-          is Shopify's per-customer lifetime totals, which carry no date
-          breakdown — there is no "spend in March" on a customer record. A date
-          filter would have to come from orders_cache instead, which answers a
-          different question (KES 629.5M paid orders vs Shopify's 757.6M
-          lifetime), so the two cannot share a row of cards without saying
-          which is which. Marked rather than mixed. */}
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <p className="text-[12px] font-bold text-gray-400 uppercase tracking-wide">
-          All time
-        </p>
-        <p className="text-[12px] text-gray-400">
-          Lifetime totals as reported by Shopify
-        </p>
-      </div>
+      {/* Every figure here is ALL TIME. The header that used to say so has
+          been removed — but the constraint behind it has not, so it is written
+          down here instead of being lost with the markup.
 
+          The source is Shopify's per-customer lifetime totals, which carry no
+          date breakdown: there is no "spend in March" on a customer record. If
+          a date filter is ever added to this page it CANNOT come from these
+          fields. It would have to come from orders_cache, which answers a
+          different question (KES 629.5M in paid orders against Shopify's
+          757.6M lifetime), and the two must not share a row of cards without
+          saying which is which. */}
       {/* Five cards now, so 4-up left a lone tile stranded on its own row. */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
         {overview ? (
