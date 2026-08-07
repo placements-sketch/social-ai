@@ -1674,7 +1674,12 @@ def fetch_sales_breakdown(since: str = '2000-01-01'):
     "subtract this" would make the column disagree with the Shopify admin,
     which is the one thing this whole area exists to prevent.
     """
-    cols = ', '.join(k for k, _l, _o in SALES_COMPONENTS)
+    # Order count and AOV ride along in the same query. They were being derived
+    # on the page by summing our own monthly aggregates, which produced 110,800
+    # orders and an AOV of 5,203 against Shopify's 131,845 and 4,708 — three
+    # numbers on screen, none of them Shopify's, under a heading claiming to
+    # report Shopify.
+    cols = ', '.join(k for k, _l, _o in SALES_COMPONENTS) + ', orders, average_order_value'
     rows, err = shopifyql(f"FROM sales SHOW {cols} SINCE {since} UNTIL today")
     if err:
         return None, err
@@ -1682,15 +1687,25 @@ def fetch_sales_breakdown(since: str = '2000-01-01'):
         return None, "Shopify returned no sales rows"
 
     row = rows[0]
-    out = []
-    for key, label, op in SALES_COMPONENTS:
-        raw = row.get(key)
+
+    def _num(key):
         try:
-            amount = float(raw)
+            return float(row.get(key))
         except (TypeError, ValueError):
+            return None
+
+    components = []
+    for key, label, op in SALES_COMPONENTS:
+        amount = _num(key)
+        if amount is None:
             continue          # a column Shopify dropped; skip rather than zero
-        out.append({'key': key, 'label': label, 'amount': amount, 'op': op})
-    return out, None
+        components.append({'key': key, 'label': label, 'amount': amount, 'op': op})
+
+    return {
+        'components': components,
+        'orders': _num('orders'),
+        'aov': _num('average_order_value'),
+    }, None
 
 
 def fetch_total_sales(since: str = '2000-01-01', until: str | None = None):

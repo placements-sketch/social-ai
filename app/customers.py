@@ -230,13 +230,18 @@ def _total_sales_block():
         breakdown, err = None, str(e)[:120]
 
     if breakdown:
-        total = next((r['amount'] for r in breakdown if r['key'] == 'total_sales'), None)
+        components = breakdown.get('components') or []
+        total = next((r['amount'] for r in components if r['key'] == 'total_sales'), None)
         if total is not None:
             return {
                 'net_sales': total,
                 'net_sales_source': 'shopify',
                 'net_sales_note': None,
-                'net_sales_breakdown': breakdown,
+                'net_sales_breakdown': components,
+                # Shopify's own order count and AOV, so the chart header stops
+                # quoting our aggregates as if they were Shopify's.
+                'shopify_orders': breakdown.get('orders'),
+                'shopify_aov': breakdown.get('aov'),
             }
 
     estimate = _net_sales_estimate()

@@ -674,17 +674,22 @@ export default function Customers() {
                   over time
                 </span>
               </h2>
-              {overview.aov_by_month?.length > 0 && (() => {
-                const rows = overview.aov_by_month
-                const totalOrders  = rows.reduce((s, r) => s + (r.orders || 0), 0)
-                const totalRevenue = rows.reduce((s, r) => s + (r.revenue || 0), 0)
-                const aov = totalOrders ? Math.round(totalRevenue / totalOrders) : 0
-                return (
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {formatKES(totalOrders)} orders · KES {formatKES(totalRevenue)} · AOV KES {formatKES(aov)} · All time
-                  </p>
-                )
-              })()}
+              {/* Shopify's totals, not ours.
+                  This line used to sum overview.aov_by_month — our own monthly
+                  aggregates of orders_cache — and printed 110,800 orders, KES
+                  576.5M and an AOV of 5,203. Shopify says 131,845, 522.5M and
+                  4,708. Every figure differed, sitting directly above a chart
+                  on a page whose whole purpose is to report what Shopify
+                  reports.
+
+                  The chart below still plots our per-period aggregates, because
+                  Shopify has no per-day series we can read cheaply — but the
+                  totals a reader will quote are now Shopify's. */}
+              {overview.kpis?.shopify_orders != null && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {formatKES(overview.kpis.shopify_orders)} orders · KES {formatKES(overview.kpis.net_sales)} · AOV KES {formatKES(overview.kpis.shopify_aov)} · Shopify, all time
+                </p>
+              )}
               </div>
               <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
                 {['day', 'week', 'month'].map(g => (
@@ -704,7 +709,13 @@ export default function Customers() {
               </div>
             </div>
             {overview.aov_by_month?.length > 0 ? (
-              <div className="flex-1 min-h-[240px] -mb-2">
+              <div className="h-[260px] -mb-2">
+                {/* Explicit height, not flex-1.
+                    ResponsiveContainer measures its parent, and a parent that
+                    is itself flex-1 inside another flex column resolves to 0
+                    until its children have a height — which they cannot have,
+                    because they are asking the parent. The chart rendered
+                    blank. Fixed heights break that circle. */}
                 {/* Two plots, one shared time axis — not one plot with two
                     y-scales.
 
@@ -722,8 +733,8 @@ export default function Customers() {
                     protanopia and tritanopia. The previous orders line was
                     #111827 — near-black on a near-black surface, which is why it
                     was invisible in dark mode. */}
-                <div className="flex-1 flex flex-col gap-1 min-h-0">
-                  <div className="flex-1 min-h-[110px]">
+                <div className="h-full flex flex-col gap-1">
+                  <div className="h-[150px] shrink-0">
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={overview.aov_by_month} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} syncId="ordersRevenue">
                         {/* Solid hairline, not dashed. A dashed grid reads as a
@@ -741,7 +752,7 @@ export default function Customers() {
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className="flex-1 min-h-[90px]">
+                  <div className="h-[104px] shrink-0">
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={overview.aov_by_month} margin={{ top: 4, right: 4, left: 4, bottom: 4 }} syncId="ordersRevenue">
                         <CartesianGrid stroke="#e5e7eb" strokeOpacity={0.35} vertical={false} />
