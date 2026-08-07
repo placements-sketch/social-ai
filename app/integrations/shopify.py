@@ -1607,11 +1607,19 @@ def shopifyql(query: str):
         return None, err
 
     node = (data or {}).get('shopifyqlQuery') or {}
-    # parseErrors is a plain String on this schema, not a list of objects.
+    # parseErrors arrives as a list of plain STRINGS here — not the list of
+    # {code, message} objects the docs describe, and not the bare string the
+    # schema's NON_NULL wrapper suggested either. Handle all three: getting
+    # this wrong turns a helpful "unknown column" into an AttributeError and
+    # hides the one message that says what is actually wrong with the query.
     parse_errors = node.get('parseErrors') or ''
     if parse_errors:
-        msg = parse_errors if isinstance(parse_errors, str) else '; '.join(
-            (e or {}).get('message', '') for e in parse_errors[:2])
+        if isinstance(parse_errors, str):
+            msg = parse_errors
+        else:
+            msg = '; '.join(
+                e if isinstance(e, str) else (e or {}).get('message', '')
+                for e in parse_errors[:3])
         log_event("warn", "integrations.shopify.shopifyql_parse",
                   f"ShopifyQL rejected the query: {msg[:180]}",
                   payload={"query": query[:300]})
@@ -1634,6 +1642,55 @@ def shopifyql(query: str):
         columns = [c.get('name') for c in (table.get('columns') or [])]
         rows = [dict(zip(columns, row)) for row in raw]
     return rows, None
+
+
+# The columns Shopify adds up to reach Total sales, in the order it adds them.
+# Named here rather than inline so the page, the log and this module cannot
+# drift into describing the arithmetic three different ways.
+SALES_COMPONENTS = (
+    ('gross_sales',      'Gross sales',      'add'),
+    ('discounts',        'Discounts',        'sub'),
+    ('returns',          'Returns',          'sub'),
+    ('net_sales',        'Net sales',        'subtotal'),
+    ('shipping_charges', 'Shipping',         'add'),
+    ('taxes',            'Taxes',            'add'),
+    ('total_sales',      'Total sales',      'total'),
+)
+
+
+def fetch_sales_breakdown(since: str = '2000-01-01'):
+    """
+    Every component of Shopify's "Total sales", in one query.
+
+    Returns (rows, error) where rows is a list of
+    {key, label, amount, op} in the order Shopify applies them, so a reader can
+    follow the arithmetic instead of taking the total on trust.
+
+    One query, not seven: ShopifyQL rate-limits hard enough that fetching each
+    figure separately fails in normal use.
+
+    Note `discounts` and `returns` arrive already NEGATIVE from Shopify. They
+    are passed through unchanged — flipping the sign to match a mental model of
+    "subtract this" would make the column disagree with the Shopify admin,
+    which is the one thing this whole area exists to prevent.
+    """
+    cols = ', '.join(k for k, _l, _o in SALES_COMPONENTS)
+    rows, err = shopifyql(f"FROM sales SHOW {cols} SINCE {since} UNTIL today")
+    if err:
+        return None, err
+    if not rows:
+        return None, "Shopify returned no sales rows"
+
+    row = rows[0]
+    out = []
+    for key, label, op in SALES_COMPONENTS:
+        raw = row.get(key)
+        try:
+            amount = float(raw)
+        except (TypeError, ValueError):
+            continue          # a column Shopify dropped; skip rather than zero
+        out.append({'key': key, 'label': label, 'amount': amount, 'op': op})
+    return out, None
 
 
 def fetch_total_sales(since: str = '2000-01-01', until: str | None = None):

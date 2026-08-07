@@ -345,6 +345,59 @@ export default function Customers() {
         </p>
       </div>
 
+      {/* How Total sales is arrived at, shown rather than described.
+          Shopify publishes the components; printing them in the order it
+          applies them means anyone can follow the arithmetic to the headline
+          instead of taking it on trust — or worse, re-deriving it by hand in
+          the Shopify admin, which is the afternoon this page exists to save.
+
+          Two things people get wrong about this figure, both visible here:
+          taxes and shipping are ADDED (it is not an ex-VAT number), and
+          returns — not discounts — are what create the gap against Revenue. */}
+      {overview?.kpis?.net_sales_breakdown?.length > 0 && (
+        <div className="card rounded-2xl p-5">
+          <div className="flex items-baseline justify-between gap-3 mb-3">
+            <p className="text-sm font-semibold text-gray-900">How Total sales is calculated</p>
+            <span className="text-[11px] text-gray-400">Shopify Analytics · all time</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {overview.kpis.net_sales_breakdown.map(({ key, label, amount, op }) => {
+              const isResult = op === 'total' || op === 'subtotal'
+              return (
+                <div
+                  key={key}
+                  className={clsx(
+                    'flex items-center justify-between py-2 gap-4',
+                    isResult && 'font-semibold text-gray-900',
+                    op === 'total' && 'border-t-2 border-gray-200 mt-1 pt-2.5'
+                  )}
+                >
+                  <span className={clsx('text-[13px]', !isResult && 'text-gray-600')}>
+                    {/* The operator, not just the label. "Taxes 68,226,500"
+                        reads as something removed unless the sign is stated. */}
+                    {op === 'add' && <span className="text-gray-400 mr-1.5">+</span>}
+                    {op === 'sub' && <span className="text-gray-400 mr-1.5">−</span>}
+                    {label}
+                  </span>
+                  <span className={clsx(
+                    'text-[13px] tabular-nums',
+                    op === 'sub' ? 'text-red-600' : isResult ? 'text-gray-900' : 'text-gray-700'
+                  )}>
+                    KES {formatKES(Math.abs(amount))}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-[12px] text-gray-500 mt-3 leading-relaxed">
+            Taxes and shipping are <span className="font-semibold text-gray-700">added</span>, not
+            deducted — Total sales is not an ex-VAT figure. The gap against
+            Revenue is driven by <span className="font-semibold text-gray-700">returns</span>,
+            which Revenue does not subtract because the customer did pay it.
+          </p>
+        </div>
+      )}
+
       {/* Two Shopify numbers that look like they should match and never will.
           Stating both here saves the next person the afternoon it took to work
           out that "Total spent" and "Total sales" are different metrics. */}

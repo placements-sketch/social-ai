@@ -218,24 +218,37 @@ def _total_sales_block():
     None so the page can say "unavailable" instead of claiming the store made
     nothing.
     """
+    # One call for the total AND its components. The breakdown is not a
+    # nice-to-have: a headline figure nobody can derive gets argued with, and
+    # the argument is settled by re-deriving it from the Shopify admin by hand
+    # — which is the afternoon this page is supposed to save.
+    breakdown, err = None, None
     try:
-        from app.integrations.shopify import fetch_total_sales
-        amount, err = fetch_total_sales()
+        from app.integrations.shopify import fetch_sales_breakdown
+        breakdown, err = fetch_sales_breakdown()
     except Exception as e:                       # import or config problem
-        amount, err = None, str(e)[:120]
+        breakdown, err = None, str(e)[:120]
 
-    if amount is not None:
-        return {
-            'net_sales': amount,
-            'net_sales_source': 'shopify',
-            'net_sales_note': None,
-        }
+    if breakdown:
+        total = next((r['amount'] for r in breakdown if r['key'] == 'total_sales'), None)
+        if total is not None:
+            return {
+                'net_sales': total,
+                'net_sales_source': 'shopify',
+                'net_sales_note': None,
+                'net_sales_breakdown': breakdown,
+            }
 
     estimate = _net_sales_estimate()
     log_event("info", "customers.total_sales_fallback",
               f"Shopify Total sales unavailable, showing our estimate: {err}")
     return {
         'net_sales': estimate,
+        # No breakdown on the fallback, deliberately. Our estimate is one
+        # subtraction and a division; presenting it in the same shape as
+        # Shopify's seven-line derivation would dress an approximation up as an
+        # audit trail.
+        'net_sales_breakdown': None,
         'net_sales_source': 'estimate' if estimate is not None else None,
         'net_sales_note': (
             "Our own calculation — Shopify's Total sales needs the "
