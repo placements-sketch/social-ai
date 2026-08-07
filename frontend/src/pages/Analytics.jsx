@@ -72,12 +72,30 @@ function Delta({ current, previous, isPct = false }) {
   // strictly measured in percentage points, but every figure on this page is
   // read as a percentage and the mixed unit was confusing more than it was
   // clarifying — asked for twice.
+  // Going from nothing to something has no percentage.
+  //
+  // This divided by `prev || 1`, so a previous period of zero silently became
+  // one and the "percentage" was just the current figure times a hundred: 186
+  // inbound against a quiet previous week rendered as +118600%, and 3
+  // escalations as +1300%. Both are arithmetic on a denominator nobody
+  // measured. Worse, they looked like the most dramatic numbers on the page —
+  // the one place a reader would stop and take something away.
+  //
+  // A baseline of zero means there is no ratio to report. Say "new" and let
+  // the figure next to it speak.
+  const noBaseline = !isPct && prev === 0
   const val = isPct
     ? `${Math.abs(diff).toFixed(1)}%`
-    : `${up ? '↑' : diff < 0 ? '↓' : ''}${Math.abs(Math.round((diff / (prev || 1)) * 100))}%`
+    : noBaseline
+      ? (cur === 0 ? '—' : 'new')
+      : `${up ? '↑' : diff < 0 ? '↓' : ''}${Math.abs(Math.round((diff / prev) * 100))}%`
   return (
-    <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold',
-      flat ? 'text-gray-400' : up ? 'text-emerald-600' : 'text-gray-500')}>
+    <span
+      title={noBaseline && cur !== 0 ? 'Nothing in the previous period to compare against' : undefined}
+      className={clsx('inline-flex items-center gap-1 text-xs font-semibold',
+        noBaseline ? 'text-gray-400 font-medium'
+          : flat ? 'text-gray-400' : up ? 'text-emerald-600' : 'text-gray-500')}
+    >
       {isPct && <Icon size={13} />}{val}
     </span>
   )
