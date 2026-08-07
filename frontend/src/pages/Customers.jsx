@@ -32,7 +32,7 @@ import CustomerTrends from './CustomerTrends'
 // stops matching the data is worse than none.
 const SEGMENT_DEFINITIONS = {
   never_bought: 'Has a Shopify account but has never placed an order — however long ago they signed up.',
-  vip:          'Spent at or above the VIP threshold AND ordered within the last 60 days. The threshold is the 75th percentile of everyone who has actually bought, so it moves with the data.',
+  vip:          'Spent at or above the VIP threshold AND ordered within the last 60 days.',
   loyal:        '5 or more orders AND ordered within the last 60 days — and not already counted as VIP.',
   new:          'Signed up within the last 30 days and has placed exactly 1 order. A converted signup, not just a signup.',
   churned:      '2 or more orders, but the last one was over 180 days ago.',
@@ -630,7 +630,7 @@ export default function Customers() {
                        narrow scrolling column, and a custom tooltip would clip
                        against its overflow or cover the row beneath. */
                     title={key === 'vip' && overview.kpis.vip_threshold
-                      ? `Spent KES ${formatKES(overview.kpis.vip_threshold)} or more AND ordered within the last 60 days. That figure is the 75th percentile of everyone who has actually bought, so it moves with the data.`
+                      ? `Spent KES ${formatKES(overview.kpis.vip_threshold)} or more AND ordered within the last 60 days.`
                       : SEGMENT_DEFINITIONS[key]}
                     className={clsx(
                       'w-full relative overflow-hidden p-2.5 rounded-lg border transition-all text-left text-xs group',
