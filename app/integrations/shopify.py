@@ -81,7 +81,25 @@ def _get_shopify_access_token():
     Response: {"access_token": "shpat_xxxxx", "scope": "read_products,...", "expires_in": 86399}
     """
     global _SHOPIFY_ACCESS_TOKEN, _SHOPIFY_TOKEN_EXPIRES_AT
-    
+
+    # A token pasted straight in wins, and never expires.
+    #
+    # The client_credentials exchange below derives its scopes from the app's
+    # configuration, and for an app created in Shopify's Dev Dashboard that
+    # configuration is only editable through `shopify app deploy` — there is no
+    # UI for it. So a scope the app was not scaffolded with cannot be added
+    # from any screen a merchant can reach, and read_reports stayed missing no
+    # matter what was ticked.
+    #
+    # An admin custom app (Settings > Apps > Develop apps) sidesteps that
+    # entirely: the store owner picks the scopes and Shopify hands over a
+    # long-lived token. Setting SHOPIFY_ACCESS_TOKEN switches to it without
+    # disturbing the existing app, which still owns the webhooks and the order
+    # sync. Unset it and everything reverts.
+    static = (os.getenv('SHOPIFY_ACCESS_TOKEN') or '').strip()
+    if static:
+        return static
+
     # Return the cached token only if it's not about to expire.
     if _SHOPIFY_ACCESS_TOKEN and _SHOPIFY_TOKEN_EXPIRES_AT:
         if datetime.utcnow() < (_SHOPIFY_TOKEN_EXPIRES_AT - _TOKEN_REFRESH_BUFFER):
@@ -1503,10 +1521,25 @@ def shopify_graphql(query: str, variables: dict | None = None, timeout: int = 20
     store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
     if not store_url:
         return None, "SHOPIFY_STORE_URL is not set"
-    try:
-        token = _get_shopify_access_token()
-    except Exception as e:
-        return None, f"no Shopify access token ({str(e)[:80]})"
+
+    # A token scoped to reporting alone, if one is configured.
+    #
+    # ShopifyQL is the only thing here that needs read_reports, and the app
+    # that owns everything else cannot be given that scope — it was scaffolded
+    # in the Dev Dashboard, so its scopes only change through
+    # `shopify app deploy`. Rather than move every Shopify call onto a new
+    # token to satisfy one query, this lets a second app exist for exactly that
+    # query and nothing more.
+    #
+    # It is also the safer shape: the reporting app needs no customer, order or
+    # product access, so a leaked reports token exposes aggregate figures and
+    # not a single customer record.
+    token = (os.getenv('SHOPIFY_REPORTS_TOKEN') or '').strip()
+    if not token:
+        try:
+            token = _get_shopify_access_token()
+        except Exception as e:
+            return None, f"no Shopify access token ({str(e)[:80]})"
     if not token:
         return None, "no Shopify access token"
 
@@ -1585,8 +1618,21 @@ def shopifyql(query: str):
         return None, f"ShopifyQL rejected the query: {msg[:160]}"
 
     table = node.get('tableData') or {}
-    columns = [c.get('name') for c in (table.get('columns') or [])]
-    rows = [dict(zip(columns, row)) for row in (table.get('rows') or [])]
+    raw = table.get('rows') or []
+
+    # `rows` comes back already keyed by column name — a list of dicts, not the
+    # list of positional arrays the docs imply. Zipping the column names over a
+    # dict iterates its KEYS, so every value became its own column name and the
+    # response read as {'total_sales': 'total_sales'}: no error, no missing
+    # data, just the header echoed back as the answer.
+    #
+    # Both shapes are handled because the docs and the API disagree, and being
+    # wrong here is silent.
+    if raw and isinstance(raw[0], dict):
+        rows = raw
+    else:
+        columns = [c.get('name') for c in (table.get('columns') or [])]
+        rows = [dict(zip(columns, row)) for row in raw]
     return rows, None
 
 

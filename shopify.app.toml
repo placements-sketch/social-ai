@@ -1,0 +1,36 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "b31c0e941a159b3dbda697d0d36a53c0"
+# Has to be a real, reachable URL — not for us, for Shopify.
+#
+# This app authenticates with client_credentials and never sends a merchant
+# anywhere, so application_url looked decorative and sat on https://localhost.
+# It isn't decorative. With use_legacy_install_flow = false, Shopify runs the
+# installation itself, and the way it asks a merchant to approve a NEW scope is
+# by sending them to this URL and interposing the permission screen first. A
+# released version whose scopes were never accepted therefore never reaches the
+# store: read_reports was published, and the grant stayed at ten, with no
+# prompt anywhere because the flow that shows it had nowhere to go.
+#
+# Shopify never needs the page to do anything — it intercepts before we see the
+# request. It only needs somewhere real to point.
+application_url = "https://social-ai-psi.vercel.app"
+embedded = false
+name = "Social AI Assistant"
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_all_orders,read_customers,read_price_rules,read_discounts,read_fulfillments,read_inventory,read_locations,read_orders,read_products,read_reports,read_shipping"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+# Shopify rejects an install flow whose redirect target isn't whitelisted, even
+# a managed one it drives itself. Empty meant the flow had nowhere to return to.
+redirect_urls = [
+  "https://social-ai-psi.vercel.app",
+  "https://social-ai-psi.vercel.app/",
+]
