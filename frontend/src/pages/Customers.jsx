@@ -794,63 +794,51 @@ export default function Customers() {
                     until its children have a height — which they cannot have,
                     because they are asking the parent. The chart rendered
                     blank. Fixed heights break that circle. */}
-                {/* Two plots, one shared time axis — not one plot with two
-                    y-scales.
+                {/* One plot, two y-scales — bars for revenue, line for orders.
 
-                    It was a ComposedChart with Revenue on a left axis (0–3M) and
-                    Orders on a right one (0–800). Where those two scales line up
-                    is an arbitrary choice, so the chart draws a relationship
-                    between the series that isn't in the data — peaks appear to
-                    coincide or diverge entirely according to how the axes were
-                    scaled. Stacking them keeps every real comparison (same date,
-                    same width, read straight down) and invents none.
+                    Back on a single chart at your call. The reason it is now
+                    readable is not the layout: it is that Auto keeps the mark
+                    count near 55 instead of 1,640, and the series is Shopify's.
 
-                    Colours are the validated pair: lime #6fa300 and blue
-                    #4a90e2 both sit inside the OKLCH lightness band for light
-                    AND dark surfaces, clear the chroma floor, and separate under
-                    protanopia and tritanopia. The previous orders line was
-                    #111827 — near-black on a near-black surface, which is why it
-                    was invisible in dark mode. */}
-                <div className="h-full flex flex-col gap-1 min-h-0">
-                  <div className="flex-[3] min-h-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={plot} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} syncId="ordersRevenue">
-                        {/* Solid hairline, not dashed. A dashed grid reads as a
-                            threshold or a projection when it is only a grid. */}
-                        <CartesianGrid stroke="#e5e7eb" strokeOpacity={0.35} vertical={false} />
-                        <XAxis dataKey="month" hide />
-                        <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={44}
-                               tickFormatter={v => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${Math.round(v / 1000)}K`} />
-                        <Tooltip
-                          formatter={value => [`KES ${formatKES(value)}`, 'Revenue']}
-                          labelFormatter={l => l}
-                          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                        />
-                        <Bar dataKey="revenue" name="Revenue" fill="#6fa300" radius={[2, 2, 0, 0]} maxBarSize={18} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex-[2] min-h-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={plot} margin={{ top: 4, right: 4, left: 4, bottom: 4 }} syncId="ordersRevenue">
-                        <CartesianGrid stroke="#e5e7eb" strokeOpacity={0.35} vertical={false} />
-                        <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
-                               interval="preserveStartEnd" minTickGap={28} />
-                        <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={44}
-                               tickFormatter={v => formatKES(v)} />
-                        <Tooltip
-                          formatter={value => [formatKES(value), 'Orders']}
-                          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                        />
-                        {/* No dots. At daily granularity there are ~1,640 of
-                            them and they merge into a band that hides the line
-                            they are meant to mark. */}
-                        <Line type="monotone" dataKey="orders" name="Orders" stroke="#4a90e2"
-                              strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
+                    The known cost of a dual axis is that where the two scales
+                    line up is arbitrary, so crossings and gaps between the bars
+                    and the line carry no meaning. Mitigated as far as the form
+                    allows: each axis is labelled with its measure and coloured
+                    to match its series, so a reader can see which scale they
+                    are reading rather than inferring a relationship. */}
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={plot} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+                    <CartesianGrid stroke="var(--border)" strokeOpacity={0.6} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                           interval="preserveStartEnd" minTickGap={32} />
+                    <YAxis yAxisId="rev" tick={{ fontSize: 11, fill: '#6fa300' }} axisLine={false} tickLine={false} width={48}
+                           tickFormatter={v => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${Math.round(v / 1000)}K`} />
+                    <YAxis yAxisId="ord" orientation="right" tick={{ fontSize: 11, fill: '#4a90e2' }}
+                           axisLine={false} tickLine={false} width={44} tickFormatter={v => formatKES(v)} />
+                    <Tooltip
+                      cursor={{ fill: 'var(--border)', fillOpacity: 0.35 }}
+                      formatter={(value, name) => name === 'Revenue'
+                        ? [`KES ${formatKES(value)}`, name]
+                        : [formatKES(value), name]}
+                      /* The tooltip was a hardcoded white card with a light
+                         border — invisible content on a dark page. These flip
+                         with the theme. */
+                      contentStyle={{
+                        fontSize: 12,
+                        borderRadius: 8,
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text)',
+                      }}
+                      labelStyle={{ color: 'var(--text)', fontWeight: 600 }}
+                      itemStyle={{ color: 'var(--text)' }}
+                    />
+                    <Bar yAxisId="rev" dataKey="revenue" name="Revenue" fill="#6fa300"
+                         radius={[2, 2, 0, 0]} maxBarSize={22} />
+                    <Line yAxisId="ord" type="monotone" dataKey="orders" name="Orders" stroke="#4a90e2"
+                          strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
               </div>
               )
             })() : (
