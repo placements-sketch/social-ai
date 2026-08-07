@@ -1473,3 +1473,155 @@ def register_shopify_webhooks(base_url: str) -> dict:
               f"Registered {len(created)}, {len(skipped)} already present",
               payload={"created": created, "skipped": skipped, "errors": errors, "address": address})
     return {"address": address, "created": created, "already_registered": skipped, "errors": errors}
+
+# ─────────────────────────────────────────────
+# GraphQL + ShopifyQL
+# ─────────────────────────────────────────────
+# The REST calls above fetch records we then add up ourselves, and adding up
+# money is where our figures and Shopify's diverge: partial refunds, shipping,
+# taxes, discounts and returns each have a rule, and reimplementing those rules
+# is reimplementing Shopify's accounting. ShopifyQL asks Shopify for the answer
+# it already publishes in Analytics, so the number on our page IS the number in
+# the admin rather than an independent estimate of it.
+#
+# Requires the read_reports scope. GraphQL only — there is no REST equivalent.
+GRAPHQL_API_VERSION = os.getenv('SHOPIFY_GRAPHQL_VERSION', '2024-10')
+
+
+def shopify_graphql(query: str, variables: dict | None = None, timeout: int = 20):
+    """
+    POST to the Admin GraphQL API. Returns (data, error).
+
+    Never raises. `error` is a short human-readable string when something went
+    wrong, so callers can show why a figure is missing instead of a confident
+    zero — the failure mode this whole area exists to avoid.
+
+    Note GraphQL answers 200 on business errors: a query rejected for a missing
+    scope arrives as HTTP 200 with an `errors` array. Checking only the status
+    code would read that as success and hand back an empty result.
+    """
+    store_url = os.getenv('SHOPIFY_STORE_URL', '').rstrip('/')
+    if not store_url:
+        return None, "SHOPIFY_STORE_URL is not set"
+    try:
+        token = _get_shopify_access_token()
+    except Exception as e:
+        return None, f"no Shopify access token ({str(e)[:80]})"
+    if not token:
+        return None, "no Shopify access token"
+
+    url = f"{store_url}/admin/api/{GRAPHQL_API_VERSION}/graphql.json"
+    try:
+        r = _get_shopify_session().post(
+            url,
+            headers={'X-Shopify-Access-Token': token,
+                     'Content-Type': 'application/json'},
+            json={'query': query, 'variables': variables or {}},
+            timeout=timeout,
+        )
+        if r.status_code >= 400:
+            log_event("warn", "integrations.shopify.graphql_http",
+                      f"GraphQL HTTP {r.status_code}: {(r.text or '')[:200]}")
+            return None, f"Shopify returned {r.status_code}"
+
+        body = r.json() if r.text else {}
+        errors = body.get('errors')
+        if errors:
+            first = (errors[0] or {}).get('message', 'unknown error')
+            # Worth naming explicitly: this is the one failure an admin can fix
+            # themselves, and "unknown error" would send them to us instead.
+            if 'access denied' in first.lower() or 'scope' in first.lower():
+                first = f"{first} (the read_reports scope may be missing)"
+            log_event("warn", "integrations.shopify.graphql_error", first[:200],
+                      payload={"errors": errors[:3]})
+            return None, first[:200]
+        return body.get('data'), None
+
+    except requests.RequestException as e:
+        log_event("warn", "integrations.shopify.graphql_exception", str(e)[:200])
+        return None, str(e)[:160]
+
+
+# Shape confirmed by introspecting the live schema rather than copied from
+# docs: `shopifyqlQuery` returns ShopifyqlQueryResponse directly (no union, so
+# no inline fragment), and the payload is `tableData { columns, rows }` where
+# rows is JSON — not the `rowData` the older documentation shows.
+_SHOPIFYQL = """
+query Ql($q: String!) {
+  shopifyqlQuery(query: $q) {
+    tableData {
+      columns { name dataType }
+      rows
+    }
+    parseErrors
+  }
+}
+"""
+
+
+def shopifyql(query: str):
+    """
+    Run a ShopifyQL query. Returns (rows, error) where rows are dicts keyed by
+    column name.
+
+    ShopifyQL reports a bad query through `parseErrors` rather than the GraphQL
+    `errors` array, so a typo comes back as a perfectly successful response
+    with no data. Surfaced as an error here so it cannot be mistaken for "the
+    store made nothing".
+    """
+    data, err = shopify_graphql(_SHOPIFYQL, {'q': query})
+    if err:
+        return None, err
+
+    node = (data or {}).get('shopifyqlQuery') or {}
+    # parseErrors is a plain String on this schema, not a list of objects.
+    parse_errors = node.get('parseErrors') or ''
+    if parse_errors:
+        msg = parse_errors if isinstance(parse_errors, str) else '; '.join(
+            (e or {}).get('message', '') for e in parse_errors[:2])
+        log_event("warn", "integrations.shopify.shopifyql_parse",
+                  f"ShopifyQL rejected the query: {msg[:180]}",
+                  payload={"query": query[:300]})
+        return None, f"ShopifyQL rejected the query: {msg[:160]}"
+
+    table = node.get('tableData') or {}
+    columns = [c.get('name') for c in (table.get('columns') or [])]
+    rows = [dict(zip(columns, row)) for row in (table.get('rows') or [])]
+    return rows, None
+
+
+def fetch_total_sales(since: str = '2000-01-01', until: str | None = None):
+    """
+    Shopify Analytics' "Total sales" for a date range, as Shopify computes it.
+
+    This is the figure the admin shows: gross sales less discounts and returns,
+    plus shipping and taxes where the store includes them. We do not recreate
+    that arithmetic — the entire point is that ours kept disagreeing.
+
+    Returns (amount_float_or_None, error). None means we could not read it, and
+    the caller should say so rather than print a zero.
+    """
+    until_clause = f" AND {until}" if until else ''
+    q = (f"FROM sales SHOW total_sales "
+         f"SINCE {since}{until_clause or ''} UNTIL today")
+    rows, err = shopifyql(q)
+    if err:
+        return None, err
+    if not rows:
+        return None, "Shopify returned no rows for total sales"
+
+    # Column naming varies by dataset version; take the first numeric-looking
+    # value rather than hard-coding a key that may be renamed under us.
+    row = rows[0]
+    for key in ('total_sales', 'totalSales'):
+        if key in row:
+            try:
+                return float(row[key]), None
+            except (TypeError, ValueError):
+                pass
+    for value in row.values():
+        try:
+            return float(value), None
+        except (TypeError, ValueError):
+            continue
+    return None, f"could not read a number from {list(row)[:3]}"

@@ -348,13 +348,19 @@ export default function Customers() {
       {/* Two Shopify numbers that look like they should match and never will.
           Stating both here saves the next person the afternoon it took to work
           out that "Total spent" and "Total sales" are different metrics. */}
-      {overview?.kpis?.net_sales_estimate != null && (
+      {overview?.kpis?.net_sales != null && (
         <details className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 group">
           <summary className="text-[12px] text-gray-500 cursor-pointer list-none flex items-center gap-1.5">
             <Info size={12} className="text-gray-400 shrink-0" />
             <span>
-              Shopify Analytics will show a smaller figure — roughly
-              <span className="font-semibold text-gray-700"> KES {formatKES(overview.kpis.net_sales_estimate)}</span>.
+              {/* "roughly" is a claim about accuracy, so it is only made when
+                  the number is ours. When Shopify supplies it there is nothing
+                  approximate about it and hedging would be false modesty —
+                  worse, it would invite someone to go and "check" an
+                  authoritative figure against a spreadsheet. */}
+              Shopify Analytics shows a smaller figure —
+              {overview.kpis.net_sales_source === 'estimate' ? ' roughly' : ''}
+              <span className="font-semibold text-gray-700"> KES {formatKES(overview.kpis.net_sales)}</span>.
               Why?
             </span>
           </summary>
@@ -362,6 +368,19 @@ export default function Customers() {
             <p>
               Both are Shopify's own numbers; they answer different questions.
             </p>
+            {/* Provenance, stated where the number is. Someone defending this
+                page needs to know whether they are quoting Shopify or quoting
+                us, and that cannot live in a code comment. */}
+            {overview.kpis.net_sales_source === 'estimate' && overview.kpis.net_sales_note && (
+              <p className="text-amber-700">
+                <span className="font-semibold">Note:</span> {overview.kpis.net_sales_note}
+              </p>
+            )}
+            {overview.kpis.net_sales_source === 'shopify' && (
+              <p className="text-emerald-700">
+                Read directly from Shopify Analytics — not recalculated here.
+              </p>
+            )}
             <p>
               <span className="font-semibold text-gray-700">Revenue above</span> is the sum of
               every customer's <em>Total spent</em> — gross, VAT included, with refunded

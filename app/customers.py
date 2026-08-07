@@ -205,6 +205,47 @@ def _net_sales_estimate():
         return None
 
 
+def _total_sales_block():
+    """
+    Shopify Analytics' "Total sales", with a labelled fallback.
+
+    Returns the three keys the page reads:
+      net_sales          - the figure to display, whichever source produced it
+      net_sales_source   - 'shopify' | 'estimate' | None
+      net_sales_note     - why, when it is not Shopify's own number
+
+    Never raises and never returns a bare zero: a missing figure comes back as
+    None so the page can say "unavailable" instead of claiming the store made
+    nothing.
+    """
+    try:
+        from app.integrations.shopify import fetch_total_sales
+        amount, err = fetch_total_sales()
+    except Exception as e:                       # import or config problem
+        amount, err = None, str(e)[:120]
+
+    if amount is not None:
+        return {
+            'net_sales': amount,
+            'net_sales_source': 'shopify',
+            'net_sales_note': None,
+        }
+
+    estimate = _net_sales_estimate()
+    log_event("info", "customers.total_sales_fallback",
+              f"Shopify Total sales unavailable, showing our estimate: {err}")
+    return {
+        'net_sales': estimate,
+        'net_sales_source': 'estimate' if estimate is not None else None,
+        'net_sales_note': (
+            "Our own calculation — Shopify's Total sales needs the "
+            "read_reports scope, which this app does not have yet."
+            if estimate is not None else
+            f"Unavailable: {err}"
+        ),
+    }
+
+
 def _serialize_customer(c, vip_threshold):
     last_order = c.last_order_date
     if last_order:
@@ -509,7 +550,19 @@ def customers_overview():
             # and unpaid orders, and subtracts returns. On this dataset that is
             # KES 757.6M against KES 516.1M, and Shopify's own dashboard says
             # 520.55M — a 0.85% residual from orders we have not cached.
-            'net_sales_estimate': _net_sales_estimate(),
+            # Shopify's own Total sales, asked for directly rather than
+            # rebuilt. _net_sales_estimate() below reconstructs it from
+            # orders_cache and lands within 0.85% — close, and still an
+            # independent calculation that will drift the moment Shopify
+            # changes how a refund or a shipping line counts. The whole reason
+            # this page exists in its current form is that our arithmetic and
+            # Shopify's disagreed.
+            #
+            # Falls back to the estimate when the read_reports scope is absent,
+            # and says which one it gave you. A page that silently swaps an
+            # authoritative figure for an approximation is worse than one that
+            # shows the approximation and admits it.
+            **_total_sales_block(),
         },
         'segment_counts': segment_counts,
         'top_spenders': top_spenders_out,
