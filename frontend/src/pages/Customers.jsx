@@ -19,6 +19,27 @@ import {
 import CustomerAIChat from './CustomerAIChat'
 import CustomerTrends from './CustomerTrends'
 
+// Definitions are the rules in customers.py::compute_segment(), stated in
+// words. They are listed here in the order that function TESTS them, which is
+// not alphabetical and is not the order they render — and that order is load
+// bearing, because it is first-match-wins. A customer with 6 orders in the
+// last week who has spent above the VIP threshold is VIP, not Loyal; they only
+// appear under Loyal if they spend less. Anyone reading "5+ orders, ordered
+// recently" and wondering why a 6-order customer is missing needs that.
+//
+// If compute_segment() changes, change these. There is no shared source: the
+// rules are Python and the page is JavaScript, and a definition that quietly
+// stops matching the data is worse than none.
+const SEGMENT_DEFINITIONS = {
+  never_bought: 'Has a Shopify account but has never placed an order — however long ago they signed up.',
+  vip:          'Spent at or above the VIP threshold AND ordered within the last 60 days. The threshold is the 75th percentile of everyone who has actually bought, so it moves with the data.',
+  loyal:        '5 or more orders AND ordered within the last 60 days — and not already counted as VIP.',
+  new:          'Signed up within the last 30 days and has placed exactly 1 order. A converted signup, not just a signup.',
+  churned:      '2 or more orders, but the last one was over 180 days ago.',
+  at_risk:      '2 or more orders, last one between 90 and 180 days ago — slipping, not gone.',
+  regular:      'Has ordered at least once and fits none of the categories above.',
+}
+
 const SEGMENT_META = {
   vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',   border: 'border-amber-200',  ring: 'ring-amber-400/30',  accent: 'from-amber-400 to-amber-600',  dot: 'bg-amber-500' },
   loyal:        { label: 'Loyal',        icon: Heart,         color: 'text-pink-600',   bg: 'bg-pink-50',    border: 'border-pink-200',   ring: 'ring-pink-400/30',   accent: 'from-pink-400 to-pink-600',    dot: 'bg-pink-500' },
@@ -605,6 +626,12 @@ export default function Customers() {
                   <button
                     key={key}
                     onClick={() => setSegmentFilter(isActive ? 'all' : key)}
+                    /* Native title rather than a styled popover: these sit in a
+                       narrow scrolling column, and a custom tooltip would clip
+                       against its overflow or cover the row beneath. */
+                    title={key === 'vip' && overview.kpis.vip_threshold
+                      ? `Spent KES ${formatKES(overview.kpis.vip_threshold)} or more AND ordered within the last 60 days. That figure is the 75th percentile of everyone who has actually bought, so it moves with the data.`
+                      : SEGMENT_DEFINITIONS[key]}
                     className={clsx(
                       'w-full relative overflow-hidden p-2.5 rounded-lg border transition-all text-left text-xs group',
                       isActive

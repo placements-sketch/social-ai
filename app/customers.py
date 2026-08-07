@@ -561,6 +561,11 @@ def customers_overview():
             'total_revenue_gross': gross_revenue,
             'avg_aov_gross': round(avg_aov_gross),
             'vat_rate': VAT_DIVISOR - 1,
+            # Exposed so the VIP segment can state its actual cut-off
+            # instead of saying "top spenders". It moves with the data —
+            # 75th percentile of customers who have actually bought — so a
+            # hardcoded figure in the UI would drift silently.
+            'vip_threshold': vip_threshold,
             # Net sales, computed the way Shopify Analytics computes "Total
             # sales": paid orders only, less returns, excluding tax. Returned
             # so the page can show it beside the lifetime figure and stop
