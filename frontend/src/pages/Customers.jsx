@@ -50,6 +50,31 @@ const SEGMENT_META = {
   churned:      { label: 'Churned',      icon: UserMinus,     color: 'text-gray-600',   bg: 'bg-gray-100',   border: 'border-gray-300',   ring: 'ring-gray-400/30',   accent: 'from-gray-400 to-gray-600',    dot: 'bg-gray-500' },
 }
 
+// Ranges in DAYS, converted to a number of points per granularity. Expressed
+// as time rather than "last N bars" so switching Daily→Weekly keeps showing the
+// same stretch of history instead of silently zooming out 7x.
+const CHART_RANGES = [
+  { key: '90d', label: '90D', days: 90 },
+  { key: '12m', label: '12M', days: 365 },
+  { key: '3y',  label: '3Y',  days: 365 * 3 },
+  { key: 'all', label: 'All', days: null },
+]
+
+// The widest span each granularity can render legibly in a card this size,
+// at roughly 4px per mark.
+const MAX_POINTS = 200
+
+const DEFAULT_RANGE = { day: '90d', week: '12m', month: 'all' }
+
+function sliceForRange(rows, granularity, rangeKey) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows || []
+  const range = CHART_RANGES.find(r => r.key === rangeKey)
+  if (!range?.days) return rows.slice(-MAX_POINTS * 4)
+  const perPoint = granularity === 'day' ? 1 : granularity === 'week' ? 7 : 30
+  const points = Math.max(2, Math.round(range.days / perPoint))
+  return rows.slice(-points)
+}
+
 function formatKES(n) {
   return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n || 0)
 }
@@ -160,6 +185,12 @@ export default function Customers() {
   const [segmentFilter, setSegmentFilter] = useState('all')
   const [sortBy, setSortBy] = useState('spent_desc')
   const [granularity, setGranularity] = useState('month')
+  // How far back the chart plots. Separate from granularity because they are
+  // separate questions — "how fine" and "how far" — and the pairing that broke
+  // the chart was Daily × All time: 1,640 bars in 800px, each thinner than a
+  // pixel. Changing granularity resets this to a span that can actually be
+  // drawn at that resolution.
+  const [rangeKey, setRangeKey] = useState('12m')
   const [page, setPage] = useState(1)
   const PER_PAGE = 25
 
@@ -691,11 +722,28 @@ export default function Customers() {
                 </p>
               )}
               </div>
-              <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
+                {CHART_RANGES.map(r => (
+                  <button
+                    key={r.key}
+                    onClick={() => setRangeKey(r.key)}
+                    className={clsx(
+                      'px-2 py-1 rounded-md text-[12px] font-semibold transition-colors',
+                      rangeKey === r.key
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-800'
+                    )}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
                 {['day', 'week', 'month'].map(g => (
                   <button
                     key={g}
-                    onClick={() => setGranularity(g)}
+                    onClick={() => { setGranularity(g); setRangeKey(DEFAULT_RANGE[g]) }}
                     className={clsx(
                       'px-2.5 py-1 rounded-md text-[12px] font-semibold capitalize transition-colors',
                       granularity === g
@@ -707,9 +755,20 @@ export default function Customers() {
                   </button>
                 ))}
               </div>
+              </div>
             </div>
-            {overview.aov_by_month?.length > 0 ? (
-              <div className="h-[260px] -mb-2">
+            {overview.aov_by_month?.length > 0 ? (() => {
+              const plot = sliceForRange(overview.aov_by_month, granularity, rangeKey)
+              return (
+              /* flex-1 + min-h-0 on every level down to the plot.
+                 min-h-0 is the load-bearing part: a flex child defaults to
+                 min-height:auto, so it refuses to shrink below its content and
+                 the chain never resolves to a real number — which is how this
+                 rendered blank at 0px before. With it, the card's height flows
+                 down and the chart fills whatever space the segment list beside
+                 it leaves, instead of stopping at a fixed 260px and leaving a
+                 dead band underneath. */
+              <div className="flex-1 min-h-0 -mb-2">
                 {/* Explicit height, not flex-1.
                     ResponsiveContainer measures its parent, and a parent that
                     is itself flex-1 inside another flex column resolves to 0
@@ -733,10 +792,10 @@ export default function Customers() {
                     protanopia and tritanopia. The previous orders line was
                     #111827 — near-black on a near-black surface, which is why it
                     was invisible in dark mode. */}
-                <div className="h-full flex flex-col gap-1">
-                  <div className="h-[150px] shrink-0">
+                <div className="h-full flex flex-col gap-1 min-h-0">
+                  <div className="flex-[3] min-h-0">
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={overview.aov_by_month} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} syncId="ordersRevenue">
+                      <ComposedChart data={plot} margin={{ top: 4, right: 4, left: 4, bottom: 0 }} syncId="ordersRevenue">
                         {/* Solid hairline, not dashed. A dashed grid reads as a
                             threshold or a projection when it is only a grid. */}
                         <CartesianGrid stroke="#e5e7eb" strokeOpacity={0.35} vertical={false} />
@@ -752,9 +811,9 @@ export default function Customers() {
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className="h-[104px] shrink-0">
+                  <div className="flex-[2] min-h-0">
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={overview.aov_by_month} margin={{ top: 4, right: 4, left: 4, bottom: 4 }} syncId="ordersRevenue">
+                      <ComposedChart data={plot} margin={{ top: 4, right: 4, left: 4, bottom: 4 }} syncId="ordersRevenue">
                         <CartesianGrid stroke="#e5e7eb" strokeOpacity={0.35} vertical={false} />
                         <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
                                interval="preserveStartEnd" minTickGap={28} />
@@ -774,7 +833,8 @@ export default function Customers() {
                   </div>
                 </div>
               </div>
-            ) : (
+              )
+            })() : (
               <div className="text-center py-14">
                 <Activity size={28} className="text-gray-300 mx-auto mb-2" />
                 <p className="text-xs text-gray-400">No order data yet — run an order sync</p>
