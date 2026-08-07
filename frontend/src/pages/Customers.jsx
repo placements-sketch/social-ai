@@ -382,7 +382,7 @@ export default function Customers() {
               icon={TrendingUp}
               label="Revenue"
               value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
-              sub={`Every customer's "Total spent" in Shopify, added up · incl. tax and shipping, refunds not deducted · KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} per order`}
+              sub={`Every customer's "Total spent" in Shopify, added up · incl. tax and shipping, refunds not deducted`}
               tone="bg-blue-50 text-blue-600"
             />
             {/* Shopify's "Total sales", as a KPI rather than a footnote.
@@ -438,7 +438,9 @@ export default function Customers() {
               icon={Users}
               label="New in last 30 days"
               value={overview.kpis.new_this_month}
-              sub="Shopify accounts created, whether or not they ordered"
+              sub={overview.kpis.new_this_month_bought != null
+                ? `Shopify accounts created · ${formatKES(overview.kpis.new_this_month_bought)} of them ordered`
+                : 'Shopify accounts created, whether or not they ordered'}
               tone="bg-violet-50 text-violet-600"
             />
           </>
@@ -512,6 +514,14 @@ export default function Customers() {
             })}
           </div>
           <p className="text-[12px] text-gray-500 mt-3 leading-relaxed">
+            {/* "Gross sales" is the line most people misread — it sounds like
+                everything the store took, and it is the narrowest figure here:
+                product value only, before anything is added or taken away. */}
+            <span className="font-semibold text-gray-700">Gross sales</span> is the value of the
+            products themselves — unit price × quantity, before any discount,
+            return, tax or shipping. It is not money received.
+          </p>
+          <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
             Taxes and shipping are <span className="font-semibold text-gray-700">added</span>, not
             deducted — Total sales is not an ex-VAT figure. The gap against
             Revenue is driven by <span className="font-semibold text-gray-700">returns</span>,

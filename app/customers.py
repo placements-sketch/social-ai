@@ -427,6 +427,15 @@ def customers_overview():
         .filter(CustomerCache.shopify_created_at >= month_ago)
         .scalar() or 0
     )
+    # How many of those signups actually bought something. A signup count on
+    # its own says how much traffic converted to an account, which nobody is
+    # measured on; this is the half that turned into revenue.
+    new_this_month_bought = (
+        db.session.query(func.count(CustomerCache.id))
+        .filter(CustomerCache.shopify_created_at >= month_ago)
+        .filter(CustomerCache.total_orders > 0)
+        .scalar() or 0
+    )
 
     repeat = (
         db.session.query(func.count(CustomerCache.id))
@@ -537,6 +546,7 @@ def customers_overview():
         'kpis': {
             'total_customers': total,
             'new_this_month': int(new_this_month),
+            'new_this_month_bought': int(new_this_month_bought),
             'repeat_customers': int(repeat),
             # The honest denominator. 'total_customers' counts every Shopify
             # record, and on this store 125k of 161k have never ordered — so a
