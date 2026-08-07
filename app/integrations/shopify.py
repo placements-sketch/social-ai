@@ -1647,6 +1647,9 @@ def shopifyql(query: str):
 # The columns Shopify adds up to reach Total sales, in the order it adds them.
 # Named here rather than inline so the page, the log and this module cannot
 # drift into describing the arithmetic three different ways.
+# Shared by the breakdown and the series caches.
+_SERIES_TTL = timedelta(hours=6)
+
 SALES_COMPONENTS = (
     ('gross_sales',      'Gross sales',      'add'),
     ('discounts',        'Discounts',        'sub'),
@@ -1658,7 +1661,7 @@ SALES_COMPONENTS = (
 )
 
 
-def fetch_sales_breakdown(since: str = '2000-01-01'):
+def fetch_sales_breakdown(since: str = '2000-01-01', use_cache: bool = True):
     """
     Every component of Shopify's "Total sales", in one query.
 
@@ -1679,9 +1682,37 @@ def fetch_sales_breakdown(since: str = '2000-01-01'):
     # orders and an AOV of 5,203 against Shopify's 131,845 and 4,708 — three
     # numbers on screen, none of them Shopify's, under a heading claiming to
     # report Shopify.
+    # Cached on the same reasoning as the series, and for the same reason it had
+    # to be: this ran on EVERY overview request at ~1.4s, immediately followed by
+    # the series query. Two ShopifyQL calls per page load is what trips Shopify's
+    # rate limiter, and when it trips both come back empty — the headline
+    # figures vanish AND the chart empties, which reads as a broken page rather
+    # than a throttled one.
+    cache_kind = 'sales_breakdown'
+    if use_cache:
+        try:
+            from app.models import StoreInfoCache
+            row = StoreInfoCache.query.filter_by(kind=cache_kind).first()
+            if row and row.updated_at and isinstance(row.data, dict):
+                if datetime.utcnow() - row.updated_at < _SERIES_TTL:
+                    return row.data, None
+        except Exception as e:
+            log_event("warn", "integrations.shopify.breakdown_cache_read", str(e)[:160])
+
     cols = ', '.join(k for k, _l, _o in SALES_COMPONENTS) + ', orders, average_order_value'
     rows, err = shopifyql(f"FROM sales SHOW {cols} SINCE {since} UNTIL today")
     if err:
+        # Stale beats blank. Six-hour-old totals are still Shopify's.
+        if use_cache:
+            try:
+                from app.models import StoreInfoCache
+                row = StoreInfoCache.query.filter_by(kind=cache_kind).first()
+                if row and isinstance(row.data, dict) and row.data.get('components'):
+                    log_event("info", "integrations.shopify.breakdown_stale",
+                              f"Serving stale sales breakdown: {err[:120]}")
+                    return row.data, None
+            except Exception:
+                pass
         return None, err
     if not rows:
         return None, "Shopify returned no sales rows"
@@ -1701,11 +1732,29 @@ def fetch_sales_breakdown(since: str = '2000-01-01'):
             continue          # a column Shopify dropped; skip rather than zero
         components.append({'key': key, 'label': label, 'amount': amount, 'op': op})
 
-    return {
+    payload = {
         'components': components,
         'orders': _num('orders'),
         'aov': _num('average_order_value'),
-    }, None
+    }
+    try:
+        from app import db
+        from app.models import StoreInfoCache
+        row = StoreInfoCache.query.filter_by(kind=cache_kind).first()
+        if row is None:
+            db.session.add(StoreInfoCache(kind=cache_kind, data=payload))
+        else:
+            row.data = payload
+            row.updated_at = datetime.utcnow()
+        db.session.commit()
+    except Exception as e:
+        log_event("warn", "integrations.shopify.breakdown_cache_write", str(e)[:160])
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+    return payload, None
 
 
 def fetch_total_sales(since: str = '2000-01-01', until: str | None = None):
@@ -1757,7 +1806,6 @@ def fetch_total_sales(since: str = '2000-01-01', until: str | None = None):
 # refusals while merely exploring it). Closed periods never change, so only the
 # newest row is ever stale, and a whole-series refresh on the existing sync is
 # enough to keep it honest.
-_SERIES_TTL = timedelta(hours=6)
 _SERIES_GRAINS = {'day': 'day', 'week': 'week', 'month': 'month'}
 
 
