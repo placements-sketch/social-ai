@@ -398,7 +398,8 @@ export default function Customers() {
           </div>
         </details>
       )}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Five cards now, so 4-up left a lone tile stranded on its own row. */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
         {overview ? (
           <>
             {/* Four cards, four separate facts.
@@ -433,6 +434,36 @@ export default function Customers() {
               sub={`KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} average order · ≈KES ${formatKES(overview.kpis.total_revenue)} excl. VAT`}
               tone="bg-blue-50 text-blue-600"
             />
+            {/* Shopify's "Total sales", as a KPI rather than a footnote.
+                It lived in a collapsible explaining why the two figures differ,
+                which treated the difference as trivia. It isn't — this is the
+                number the business is measured on, and the requirement is that
+                this platform shows what Shopify shows. A figure you have to
+                expand a panel to find is not being shown.
+
+                Both are Shopify's own. Revenue is lifetime spend across
+                customer records, gross and tax-inclusive; Total sales is net
+                of discounts, refunds and returns. Same store, two questions,
+                and the sub-line says which is which so nobody has to guess. */}
+            <KpiCard
+              icon={TrendingUp}
+              label="Total sales"
+              value={overview.kpis.net_sales != null
+                ? `KES ${formatKES(overview.kpis.net_sales)}`
+                : '—'}
+              sub={overview.kpis.net_sales == null
+                ? (overview.kpis.net_sales_note || 'Unavailable')
+                : overview.kpis.net_sales_source === 'shopify'
+                  ? 'Shopify Analytics · net of discounts, refunds and returns'
+                  /* Says so on the card. Provenance that only appears when you
+                     open something is provenance nobody reads, and quoting our
+                     own arithmetic as Shopify's is the exact failure this page
+                     exists to prevent. */
+                  : 'Our estimate — not read from Shopify Analytics'}
+              tone={overview.kpis.net_sales_source === 'shopify'
+                ? 'bg-emerald-50 text-emerald-600'
+                : 'bg-amber-50 text-amber-600'}
+            />
             <KpiCard
               icon={Repeat}
               label="Came back for more"
@@ -449,7 +480,7 @@ export default function Customers() {
             />
           </>
         ) : (
-          [...Array(4)].map((_, i) => <KpiSkeleton key={i} />)
+          [...Array(5)].map((_, i) => <KpiSkeleton key={i} />)
         )}
       </div>
 
