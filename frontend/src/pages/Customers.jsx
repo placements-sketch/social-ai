@@ -360,13 +360,6 @@ export default function Customers() {
                 125,055 have never ordered. Leading with the bigger number
                 makes every rate on the page look worse than it is, so the
                 headline is buyers and the record count is the context. */}
-            <KpiCard
-              icon={Users}
-              label="Total customers"
-              value={overview.kpis.total_customers ?? 0}
-              sub={`${formatKES(overview.kpis.buyers ?? 0)} have ordered · ${formatKES(overview.kpis.never_bought ?? 0)} never have`}
-              tone="bg-brand-50 text-brand-700"
-            />
             {/* Gross leads because that is the number in the Shopify admin.
                 Showing ex-VAT as the headline guaranteed a 104M discrepancy
                 against Shopify that no amount of correct arithmetic could
@@ -426,6 +419,13 @@ export default function Customers() {
               tone={overview.kpis.net_sales_source === 'shopify'
                 ? 'bg-emerald-50 text-emerald-600'
                 : 'bg-amber-50 text-amber-600'}
+            />
+            <KpiCard
+              icon={Users}
+              label="Total customers"
+              value={overview.kpis.total_customers ?? 0}
+              sub={`${formatKES(overview.kpis.buyers ?? 0)} have ordered · ${formatKES(overview.kpis.never_bought ?? 0)} never have`}
+              tone="bg-brand-50 text-brand-700"
             />
             <KpiCard
               icon={Repeat}
