@@ -64,7 +64,20 @@ const CHART_RANGES = [
 // at roughly 4px per mark.
 const MAX_POINTS = 200
 
-const DEFAULT_RANGE = { day: '90d', week: '12m', month: 'all' }
+const DEFAULT_RANGE = { auto: 'all', day: '90d', week: '12m', month: 'all' }
+
+// "Auto" picks the finest granularity that keeps the bar count drawable for the
+// chosen span. It exists because the readable-vs-unreadable difference on this
+// chart was never the styling — it was 1,640 marks in 800px. At ~55 bars the
+// same data reads instantly.
+function resolveGranularity(granularity, rangeKey) {
+  if (granularity !== 'auto') return granularity
+  const days = CHART_RANGES.find(r => r.key === rangeKey)?.days
+  if (!days) return 'month'
+  if (days <= 120) return 'day'
+  if (days <= 400) return 'week'
+  return 'month'
+}
 
 function sliceForRange(rows, granularity, rangeKey) {
   if (!Array.isArray(rows) || rows.length === 0) return rows || []
@@ -184,7 +197,7 @@ export default function Customers() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segmentFilter, setSegmentFilter] = useState('all')
   const [sortBy, setSortBy] = useState('spent_desc')
-  const [granularity, setGranularity] = useState('month')
+  const [granularity, setGranularity] = useState('auto')
   // How far back the chart plots. Separate from granularity because they are
   // separate questions — "how fine" and "how far" — and the pairing that broke
   // the chart was Daily × All time: 1,640 bars in 800px, each thinner than a
@@ -214,14 +227,14 @@ export default function Customers() {
   const loadOverview = useCallback(async () => {
     setLoadingOverview(true)
     try {
-      const data = await getCustomersOverview({ granularity })
+      const data = await getCustomersOverview({ granularity: resolveGranularity(granularity, rangeKey) })
       setOverview(data)
     } catch (err) {
       setError(err.message)
     } finally {
       setLoadingOverview(false)
     }
-  }, [granularity])
+  }, [granularity, rangeKey])
 
   const loadSyncStatus = useCallback(async () => {
     try {
@@ -719,6 +732,9 @@ export default function Customers() {
               {overview.kpis?.shopify_orders != null && (
                 <p className="text-xs text-gray-400 mt-0.5">
                   {formatKES(overview.kpis.shopify_orders)} orders · KES {formatKES(overview.kpis.net_sales)} · AOV KES {formatKES(overview.kpis.shopify_aov)} · Shopify, all time
+                  {granularity === 'auto' && (
+                    <span className="text-gray-500"> · auto · {resolveGranularity(granularity, rangeKey) === 'day' ? 'daily' : resolveGranularity(granularity, rangeKey) === 'week' ? 'weekly' : 'monthly'}</span>
+                  )}
                 </p>
               )}
               </div>
@@ -740,7 +756,7 @@ export default function Customers() {
                 ))}
               </div>
               <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
-                {['day', 'week', 'month'].map(g => (
+                {['auto', 'day', 'week', 'month'].map(g => (
                   <button
                     key={g}
                     onClick={() => { setGranularity(g); setRangeKey(DEFAULT_RANGE[g]) }}
@@ -751,14 +767,17 @@ export default function Customers() {
                         : 'text-gray-500 hover:text-gray-800'
                     )}
                   >
-                    {g === 'day' ? 'Daily' : g === 'week' ? 'Weekly' : 'Monthly'}
+                    {g === 'auto' ? 'Auto' : g === 'day' ? 'Daily' : g === 'week' ? 'Weekly' : 'Monthly'}
                   </button>
                 ))}
               </div>
               </div>
             </div>
-            {overview.aov_by_month?.length > 0 ? (() => {
-              const plot = sliceForRange(overview.aov_by_month, granularity, rangeKey)
+            {overview.sales_series?.length > 0 ? (() => {
+              const grain = resolveGranularity(granularity, rangeKey)
+              const plot = sliceForRange(
+                (overview.sales_series || []).map(r => ({ month: r.period, revenue: r.revenue, orders: r.orders })),
+                grain, rangeKey)
               return (
               /* flex-1 + min-h-0 on every level down to the plot.
                  min-h-0 is the load-bearing part: a flex child defaults to
@@ -837,7 +856,10 @@ export default function Customers() {
             })() : (
               <div className="text-center py-14">
                 <Activity size={28} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-xs text-gray-400">No order data yet — run an order sync</p>
+                <p className="text-xs text-gray-400">
+                  Shopify Analytics is unavailable right now — the chart shows its
+                  figures only, so it stays empty rather than plotting ours instead.
+                </p>
               </div>
             )}
           </div>

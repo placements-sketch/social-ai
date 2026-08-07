@@ -205,6 +205,27 @@ def _net_sales_estimate():
         return None
 
 
+def _sales_series_for(granularity):
+    """
+    Shopify's revenue/orders per period, or [] when it cannot be read.
+
+    Empty rather than a fallback to our own aggregates: the two disagree by
+    21,000 orders, and silently swapping one for the other under a chart
+    labelled "Shopify" is how a page ends up lying without anyone editing it.
+    The chart shows its own empty state instead.
+    """
+    try:
+        from app.integrations.shopify import fetch_sales_series
+        rows, err = fetch_sales_series(granularity)
+        if err:
+            log_event("info", "customers.sales_series_unavailable", str(err)[:160])
+            return []
+        return rows or []
+    except Exception as e:
+        log_event("warn", "customers.sales_series_failed", str(e)[:160])
+        return []
+
+
 def _total_sales_block():
     """
     Shopify Analytics' "Total sales", with a labelled fallback.
@@ -600,6 +621,15 @@ def customers_overview():
         'segment_counts': segment_counts,
         'top_spenders': top_spenders_out,
         'top_frequent': top_frequent_out,
+        # Shopify's own series, plotted instead of ours.
+        #
+        # aov_by_month stays in the payload: it is our orders_cache rollup, it
+        # is what the AOV-by-period views and the CSV export read, and removing
+        # it here would break them for a chart change. But the chart uses this
+        # one, so the bars and the header finally describe the same store —
+        # 131,845 orders, not 110,800 — and a period where refunds exceeded
+        # sales draws below zero instead of being quietly rounded up.
+        'sales_series': _sales_series_for(gran),
         'aov_by_month': aov_by_month,
         'top_products': top_products,
     }), 200

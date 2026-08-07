@@ -1743,3 +1743,96 @@ def fetch_total_sales(since: str = '2000-01-01', until: str | None = None):
         except (TypeError, ValueError):
             continue
     return None, f"could not read a number from {list(row)[:3]}"
+
+
+# ─────────────────────────────────────────────
+# Sales time series (cached)
+# ─────────────────────────────────────────────
+# Shopify's own revenue and order counts per period, so the chart plots the same
+# figures its header quotes. It used to plot orders_cache, which is ours: 110,800
+# orders against Shopify's 131,845, and no concept of a return — a day where
+# refunds exceeded sales showed as a small positive bar instead of a negative one.
+#
+# Cached because the query costs ~2s and the API rate-limits aggressively (three
+# refusals while merely exploring it). Closed periods never change, so only the
+# newest row is ever stale, and a whole-series refresh on the existing sync is
+# enough to keep it honest.
+_SERIES_TTL = timedelta(hours=6)
+_SERIES_GRAINS = {'day': 'day', 'week': 'week', 'month': 'month'}
+
+
+def fetch_sales_series(granularity: str = 'month', since: str = '2000-01-01',
+                       use_cache: bool = True):
+    """
+    [{period, revenue, orders}, ...] oldest → newest, from Shopify Analytics.
+
+    Returns (rows, error). Never raises.
+
+    Sorted here because ShopifyQL does NOT return grouped rows in period order —
+    a monthly query came back with 2025-11 first and 2022-02 last. Plotting them
+    as received draws a scribble, and nothing about the response says so.
+    """
+    grain = _SERIES_GRAINS.get((granularity or 'month').lower(), 'month')
+    cache_kind = f'sales_series_{grain}'
+
+    if use_cache:
+        try:
+            from app.models import StoreInfoCache
+            row = StoreInfoCache.query.filter_by(kind=cache_kind).first()
+            if row and row.updated_at and isinstance(row.data, list):
+                if datetime.utcnow() - row.updated_at < _SERIES_TTL:
+                    return row.data, None
+        except Exception as e:
+            log_event("warn", "integrations.shopify.series_cache_read", str(e)[:160])
+
+    rows, err = shopifyql(
+        f"FROM sales SHOW total_sales, orders GROUP BY {grain} "
+        f"SINCE {since} UNTIL today"
+    )
+    if err:
+        # Serve stale rather than nothing. A chart that empties out whenever the
+        # API is rate-limited looks broken; six-hour-old sales history does not.
+        if use_cache:
+            try:
+                from app.models import StoreInfoCache
+                row = StoreInfoCache.query.filter_by(kind=cache_kind).first()
+                if row and isinstance(row.data, list) and row.data:
+                    log_event("info", "integrations.shopify.series_stale",
+                              f"Serving stale {grain} series: {err[:120]}")
+                    return row.data, None
+            except Exception:
+                pass
+        return None, err
+
+    out = []
+    for r in rows or []:
+        period = r.get(grain)
+        if not period:
+            continue
+        def _f(k):
+            try:
+                return float(r.get(k))
+            except (TypeError, ValueError):
+                return 0.0
+        out.append({'period': period, 'revenue': _f('total_sales'), 'orders': _f('orders')})
+    out.sort(key=lambda r: r['period'])
+
+    try:
+        from app import db
+        from app.models import StoreInfoCache
+        row = StoreInfoCache.query.filter_by(kind=cache_kind).first()
+        if row is None:
+            db.session.add(StoreInfoCache(kind=cache_kind, data=out))
+        else:
+            row.data = out
+            row.updated_at = datetime.utcnow()
+        db.session.commit()
+    except Exception as e:
+        log_event("warn", "integrations.shopify.series_cache_write", str(e)[:160])
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+
+    return out, None
