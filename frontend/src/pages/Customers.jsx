@@ -361,10 +361,10 @@ export default function Customers() {
                 makes every rate on the page look worse than it is, so the
                 headline is buyers and the record count is the context. */}
             <KpiCard
-              icon={ShoppingBag}
-              label="Customers who bought"
-              value={overview.kpis.buyers ?? 0}
-              sub={`${formatKES(overview.kpis.total_customers)} records in Shopify · ${formatKES(overview.kpis.never_bought ?? 0)} never ordered`}
+              icon={Users}
+              label="Total customers"
+              value={overview.kpis.total_customers ?? 0}
+              sub={`${formatKES(overview.kpis.buyers ?? 0)} have ordered · ${formatKES(overview.kpis.never_bought ?? 0)} never have`}
               tone="bg-brand-50 text-brand-700"
             />
             {/* Gross leads because that is the number in the Shopify admin.
@@ -374,11 +374,22 @@ export default function Customers() {
                 margin — but marked as the estimate it is: a flat 16% off
                 everything, shipping included, because we have no per-order tax
                 for a lifetime customer total. */}
+            {/* The ex-VAT figure is gone from this card.
+                It was the one number on the page we calculated ourselves — a
+                flat divide by 1.16 across everything, shipping and zero-rated
+                lines included — sitting beside two figures read straight from
+                Shopify. Nobody could tell which was which, and "what is this
+                value exactly" is the question it kept provoking. Margin work
+                needs a real per-order tax figure, not this.
+
+                What replaces it says where the number comes from, because a
+                lifetime total that counts refunded orders surprises people
+                unless it is stated. */}
             <KpiCard
               icon={TrendingUp}
               label="Revenue"
               value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
-              sub={`KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} average order · ≈KES ${formatKES(overview.kpis.total_revenue)} excl. VAT`}
+              sub={`Every customer's "Total spent" in Shopify, added up · incl. tax and shipping, refunds not deducted · KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} per order`}
               tone="bg-blue-50 text-blue-600"
             />
             {/* Shopify's "Total sales", as a KPI rather than a footnote.
@@ -401,7 +412,12 @@ export default function Customers() {
               sub={overview.kpis.net_sales == null
                 ? (overview.kpis.net_sales_note || 'Unavailable')
                 : overview.kpis.net_sales_source === 'shopify'
-                  ? 'Shopify Analytics · net of discounts, refunds and returns'
+                  /* The old wording — "net of discounts, refunds and returns" —
+                     was wrong in a way that mattered: taxes and shipping are
+                     ADded to reach Total sales, so describing it as a "net"
+                     figure invited everyone to read it as ex-VAT. It is not.
+                     The formula is shorter than the description was. */
+                  ? 'Gross sales − discounts − returns + shipping + taxes'
                   /* Says so on the card. Provenance that only appears when you
                      open something is provenance nobody reads, and quoting our
                      own arithmetic as Shopify's is the exact failure this page
