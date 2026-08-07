@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
-  Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft,
+  Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft, ChevronDown,
   Download, RefreshCw, Loader2, AlertCircle, Package, UserPlus,
   Award, Activity, Target, Info,
 } from 'lucide-react'
@@ -345,6 +345,112 @@ export default function Customers() {
         </p>
       </div>
 
+      {/* Five cards now, so 4-up left a lone tile stranded on its own row. */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+        {overview ? (
+          <>
+            {/* Four cards, four separate facts.
+                Two of the old four stated the same one: "Retention Rate 46.5%"
+                sat beside "Repeat Buyers 16,996 of 161,639 total". 16,996 IS
+                the numerator of that 46.5% — but its own card divided it by
+                every record instead of by buyers, implying 10.5%. Two adjacent
+                cards, two different rates, one underlying fact.
+
+                "Total Customers" has the same trouble: of 161,639 records,
+                125,055 have never ordered. Leading with the bigger number
+                makes every rate on the page look worse than it is, so the
+                headline is buyers and the record count is the context. */}
+            <KpiCard
+              icon={ShoppingBag}
+              label="Customers who bought"
+              value={overview.kpis.buyers ?? 0}
+              sub={`${formatKES(overview.kpis.total_customers)} records in Shopify · ${formatKES(overview.kpis.never_bought ?? 0)} never ordered`}
+              tone="bg-brand-50 text-brand-700"
+            />
+            {/* Gross leads because that is the number in the Shopify admin.
+                Showing ex-VAT as the headline guaranteed a 104M discrepancy
+                against Shopify that no amount of correct arithmetic could
+                close. Ex-VAT is still here — it is the figure that matters for
+                margin — but marked as the estimate it is: a flat 16% off
+                everything, shipping included, because we have no per-order tax
+                for a lifetime customer total. */}
+            <KpiCard
+              icon={TrendingUp}
+              label="Revenue"
+              value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
+              sub={`KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} average order · ≈KES ${formatKES(overview.kpis.total_revenue)} excl. VAT`}
+              tone="bg-blue-50 text-blue-600"
+            />
+            {/* Shopify's "Total sales", as a KPI rather than a footnote.
+                It lived in a collapsible explaining why the two figures differ,
+                which treated the difference as trivia. It isn't — this is the
+                number the business is measured on, and the requirement is that
+                this platform shows what Shopify shows. A figure you have to
+                expand a panel to find is not being shown.
+
+                Both are Shopify's own. Revenue is lifetime spend across
+                customer records, gross and tax-inclusive; Total sales is net
+                of discounts, refunds and returns. Same store, two questions,
+                and the sub-line says which is which so nobody has to guess. */}
+            <KpiCard
+              icon={TrendingUp}
+              label="Total sales"
+              value={overview.kpis.net_sales != null
+                ? `KES ${formatKES(overview.kpis.net_sales)}`
+                : '—'}
+              sub={overview.kpis.net_sales == null
+                ? (overview.kpis.net_sales_note || 'Unavailable')
+                : overview.kpis.net_sales_source === 'shopify'
+                  ? 'Shopify Analytics · net of discounts, refunds and returns'
+                  /* Says so on the card. Provenance that only appears when you
+                     open something is provenance nobody reads, and quoting our
+                     own arithmetic as Shopify's is the exact failure this page
+                     exists to prevent. */
+                  : 'Our estimate — not read from Shopify Analytics'}
+              tone={overview.kpis.net_sales_source === 'shopify'
+                ? 'bg-emerald-50 text-emerald-600'
+                : 'bg-amber-50 text-amber-600'}
+            />
+            <KpiCard
+              icon={Repeat}
+              label="Came back for more"
+              value={`${Math.round((overview.kpis.retention_rate || 0) * 100)}%`}
+              sub={`${formatKES(overview.kpis.repeat_customers)} of ${formatKES(overview.kpis.buyers ?? 0)} buyers ordered twice or more`}
+              tone="bg-amber-50 text-amber-600"
+            />
+            <KpiCard
+              icon={Users}
+              label="New in last 30 days"
+              value={overview.kpis.new_this_month}
+              sub="Shopify accounts created, whether or not they ordered"
+              tone="bg-violet-50 text-violet-600"
+            />
+          </>
+        ) : (
+          [...Array(5)].map((_, i) => <KpiSkeleton key={i} />)
+        )}
+      </div>
+
+      {/* Both explanations, below the numbers and folded away.
+
+          They were sitting ABOVE the KPI row, so the first thing on the page
+          was a reconciliation table and the figures it explains came second.
+          That inverts it: someone opening this page wants the numbers, and
+          only wants the derivation when a number is challenged. Leading with
+          the working also implies the figures need defending before anyone
+          has questioned them.
+
+          Closed by default, and one disclosure rather than two — the
+          breakdown and the Revenue-vs-Total-sales explanation answer the same
+          question from opposite ends. */}
+      {(overview?.kpis?.net_sales_breakdown?.length > 0 || overview?.kpis?.net_sales != null) && (
+        <details className="group">
+          <summary className="inline-flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-gray-700 cursor-pointer list-none transition-colors">
+            <Info size={13} className="text-gray-400 shrink-0" />
+            <span>How these figures are calculated</span>
+            <ChevronDown size={13} className="text-gray-400 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-3 space-y-3">
       {/* How Total sales is arrived at, shown rather than described.
           Shopify publishes the components; printing them in the order it
           applies them means anyone can follow the arithmetic to the headline
@@ -451,91 +557,10 @@ export default function Customers() {
           </div>
         </details>
       )}
-      {/* Five cards now, so 4-up left a lone tile stranded on its own row. */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-        {overview ? (
-          <>
-            {/* Four cards, four separate facts.
-                Two of the old four stated the same one: "Retention Rate 46.5%"
-                sat beside "Repeat Buyers 16,996 of 161,639 total". 16,996 IS
-                the numerator of that 46.5% — but its own card divided it by
-                every record instead of by buyers, implying 10.5%. Two adjacent
-                cards, two different rates, one underlying fact.
+          </div>
+        </details>
+      )}
 
-                "Total Customers" has the same trouble: of 161,639 records,
-                125,055 have never ordered. Leading with the bigger number
-                makes every rate on the page look worse than it is, so the
-                headline is buyers and the record count is the context. */}
-            <KpiCard
-              icon={ShoppingBag}
-              label="Customers who bought"
-              value={overview.kpis.buyers ?? 0}
-              sub={`${formatKES(overview.kpis.total_customers)} records in Shopify · ${formatKES(overview.kpis.never_bought ?? 0)} never ordered`}
-              tone="bg-brand-50 text-brand-700"
-            />
-            {/* Gross leads because that is the number in the Shopify admin.
-                Showing ex-VAT as the headline guaranteed a 104M discrepancy
-                against Shopify that no amount of correct arithmetic could
-                close. Ex-VAT is still here — it is the figure that matters for
-                margin — but marked as the estimate it is: a flat 16% off
-                everything, shipping included, because we have no per-order tax
-                for a lifetime customer total. */}
-            <KpiCard
-              icon={TrendingUp}
-              label="Revenue"
-              value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
-              sub={`KES ${formatKES(overview.kpis.avg_aov_gross ?? overview.kpis.avg_aov)} average order · ≈KES ${formatKES(overview.kpis.total_revenue)} excl. VAT`}
-              tone="bg-blue-50 text-blue-600"
-            />
-            {/* Shopify's "Total sales", as a KPI rather than a footnote.
-                It lived in a collapsible explaining why the two figures differ,
-                which treated the difference as trivia. It isn't — this is the
-                number the business is measured on, and the requirement is that
-                this platform shows what Shopify shows. A figure you have to
-                expand a panel to find is not being shown.
-
-                Both are Shopify's own. Revenue is lifetime spend across
-                customer records, gross and tax-inclusive; Total sales is net
-                of discounts, refunds and returns. Same store, two questions,
-                and the sub-line says which is which so nobody has to guess. */}
-            <KpiCard
-              icon={TrendingUp}
-              label="Total sales"
-              value={overview.kpis.net_sales != null
-                ? `KES ${formatKES(overview.kpis.net_sales)}`
-                : '—'}
-              sub={overview.kpis.net_sales == null
-                ? (overview.kpis.net_sales_note || 'Unavailable')
-                : overview.kpis.net_sales_source === 'shopify'
-                  ? 'Shopify Analytics · net of discounts, refunds and returns'
-                  /* Says so on the card. Provenance that only appears when you
-                     open something is provenance nobody reads, and quoting our
-                     own arithmetic as Shopify's is the exact failure this page
-                     exists to prevent. */
-                  : 'Our estimate — not read from Shopify Analytics'}
-              tone={overview.kpis.net_sales_source === 'shopify'
-                ? 'bg-emerald-50 text-emerald-600'
-                : 'bg-amber-50 text-amber-600'}
-            />
-            <KpiCard
-              icon={Repeat}
-              label="Came back for more"
-              value={`${Math.round((overview.kpis.retention_rate || 0) * 100)}%`}
-              sub={`${formatKES(overview.kpis.repeat_customers)} of ${formatKES(overview.kpis.buyers ?? 0)} buyers ordered twice or more`}
-              tone="bg-amber-50 text-amber-600"
-            />
-            <KpiCard
-              icon={Users}
-              label="New in last 30 days"
-              value={overview.kpis.new_this_month}
-              sub="Shopify accounts created, whether or not they ordered"
-              tone="bg-violet-50 text-violet-600"
-            />
-          </>
-        ) : (
-          [...Array(5)].map((_, i) => <KpiSkeleton key={i} />)
-        )}
-      </div>
 
       {/* ─── SEGMENTS + AOV TREND ───────────────────────────── */}
       {overview ? (
