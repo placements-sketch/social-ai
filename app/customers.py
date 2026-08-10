@@ -918,6 +918,22 @@ def sync_customers():
             processed = min(chunk_start + CHUNK, total_items)
             job.progress = f"Upserted {processed:,} / {total_items:,} customers..."
             db.session.commit()
+
+            # Checked between chunks, never mid-chunk.
+            #
+            # The rows already written stay written — that is deliberate. They
+            # are Shopify's current values, so a cancelled sync leaves the cache
+            # partly refreshed and wholly correct, rather than rolled back to
+            # older data. Re-running simply continues the job.
+            db.session.refresh(job)
+            if job.cancel_requested:
+                job.status = 'cancelled'
+                job.progress = f"Cancelled after {processed:,} of {total_items:,} customers"
+                job.finished_at = datetime.utcnow()
+                db.session.commit()
+                log_event("info", "customers.sync_cancelled",
+                          f"Customer sync cancelled by request after {processed:,} rows")
+                return
             db.session.expunge_all()  # release per-row references between chunks
 
         # Refresh the Shopify analytics caches here, off the request path.
@@ -1108,3 +1124,40 @@ def customer_trends():
         'revenue_by_segment': revenue_by_segment,
         'recency_buckets': recency_buckets,
     }), 200
+
+@customers_bp.route('/customers/sync/cancel', methods=['POST'])
+@jwt_required()
+def cancel_customers_sync():
+    """
+    Ask a running customer sync to stop at the next chunk boundary.
+
+    Sets a flag rather than killing the thread. The sync writes in chunks inside
+    a transaction; terminating it mid-chunk would leave the cache half updated
+    with nothing recording where it stopped. Between chunks it unwinds cleanly,
+    so 'cancelled' describes a known state.
+
+    Rows already written stay written. They hold Shopify's current values, so a
+    cancelled sync leaves the cache partly refreshed and wholly correct — never
+    reverted to older data.
+    """
+    user, err = _require_admin()
+    if err:
+        return err
+
+    job = get_latest_job('customers_apply')
+    if job is None or job.status not in ('pending', 'running'):
+        return jsonify({
+            'error': 'No customer sync is running',
+            'current_job': job.to_dict() if job else None,
+        }), 409
+
+    job.cancel_requested = True
+    job.progress = (job.progress or '') + ' — stopping…'
+    db.session.commit()
+
+    log_audit(user.id, 'cancel_customer_sync',
+              resource_type='sync_job', resource_id=job.id)
+    log_event("info", "customers.sync_cancel_requested",
+              f"{user.full_name} asked the customer sync to stop",
+              payload={'job_id': job.id})
+    return jsonify({'current_job': job.to_dict()}), 200

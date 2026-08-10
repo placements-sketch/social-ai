@@ -102,6 +102,16 @@ export function startCustomersSync() {
   )
 }
 
+/** Ask a running customer sync to stop at the next chunk boundary. */
+export function cancelCustomersSync() {
+  return handle(
+    fetch(`${API_BASE}/customers/sync/cancel`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+  )
+}
+
 /** Ask the Customer Profiling AI a natural-language question. */
 export function askCustomerAI(question, history = []) {
   return handle(

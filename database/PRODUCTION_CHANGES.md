@@ -2401,3 +2401,46 @@ which is recoverable; the alternative is not.
 `shopify_linked_by` records who made the call, because this is a judgement about
 identity. If a thread later turns out to be attached to the wrong person's
 purchase history, the question "who linked this, and when" has to have an answer.
+
+---
+
+### Step 34 — Let a running sync be stopped
+
+A full customer sync walks 162,186 records and, before the N+1 fix, could run
+40 minutes. There was no way to stop one — pressing Sync Now with the wrong
+code deployed meant waiting it out or restarting the service.
+
+```sql
+BEGIN;
+
+ALTER TABLE sync_jobs
+  ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Frees any job stuck 'running' because the process died mid-sync (a restart
+-- kills the thread but never updates the row, so the UI shows a sync that will
+-- never finish and refuses to start another).
+UPDATE sync_jobs
+   SET status = 'cancelled',
+       finished_at = COALESCE(finished_at, now()),
+       progress = COALESCE(progress, '') || ' — interrupted by a restart'
+ WHERE status IN ('pending', 'running')
+   AND started_at < now() - interval '1 hour';
+
+SELECT id, kind, status, progress, started_at
+  FROM sync_jobs ORDER BY id DESC LIMIT 5;
+
+COMMIT;
+```
+
+**A flag, not a thread kill.** The sync writes in chunks inside a transaction;
+terminating mid-chunk leaves the cache half updated with nothing recording where
+it stopped. The loop checks the flag *between* chunks and unwinds cleanly, so
+`cancelled` describes a known state.
+
+**Rows already written stay written.** They hold Shopify's current values, so a
+cancelled sync leaves the cache partly refreshed and wholly correct — never
+reverted to older data. Re-running continues the job rather than undoing it.
+
+The second statement matters as much as the first: killing the Render process to
+stop a sync leaves its `sync_jobs` row saying `running` forever, and the UI will
+not start a new one while it thinks one is in flight.

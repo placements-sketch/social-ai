@@ -14,8 +14,7 @@ import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatDateAgo, formatTimeAgo } from '../utils/time'
 import {
-  listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,
-} from '../api/customers'
+  listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,, cancelCustomersSync} from '../api/customers'
 import CustomerAIChat from './CustomerAIChat'
 import CustomerTrends from './CustomerTrends'
 
@@ -216,6 +215,7 @@ export default function Customers() {
   const [loadingList, setLoadingList] = useState(true)
   const [error, setError] = useState(null)
   const [syncing, setSyncing] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
@@ -263,6 +263,14 @@ export default function Customers() {
   useEffect(() => { loadOverview() }, [loadOverview])
   useEffect(() => { loadSyncStatus() }, [loadSyncStatus])
   useEffect(() => { loadCustomers() }, [loadCustomers])
+
+  // Stops at the next chunk boundary, so the button reports "Stopping…" rather
+  // than appearing to do nothing for the few seconds until the loop looks.
+  const handleCancelSync = async () => {
+    setCancelling(true)
+    try { await cancelCustomersSync() } catch (e) { /* status poll will show it */ }
+    finally { setCancelling(false) }
+  }
 
   const handleSync = async () => {
     setSyncing(true)

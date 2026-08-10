@@ -739,8 +739,17 @@ class SyncJob(db.Model):
     # Values: 'products_check' | 'products_apply' | 'orders_apply' | 'customers_apply'
     kind        = db.Column(db.String(64), nullable=False, index=True)
 
-    # 'pending' | 'running' | 'success' | 'failed'
+    # 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
     status      = db.Column(db.String(16), nullable=False, default='pending', index=True)
+
+    # Set by a person who wants this to stop.
+    #
+    # A flag rather than killing the thread: the sync writes in chunks inside a
+    # transaction, and terminating it mid-chunk would leave the cache half
+    # updated with no record of where it stopped. The loop checks this between
+    # chunks and unwinds cleanly, so "cancelled" means a known state rather than
+    # an unknown one.
+    cancel_requested = db.Column(db.Boolean, nullable=False, default=False)
 
     # Who triggered it
     created_by  = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
@@ -768,6 +777,9 @@ class SyncJob(db.Model):
             'id': self.id,
             'kind': self.kind,
             'status': self.status,
+            # Exposed so the button can say "Stopping…" the moment it is
+            # pressed, rather than looking dead until the next chunk boundary.
+            'cancel_requested': bool(self.cancel_requested),
             'progress': self.progress,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'finished_at': self.finished_at.isoformat() if self.finished_at else None,
