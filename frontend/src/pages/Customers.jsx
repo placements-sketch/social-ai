@@ -14,7 +14,9 @@ import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatDateAgo, formatTimeAgo } from '../utils/time'
 import {
-  listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,, cancelCustomersSync} from '../api/customers'
+  listCustomers, getCustomersOverview, getCustomersSyncStatus, startCustomersSync,
+  cancelCustomersSync,
+} from '../api/customers'
 import CustomerAIChat from './CustomerAIChat'
 import CustomerTrends from './CustomerTrends'
 
@@ -382,6 +384,21 @@ export default function Customers() {
               : <><RefreshCw size={13} /> Sync Now</>
             }
           </button>
+          {/* Only while something is actually running. A full sync walks
+              162,186 records, and until now the only way to stop one was to
+              restart the service — which left the job row saying "running"
+              forever and blocked the next attempt. */}
+          {isJobRunning && (
+            <button
+              onClick={handleCancelSync}
+              disabled={cancelling || currentJob?.cancel_requested}
+              className="btn-ghost flex items-center gap-2 text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+              title="Stops at the next chunk. Customers already updated stay updated."
+            >
+              <AlertCircle size={13} />
+              {cancelling || currentJob?.cancel_requested ? 'Stopping…' : 'Stop'}
+            </button>
+          )}
         </div>
       </div>
 
