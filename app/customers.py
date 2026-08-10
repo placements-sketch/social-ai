@@ -822,7 +822,15 @@ def sync_customers():
 
         # Fetch from Shopify
         update_progress("Fetching customers from Shopify...")
-        shopify_customers = list_all_customers()
+        # Report page-by-page, so a long fetch is visibly a long fetch and not
+        # a hang. Committing per page would be 649 writes; every 10 is enough
+        # for a human watching a button.
+        def _fetch_progress(count, page):
+            if page % 10 == 1:
+                job.progress = f"Fetching from Shopify — {count:,} customers ({page} pages)"
+                db.session.commit()
+
+        shopify_customers = list_all_customers(progress_cb=_fetch_progress)
 
         snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
         # Don't load all rows just to check existence — fetch IDs only.

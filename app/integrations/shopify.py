@@ -795,14 +795,14 @@ def _real_list_all_locations() -> list[dict]:
 # Customers
 # ─────────────────────────────────────────────
 
-def list_all_customers() -> list[dict]:
+def list_all_customers(progress_cb=None) -> list[dict]:
     """
     Full customer list from Shopify, paginated.
     Each customer dict includes order summary (orders_count, total_spent, last_order).
     """
     if USE_MOCK:
         return []  # No mock customers — flip USE_MOCK to False before using.
-    return _real_list_all_customers()
+    return _real_list_all_customers(progress_cb=progress_cb)
 
 
 def get_customer_orders(shopify_customer_id: str) -> list[dict]:
@@ -829,7 +829,7 @@ CUSTOMER_FIELDS = (
 )
 
 
-def _real_list_all_customers() -> list[dict]:
+def _real_list_all_customers(progress_cb=None) -> list[dict]:
     """
     GET /admin/api/2024-01/customers.json?limit=250
     Shopify includes order summary fields directly on the customer object:
@@ -846,6 +846,12 @@ def _real_list_all_customers() -> list[dict]:
         }
 
         all_customers = []
+        _page = 1
+        _prev_url = None
+        # 162,186 customers at 250 a page is 649. A generous ceiling that still
+        # cannot run all afternoon if Shopify hands back a self-referencing
+        # cursor.
+        _MAX_PAGES = 2000
         url = f"{store_url}/admin/api/2024-01/customers.json?limit=250&fields={CUSTOMER_FIELDS}"
 
         while url:
@@ -879,14 +885,45 @@ def _real_list_all_customers() -> list[dict]:
                     "updated_at": c.get('updated_at'),
                 })
 
+            # Say where we are.
+            #
+            # This loop walks 649 pages and reported nothing until every one was
+            # in, so a sync stuck on page 3 and a sync on page 600 looked
+            # identical from outside — "Fetching customers from Shopify..." for
+            # an hour, with no way to tell progress from a hang.
+            if progress_cb:
+                try:
+                    progress_cb(len(all_customers), _page)
+                except Exception:
+                    pass          # a status update must never break a sync
+            _page += 1
+
+            if _page > _MAX_PAGES:
+                log_event("error", "integrations.shopify.pagination_runaway",
+                          f"Customer fetch passed {_MAX_PAGES} pages "
+                          f"({len(all_customers)} customers) — stopping",
+                          payload={"pages": _page, "count": len(all_customers)})
+                break
+
             # Pagination via Link header
             link_header = response.headers.get('Link', '')
+            _prev_url = url
             url = None
             if 'rel="next"' in link_header:
                 for part in link_header.split(','):
                     if 'rel="next"' in part:
                         url = part.split(';')[0].strip().strip('<>')
                         break
+
+            # The same cursor twice means Shopify is handing back a page that
+            # points at itself. Left alone this spins forever, which is the one
+            # failure mode that looks exactly like "still working".
+            if url and url == _prev_url:
+                log_event("error", "integrations.shopify.pagination_stuck",
+                          "Shopify returned the same next-page cursor twice — "
+                          "stopping rather than fetching it again",
+                          payload={"page": _page, "count": len(all_customers)})
+                url = None
 
         log_event("info", "integrations.shopify.sync",
                   f"Shopify sync completed — {len(all_customers)} customers updated",
