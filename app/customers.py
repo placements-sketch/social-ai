@@ -845,13 +845,35 @@ def sync_customers():
         processed = 0
 
         for chunk_start in range(0, total_items, CHUNK):
-            for spid, snap in items[chunk_start:chunk_start + CHUNK]:
+            chunk = items[chunk_start:chunk_start + CHUNK]
+
+            # One query per chunk instead of one per customer.
+            #
+            # This was `CustomerCache.query.filter_by(...).first()` inside the
+            # inner loop — 162,186 separate round trips to Postgres. On
+            # localhost that measured 0.73ms each and cost 2 minutes; from
+            # Render to Supabase every one of them crosses the network, so the
+            # same work took 15-40 minutes and the whole sync was bounded by
+            # latency rather than by Shopify.
+            #
+            # 500 ids in one IN () lookup makes it 324 queries. The index on
+            # shopify_customer_id was never the problem — the number of trips
+            # was.
+            chunk_ids = [spid for spid, _snap in chunk]
+            rows_by_id = {
+                r.shopify_customer_id: r
+                for r in CustomerCache.query.filter(
+                    CustomerCache.shopify_customer_id.in_(chunk_ids)
+                ).all()
+            }
+
+            for spid, snap in chunk:
                 last_order = _parse_dt(snap.get('updated_at'))
                 if spid in existing_ids:
-                    # Targeted fetch — one row per UPDATE
-                    row = CustomerCache.query.filter_by(shopify_customer_id=spid).first()
+                    row = rows_by_id.get(spid)
                     if row is None:
-                        # Race condition: was in existing_ids but got deleted. Treat as insert.
+                        # Was in existing_ids but not in this chunk's fetch —
+                        # deleted between the id scan and now. Treat as insert.
                         existing_ids.discard(spid)
                     else:
                         row.email      = _truncate(snap.get('email'),      512)

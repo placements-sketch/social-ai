@@ -10,6 +10,7 @@ import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
   assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
   fetchInstagramMedia, updateConversationStatus,
+  searchShopifyCustomers, linkShopifyCustomer, unlinkShopifyCustomer,
 } from '../api/messages'
 import { SkeletonCard } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
@@ -170,6 +171,129 @@ const IS_URL_RE = /^https?:\/\//
 // ── Per-comment post preview ──────────────────────────────────────
 // A tiny cache so multiple comments on the same post don't refetch.
 const _mediaCache = new Map()
+
+
+// ── Shopify customer link ─────────────────────────────────────────────────
+// The one join in this product a machine cannot make. An IGSID, a phone number
+// and an email share no key, so a person who can see both sides says who this
+// is, and we record who said it.
+function ShopifyLinkCard({ conv, onChange }) {
+  const linked = conv.linked_customer
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Debounced, because this runs while a customer is waiting and the table has
+  // 162,186 rows — a query per keystroke would make the agent wait too.
+  useEffect(() => {
+    if (!open || q.trim().length < 2) { setResults([]); return }
+    const t = setTimeout(() => {
+      searchShopifyCustomers(q.trim())
+        .then(d => setResults(d.customers || []))
+        .catch(e => setError(e.message))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q, open])
+
+  const doLink = async (shopifyId) => {
+    setBusy(true); setError(null)
+    try {
+      const d = await linkShopifyCustomer(conv.id, shopifyId)
+      onChange(d.linked_customer)
+      setOpen(false); setQ(''); setResults([])
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const doUnlink = async () => {
+    setBusy(true); setError(null)
+    try {
+      await unlinkShopifyCustomer(conv.id)
+      onChange(null)
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <header className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-gray-50">
+        <Users size={11} className="text-gray-400" />
+        <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Shopify customer</h3>
+      </header>
+      <div className="px-3 py-2.5 space-y-3">
+      {linked && !linked.stale ? (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-gray-900">{linked.name}</p>
+          {linked.email && <p className="text-[11px] text-gray-500 break-all">{linked.email}</p>}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-[11px] text-gray-500">Spent</span>
+            {/* Shopify's figure, unmodified. */}
+            <span className="text-xs font-semibold text-gray-900">
+              KES {new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(linked.total_spent || 0)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-gray-500">Orders</span>
+            <span className="text-xs font-semibold text-gray-900">{linked.total_orders}</span>
+          </div>
+          <button onClick={doUnlink} disabled={busy}
+            className="text-[11px] text-gray-400 hover:text-red-600 transition-colors pt-1 disabled:opacity-50">
+            {busy ? 'Removing…' : 'Not this person? Unlink'}
+          </button>
+        </div>
+      ) : linked?.stale ? (
+        /* Linked to an id the cache has not re-fetched. Saying "not linked"
+           here would invite a second link to the same person. */
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-amber-600">
+            Linked to Shopify customer {linked.shopify_customer_id}, but that record
+            isn't in our cache yet — run a customer sync.
+          </p>
+          <button onClick={doUnlink} disabled={busy}
+            className="text-[11px] text-gray-400 hover:text-red-600 transition-colors">Unlink</button>
+        </div>
+      ) : !open ? (
+        <button onClick={() => setOpen(true)}
+          className="text-xs text-brand-600 hover:text-brand-700 font-semibold transition-colors">
+          + Link to a Shopify customer
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <input
+            autoFocus
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Name, email or phone…"
+            className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-brand-500"
+          />
+          <div className="max-h-52 overflow-y-auto space-y-1">
+            {results.map(c => (
+              <button key={c.shopify_customer_id} onClick={() => doLink(c.shopify_customer_id)}
+                disabled={busy}
+                className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
+                <p className="text-xs font-semibold text-gray-900 truncate">{c.name}</p>
+                <p className="text-[11px] text-gray-500 truncate">{c.email || c.phone || '—'}</p>
+                {/* Spend and order count shown while choosing, because two
+                    people share a name far more often than they share a
+                    purchase history. */}
+                <p className="text-[11px] text-gray-400">
+                  {c.total_orders} orders · KES {new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(c.total_spent || 0)}
+                </p>
+              </button>
+            ))}
+            {q.trim().length >= 2 && results.length === 0 && (
+              <p className="text-[11px] text-gray-400 px-2 py-1">No match in the customer cache.</p>
+            )}
+          </div>
+          <button onClick={() => { setOpen(false); setQ('') }}
+            className="text-[11px] text-gray-400 hover:text-gray-600">Cancel</button>
+        </div>
+      )}
+      {error && <p className="text-[11px] text-red-600 mt-1.5">{error}</p>}
+      </div>
+    </section>
+  )
+}
 
 function CommentPostPreview({ mediaId }) {
   const [post, setPost] = useState(() => _mediaCache.get(mediaId) || null)
@@ -2592,6 +2716,11 @@ function ContextContent({ conv }) {
           )}
         </Card>
       )}
+
+      <ShopifyLinkCard
+        conv={conv}
+        onChange={lc => setActiveConv(prev => prev && ({ ...prev, linked_customer: lc }))}
+      />
 
       {/* 3 — Ownership */}
       <Card title="Who is handling it" icon={<UserCheck size={11} className="text-gray-400" />}>

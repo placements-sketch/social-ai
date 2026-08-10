@@ -249,3 +249,27 @@ export function getAppSettings() {
     })
   )
 }
+// ── Linking a chat to a Shopify customer ──────────────────────────────────
+// No key joins an IGSID to a Shopify email, so an agent makes the call and we
+// record it. See Step 33 in PRODUCTION_CHANGES.md.
+
+export async function searchShopifyCustomers(q) {
+  return handle(fetch(`${API_BASE}/customers/search?q=${encodeURIComponent(q)}`, {
+    headers: authHeaders(),
+  }))
+}
+
+export async function linkShopifyCustomer(conversationId, shopifyCustomerId) {
+  return handle(fetch(`${API_BASE}/conversations/${conversationId}/link-customer`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ shopify_customer_id: shopifyCustomerId }),
+  }))
+}
+
+export async function unlinkShopifyCustomer(conversationId) {
+  return handle(fetch(`${API_BASE}/conversations/${conversationId}/link-customer`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  }))
+}

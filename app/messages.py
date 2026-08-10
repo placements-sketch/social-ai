@@ -507,6 +507,12 @@ def get_conversation(conversation_id):
     # been resolved and enough time has passed, which is correct — but without
     # this the agent has no way to see the relationship behind the fork.
     payload = conv.to_dict(include_messages=True)
+    # The linked Shopify customer, resolved per-request. Not on
+    # Conversation.to_dict() because the link lives on the User and to_dict has
+    # no business reaching into the customer cache.
+    _linked_user = User.query.get(conv.user_id) if conv.user_id else None
+    payload['linked_customer'] = _shopify_customer_brief(
+        getattr(_linked_user, 'shopify_customer_id', None))
     # The frontend freezes the composer on this. Computed per-request because it
     # depends on who is asking, which conv.to_dict() has no way to know.
     payload['can_reply'] = _agent_can_reply(current_user, conv)
@@ -1209,3 +1215,147 @@ def get_instagram_media(media_id):
         'media_type': data.get('media_type'),
         'timestamp': data.get('timestamp'),
     }), 200
+
+# ─────────────────────────────────────────────
+# Linking a conversation to a Shopify customer
+# ─────────────────────────────────────────────
+# The join that cannot be derived. See Step 33 in PRODUCTION_CHANGES.md — an
+# IGSID, a phone number and an email share no key, so a person decides.
+
+def _shopify_customer_brief(shopify_customer_id):
+    """The linked customer, or None. Shaped for the conversation panel."""
+    if not shopify_customer_id:
+        return None
+    try:
+        from app.models import CustomerCache
+        c = CustomerCache.query.filter_by(
+            shopify_customer_id=str(shopify_customer_id)).first()
+        if c is None:
+            # A link pointing at a row the cache has not re-fetched yet. Say so
+            # rather than returning None, which the panel would render as "not
+            # linked" and invite someone to link it a second time.
+            return {'shopify_customer_id': str(shopify_customer_id), 'stale': True}
+        name = ' '.join(p for p in (c.first_name, c.last_name) if p).strip()
+        return {
+            'shopify_customer_id': c.shopify_customer_id,
+            'name': name or c.email or 'Unnamed customer',
+            'email': c.email,
+            'phone': c.phone,
+            'city': c.city,
+            # Shopify's own figures, straight through — no ex-VAT, no recompute.
+            'total_spent': float(c.total_spent or 0),
+            'total_orders': int(c.total_orders or 0),
+            'segment': c.segment,
+            'last_order_date': c.last_order_date.isoformat() if c.last_order_date else None,
+            'stale': False,
+        }
+    except Exception as e:
+        log_event("warn", "messages.shopify_customer_brief_failed", str(e)[:160])
+        return None
+
+
+@messages_bp.route('/customers/search', methods=['GET'])
+@jwt_required()
+def search_shopify_customers():
+    """
+    Find a Shopify customer to link, by name, email or phone.
+
+    Searches the cache rather than Shopify's API on purpose: an agent types
+    into this while a customer waits, and a live API call per keystroke would be
+    both slow and a fast route back to the rate limiting we spent this morning
+    escaping.
+    """
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify({'customers': []}), 200
+
+    try:
+        from app.models import CustomerCache
+        like = f'%{q}%'
+        rows = (CustomerCache.query
+                .filter(db.or_(
+                    CustomerCache.email.ilike(like),
+                    CustomerCache.phone.ilike(like),
+                    CustomerCache.first_name.ilike(like),
+                    CustomerCache.last_name.ilike(like),
+                    (CustomerCache.first_name + ' ' + CustomerCache.last_name).ilike(like),
+                ))
+                # Highest spenders first. With 162,186 records a plain match
+                # returns hundreds of namesakes, and the one an agent means is
+                # almost always the one who has actually bought something.
+                .order_by(CustomerCache.total_spent.desc().nullslast())
+                .limit(15).all())
+        return jsonify({'customers': [
+            _shopify_customer_brief(r.shopify_customer_id) for r in rows
+        ]}), 200
+    except Exception as e:
+        log_event("error", "messages.customer_search_failed", str(e)[:200])
+        return jsonify({'error': 'Search failed'}), 500
+
+
+@messages_bp.route('/conversations/<int:conversation_id>/link-customer', methods=['POST', 'DELETE'])
+@jwt_required()
+def link_shopify_customer(conversation_id):
+    """
+    Attach (POST) or detach (DELETE) a Shopify customer for this conversation.
+
+    Written to the USER, so it follows the person into every thread they open
+    rather than being re-done each time they come back.
+    """
+    current_user = _current_user()
+    if not current_user:
+        return jsonify({'error': 'User not found'}), 404
+
+    conv = Conversation.query.get(conversation_id)
+    if not conv:
+        return jsonify({'error': 'Conversation not found'}), 404
+    if not _agent_can_access_conversation(current_user, conv):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    customer = User.query.get(conv.user_id)
+    if customer is None:
+        return jsonify({'error': 'This conversation has no customer record'}), 404
+
+    if request.method == 'DELETE':
+        previous = customer.shopify_customer_id
+        customer.shopify_customer_id = None
+        customer.shopify_linked_at = None
+        customer.shopify_linked_by = None
+        db.session.commit()
+        log_audit(current_user.id, 'unlink_shopify_customer',
+                  resource_type='conversation', resource_id=conversation_id,
+                  changes={'was': previous})
+        log_event("info", "messages.shopify_unlinked",
+                  f"{current_user.full_name} unlinked Shopify customer {previous}",
+                  conversation_id=conversation_id)
+        return jsonify({'linked_customer': None}), 200
+
+    data = request.get_json(silent=True) or {}
+    shopify_id = str(data.get('shopify_customer_id') or '').strip()
+    if not shopify_id:
+        return jsonify({'error': 'shopify_customer_id is required'}), 400
+
+    from app.models import CustomerCache
+    if not CustomerCache.query.filter_by(shopify_customer_id=shopify_id).first():
+        # Refuse an id we cannot see. A typo here attaches a real person's
+        # purchase history to the wrong conversation, and nothing downstream
+        # would question it.
+        return jsonify({'error': 'No Shopify customer with that id'}), 404
+
+    customer.shopify_customer_id = shopify_id
+    customer.shopify_linked_at = datetime.utcnow()
+    customer.shopify_linked_by = current_user.id
+    db.session.commit()
+
+    log_audit(current_user.id, 'link_shopify_customer',
+              resource_type='conversation', resource_id=conversation_id,
+              changes={'shopify_customer_id': shopify_id})
+    log_event("info", "messages.shopify_linked",
+              f"{current_user.full_name} linked this chat to Shopify customer {shopify_id}",
+              payload={'shopify_customer_id': shopify_id},
+              conversation_id=conversation_id)
+    return jsonify({'linked_customer': _shopify_customer_brief(shopify_id)}), 200

@@ -158,6 +158,28 @@ class User(db.Model):
     avatar_url  = db.Column(db.String(512), nullable=True)
     is_human_handled = db.Column(db.Boolean, default=False, nullable=False)
     ai_disabled = db.Column(db.Boolean, default=False, nullable=False)
+
+    # The Shopify customer this social profile belongs to, when an agent has
+    # said so.
+    #
+    # There is no automatic join and there cannot be one: Instagram identifies a
+    # person by IGSID, WhatsApp by phone, Shopify by email — no two of them
+    # share a key. 162,186 Shopify customers and the handful who have ever
+    # messaged us sit in the same database with nothing connecting them, which
+    # is the single reason customer profiling was parked.
+    #
+    # So it is a deliberate act by a person who can see both sides of the
+    # conversation, recorded here rather than inferred. On users, not
+    # conversations: the same customer opens several threads over time and the
+    # link belongs to the human, not to one exchange.
+    #
+    # Stored as the Shopify id string rather than a FK to customers_cache,
+    # because that table is a cache — it is deleted and rebuilt by the sync, and
+    # a foreign key would either block the rebuild or cascade the links away
+    # with it.
+    shopify_customer_id = db.Column(db.String(64), nullable=True, index=True)
+    shopify_linked_at   = db.Column(db.DateTime, nullable=True)
+    shopify_linked_by   = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
     created_at  = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

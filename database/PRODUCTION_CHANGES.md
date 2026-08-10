@@ -2351,3 +2351,53 @@ carry the same phone number, +254 704 913890. They may be one shop listed
 twice, or two shops sharing a line. Both are in the list as given; if they are
 the same branch, delete one.
 
+
+---
+
+### Step 33 — Link a chat to a Shopify customer
+
+Customer profiling was parked on 1 August for one reason: 162,186 Shopify
+customers and the handful who have ever messaged us live in the same database
+with **no key joining them**. Instagram identifies a person by IGSID, WhatsApp
+by phone number, Shopify by email. No two of those overlap, so nothing can
+derive the link automatically.
+
+This is the join, made by hand. An agent looking at a conversation searches
+Shopify, picks the right person, and the link is recorded — after which that
+customer's order history can sit beside the thread, and profiling finally
+describes people we actually talk to.
+
+Three columns on `users`, not on `conversations`: the same customer opens
+several threads over time and the link belongs to the human, not to one
+exchange.
+
+```sql
+BEGIN;
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS shopify_customer_id VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS shopify_linked_at   TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS shopify_linked_by   INTEGER REFERENCES auth_users(id);
+
+CREATE INDEX IF NOT EXISTS idx_users_shopify_customer_id
+  ON users (shopify_customer_id);
+
+-- Expect the three new columns, all NULL.
+SELECT column_name, data_type, is_nullable
+  FROM information_schema.columns
+ WHERE table_name = 'users' AND column_name LIKE 'shopify%'
+ ORDER BY column_name;
+
+COMMIT;
+```
+
+**Why `shopify_customer_id` is a plain string and not a foreign key to
+`customers_cache`:** that table is a *cache*. The sync deletes and rebuilds rows
+in it, and `ON DELETE CASCADE` would take the links with them — an agent's
+deliberate identification silently erased by a routine sync. A weak reference
+means a link can briefly point at a customer the cache has not re-fetched yet,
+which is recoverable; the alternative is not.
+
+`shopify_linked_by` records who made the call, because this is a judgement about
+identity. If a thread later turns out to be attached to the wrong person's
+purchase history, the question "who linked this, and when" has to have an answer.
