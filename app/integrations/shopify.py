@@ -2020,6 +2020,16 @@ def warm_sales_caches():
     the same data. One call each, sequential, failures logged and swallowed:
     a cold analytics cache must never fail a sync.
     """
+    # Spaced, not back to back.
+    #
+    # Four ShopifyQL queries fired in a row trips the rate limiter — which then
+    # refuses the rest, and the cache this function exists to fill stays empty
+    # for the ones that got refused. A few seconds between them costs nothing:
+    # this runs inside a sync that already takes minutes, and nobody is waiting
+    # on it.
+    import time as _time
+    GAP_SECONDS = 5
+
     results = {}
     try:
         data, err = fetch_sales_breakdown(use_cache=False)
@@ -2028,6 +2038,7 @@ def warm_sales_caches():
         results['breakdown'] = f'error: {str(e)[:120]}'
 
     for grain in ('month', 'week', 'day'):
+        _time.sleep(GAP_SECONDS)
         try:
             rows, err = fetch_sales_series(grain, use_cache=False)
             results[grain] = f'{len(rows)} rows' if rows else f'failed: {err}'

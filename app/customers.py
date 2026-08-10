@@ -881,8 +881,7 @@ def sync_customers():
         now = datetime.utcnow()
         added = updated = removed = 0
 
-        job.progress = f"Upserting {len(snapshot)} customers..."
-        db.session.commit()
+        update_progress(f"Upserting {len(snapshot)} customers...")
 
         # Upsert in chunks so memory + transaction size stay manageable.
         CHUNK = 500
@@ -962,8 +961,14 @@ def sync_customers():
                 added += 1
             db.session.commit()
             processed = min(chunk_start + CHUNK, total_items)
-            job.progress = f"Upserted {processed:,} / {total_items:,} customers..."
-            db.session.commit()
+            # update_progress(), not `job.progress`.
+            #
+            # `job` is detached the moment the first chunk calls expunge_all(),
+            # so every write after chunk 1 landed on a dead object and the
+            # commit persisted nothing. The counter froze at "Upserted 500 /
+            # 162,211" for the entire run while the sync worked perfectly
+            # underneath — which sent us hunting a hang that never existed.
+            update_progress(f"Upserted {processed:,} / {total_items:,} customers...")
 
             # Checked between chunks, never mid-chunk.
             #
@@ -993,8 +998,7 @@ def sync_customers():
         #
         # Best-effort: an analytics figure must never fail a customer sync.
         try:
-            job.progress = "Refreshing Shopify analytics..."
-            db.session.commit()
+            update_progress("Refreshing Shopify analytics...")
             from app.integrations.shopify import warm_sales_caches
             warm_sales_caches()
         except Exception as e:

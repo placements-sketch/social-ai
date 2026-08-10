@@ -592,6 +592,26 @@ def _classify_failure(exc) -> tuple[str, str]:
         return 'timeout', msg[:200]
     if name in ('AuthenticationError', 'PermissionDeniedError') or '401' in low or '403' in low:
         return 'auth', msg[:200]
+
+    # Specific 400s, checked BEFORE the generic one.
+    #
+    # Anthropic returns "credit balance is too low" as a 400, so the catch-all
+    # below labelled a billing problem 'bad_request' — which reads as "we sent a
+    # malformed request" and sends whoever is on call to read our code. It cost
+    # most of a day here: three subsystems were down for hours with the answer
+    # sitting in the error string the whole time.
+    #
+    # The rule these encode: if the message says what is wrong, do not replace
+    # it with the status code.
+    if 'credit balance' in low or 'insufficient' in low or 'billing' in low:
+        return 'no_credit', msg[:200]
+    if 'quota' in low or 'usage limit' in low:
+        return 'quota', msg[:200]
+    if 'max_tokens' in low or 'context' in low and 'long' in low:
+        return 'too_long', msg[:200]
+    if 'model' in low and ('not found' in low or 'does not exist' in low or 'invalid' in low):
+        return 'bad_model', msg[:200]
+
     if name in ('BadRequestError',) or '400' in low:
         return 'bad_request', msg[:200]
     if name in ('InternalServerError', 'APIStatusError', 'APIError') or '500' in low or 'overloaded' in low or '529' in low:

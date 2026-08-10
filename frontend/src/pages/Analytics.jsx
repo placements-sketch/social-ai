@@ -676,14 +676,37 @@ export default function Analytics() {
     { label: 'Converted', value: conv.converted_conversations || 0 },
   ]
 
+  // Each label should say what happened AND who can fix it. "Bad request" is
+  // the HTTP status, not a cause — it reads as "our code sent something
+  // malformed" and sends an engineer to read the pipeline, when the actual
+  // answer was a billing page. That mislabelling cost most of 6 Aug: three
+  // subsystems were down for hours with the reason sitting in the error string.
   const FAILURE_LABELS = {
-    rate_limit: 'Rate limit hit', timeout: 'Timed out', auth: 'Auth error', bad_request: 'Bad request',
-    api_error: 'Claude API error', network: 'Network error', bad_output: 'Malformed response', unknown: 'Unknown error',
+    // Billing and quota — nothing to debug, someone has to top up or wait.
+    no_credit: 'Anthropic credit exhausted — top up to restore replies',
+    quota: 'Anthropic usage limit reached',
+    // Configuration — a person changed something.
+    auth: 'Anthropic API key rejected',
+    bad_model: 'Configured Claude model not found',
+    // Transient — usually resolves itself.
+    rate_limit: 'Anthropic rate limit hit', timeout: 'Claude timed out',
+    api_error: 'Claude API error (Anthropic side)', network: 'Could not reach Anthropic',
+    // Ours.
+    too_long: 'Prompt exceeded the model context',
+    bad_request: 'Malformed request sent to Claude',
+    bad_output: 'Claude returned unreadable output', unknown: 'Unknown error',
     // Sends the platform rejected, and crashes mid-reply. These are now
     // included in the Failed Replies count, so without a label here they would
     // have appeared as raw slugs — "dispatch_failed" tells an operator nothing
     // about what to do next.
-    dispatch_failed: 'Instagram rejected the send',
+    // Deliberately no longer says "Instagram rejected the send" — that asserts
+    // a cause we did not check. dispatch_failed covers a refusal from Meta, a
+    // missing token, an unimplemented channel and a network drop, and on 6 Aug
+    // it was none of those: the send never left the building because the
+    // function still wanted a Facebook page token that production has never
+    // had. The reason IS logged per-send; this row just stops claiming to know
+    // which it was.
+    dispatch_failed: 'Reply written but not delivered — see Live Activity',
     pipeline_exception: 'Error while building the reply',
     no_json_in_verdict: 'AI returned unreadable output',
   }
