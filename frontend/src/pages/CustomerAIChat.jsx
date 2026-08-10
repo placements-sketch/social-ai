@@ -98,19 +98,25 @@ export default function CustomerAIChat() {
       {/* Floating panel */}
       {open && (
         <div
-          className="fixed z-50 flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden animate-[fadeInUp_.18s_ease-out]"
+          className="fixed z-50 flex flex-col rounded-2xl border border-gray-200 overflow-hidden animate-[fadeInUp_.18s_ease-out]"
+          /* var(--surface), not bg-white. `.dark .bg-white` would have handled
+             the panel, but the header below used a GRADIENT ending in white and
+             no class-remap reaches a gradient stop — which is why the header
+             stayed a white band on a dark page. */
           style={{
-            bottom: 88, right: 24,
+            background: 'var(--surface)',
+            bottom: 152, right: 24,
             width: 'min(520px, calc(100vw - 32px))',
-            height: 'min(720px, calc(100vh - 120px))',
+            height: 'min(720px, calc(100vh - 184px))',
             boxShadow: '0 12px 48px -12px rgba(16,24,40,0.28), 0 4px 12px -4px rgba(16,24,40,0.12)',
           }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between gap-2.5 px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-brand-50 to-white">
+          <div className="flex items-center justify-between gap-2.5 px-4 py-3 border-b border-gray-100"
+               style={{ background: 'var(--surface-2)' }}>
             <div className="flex items-center gap-2.5">
               <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center shadow-sm">
-                <Sparkles size={16} className="text-white" />
+                <Sparkles size={16} className="text-black" />
               </span>
               <div>
                 <p className="text-sm font-bold text-gray-900 leading-none">Ask about your customers</p>
@@ -182,11 +188,12 @@ export default function CustomerAIChat() {
                 rows={1}
                 placeholder="Ask about spenders, segments, cities…"
                 className="flex-1 resize-none text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-200 focus:border-brand-300 max-h-24"
+                style={{ background: 'var(--surface)', color: 'var(--text)' }}
                 disabled={loading}
               />
               <button onClick={() => send()} disabled={loading || !input.trim()}
                 className="w-9 h-9 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0">
-                <Send size={15} className="text-white" />
+                <Send size={15} className="text-black" />
               </button>
             </div>
           </div>
@@ -198,13 +205,16 @@ export default function CustomerAIChat() {
         onClick={() => setOpen(o => !o)}
         className="fixed z-50 flex items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 active:scale-95"
         style={{
-          bottom: 24, right: 24, width: 56, height: 56,
+          // Sits ABOVE the "Ask the docs" pill, which is fixed at bottom-5
+          // right-5. Both were in the same corner, so this covered it and the
+          // pagination beneath — two assistants fighting for one square inch.
+          bottom: 88, right: 24, width: 56, height: 56,
           background: 'linear-gradient(135deg, #c9ff5c, #99e600)',
           boxShadow: '0 8px 24px -6px rgba(255,89,0,0.5)',
         }}
         aria-label={open ? 'Close assistant' : 'Open customer assistant'}
       >
-        {open ? <X size={22} className="text-white" /> : <MessageSquareText size={22} className="text-white" />}
+        {open ? <X size={22} className="text-black" /> : <MessageSquareText size={22} className="text-black" />}
       </button>
 
       <style>{`@keyframes fadeInUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }`}</style>
