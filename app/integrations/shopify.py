@@ -814,6 +814,21 @@ def get_customer_orders(shopify_customer_id: str) -> list[dict]:
     return _real_get_customer_orders(shopify_customer_id)
 
 
+# The twelve fields we actually store, asked for by name.
+#
+# Unfiltered, a page of 250 customers is 308 KB and 649 of them move 195 MB —
+# roughly 18 minutes of transfer before a single row is written, most of it
+# addresses, tax exemptions, notes and multipass identifiers that nothing here
+# reads. Filtered: 129 KB a page, 82 MB, ~12 minutes. Both measured.
+#
+# email_marketing_consent rather than accepts_marketing — see the parsing below.
+CUSTOMER_FIELDS = (
+    'id,email,first_name,last_name,phone,default_address,'
+    'email_marketing_consent,tags,orders_count,total_spent,'
+    'created_at,updated_at'
+)
+
+
 def _real_list_all_customers() -> list[dict]:
     """
     GET /admin/api/2024-01/customers.json?limit=250
@@ -831,7 +846,7 @@ def _real_list_all_customers() -> list[dict]:
         }
 
         all_customers = []
-        url = f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+        url = f"{store_url}/admin/api/2024-01/customers.json?limit=250&fields={CUSTOMER_FIELDS}"
 
         while url:
             response = requests.get(url, headers=headers, timeout=30)
@@ -847,7 +862,16 @@ def _real_list_all_customers() -> list[dict]:
                     "phone": c.get('phone') or default_address.get('phone'),
                     "city": default_address.get('city'),
                     "country": default_address.get('country'),
-                    "accepts_marketing": bool(c.get('accepts_marketing', False)),
+                    # accepts_marketing is GONE from the 2024-01 response —
+                    # Shopify replaced it with email_marketing_consent. So
+                    # `c.get('accepts_marketing', False)` has been quietly
+                    # writing False for all 162,186 customers: no error, no
+                    # missing-key warning, just a consent flag claiming nobody
+                    # has ever opted in. On a sample page, 7 of 250 are
+                    # subscribed.
+                    "accepts_marketing": (
+                        (c.get('email_marketing_consent') or {}).get('state') == 'subscribed'
+                    ),
                     "tags": [t.strip() for t in (c.get('tags') or '').split(',') if t.strip()],
                     "total_orders": int(c.get('orders_count', 0) or 0),
                     "total_spent": float(c.get('total_spent', 0) or 0),
@@ -899,7 +923,7 @@ def _real_iter_all_customers(start_url=None, updated_at_min=None):
         if start_url:
             url = start_url
         else:
-            url = f"{store_url}/admin/api/2024-01/customers.json?limit=250"
+            url = f"{store_url}/admin/api/2024-01/customers.json?limit=250&fields={CUSTOMER_FIELDS}"
             if updated_at_min:
                 url += f"&updated_at_min={quote(updated_at_min)}"
         total_yielded = 0
@@ -932,7 +956,16 @@ def _real_iter_all_customers(start_url=None, updated_at_min=None):
                     "phone": c.get('phone') or default_address.get('phone'),
                     "city": default_address.get('city'),
                     "country": default_address.get('country'),
-                    "accepts_marketing": bool(c.get('accepts_marketing', False)),
+                    # accepts_marketing is GONE from the 2024-01 response —
+                    # Shopify replaced it with email_marketing_consent. So
+                    # `c.get('accepts_marketing', False)` has been quietly
+                    # writing False for all 162,186 customers: no error, no
+                    # missing-key warning, just a consent flag claiming nobody
+                    # has ever opted in. On a sample page, 7 of 250 are
+                    # subscribed.
+                    "accepts_marketing": (
+                        (c.get('email_marketing_consent') or {}).get('state') == 'subscribed'
+                    ),
                     "tags": [t.strip() for t in (c.get('tags') or '').split(',') if t.strip()],
                     "total_orders": int(c.get('orders_count', 0) or 0),
                     "total_spent": float(c.get('total_spent', 0) or 0),

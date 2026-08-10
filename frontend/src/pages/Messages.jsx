@@ -177,8 +177,18 @@ const _mediaCache = new Map()
 // The one join in this product a machine cannot make. An IGSID, a phone number
 // and an email share no key, so a person who can see both sides says who this
 // is, and we record who said it.
-function ShopifyLinkCard({ conv, onChange }) {
-  const linked = conv.linked_customer
+function ShopifyLinkCard({ conv }) {
+  // Owns the linked customer locally.
+  //
+  // It first called setActiveConv from the page component — which is not in
+  // scope here: this renders inside ContextContent, a module-level component
+  // that receives only `conv`. The card threw "setActiveConv is not defined"
+  // the moment anyone linked or unlinked.
+  //
+  // Local state rather than drilling a setter through ContextContent: the card
+  // is the only thing that changes this value, and the prop would exist purely
+  // to hand it back up to be handed down again.
+  const [linked, setLinked] = useState(conv.linked_customer || null)
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
@@ -187,6 +197,11 @@ function ShopifyLinkCard({ conv, onChange }) {
 
   // Debounced, because this runs while a customer is waiting and the table has
   // 162,186 rows — a query per keystroke would make the agent wait too.
+  useEffect(() => {
+    setLinked(conv.linked_customer || null)
+    setOpen(false); setQ(''); setResults([])
+  }, [conv.id, conv.linked_customer])
+
   useEffect(() => {
     if (!open || q.trim().length < 2) { setResults([]); return }
     const t = setTimeout(() => {
@@ -201,7 +216,7 @@ function ShopifyLinkCard({ conv, onChange }) {
     setBusy(true); setError(null)
     try {
       const d = await linkShopifyCustomer(conv.id, shopifyId)
-      onChange(d.linked_customer)
+      setLinked(d.linked_customer)
       setOpen(false); setQ(''); setResults([])
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -210,7 +225,7 @@ function ShopifyLinkCard({ conv, onChange }) {
     setBusy(true); setError(null)
     try {
       await unlinkShopifyCustomer(conv.id)
-      onChange(null)
+      setLinked(null)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 
@@ -2717,10 +2732,7 @@ function ContextContent({ conv }) {
         </Card>
       )}
 
-      <ShopifyLinkCard
-        conv={conv}
-        onChange={lc => setActiveConv(prev => prev && ({ ...prev, linked_customer: lc }))}
-      />
+      <ShopifyLinkCard conv={conv} />
 
       {/* 3 — Ownership */}
       <Card title="Who is handling it" icon={<UserCheck size={11} className="text-gray-400" />}>
