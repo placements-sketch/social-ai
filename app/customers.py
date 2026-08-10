@@ -827,10 +827,32 @@ def sync_customers():
         # for a human watching a button.
         def _fetch_progress(count, page):
             if page % 10 == 1:
+                db.session.refresh(job)
+                if job.cancel_requested:
+                    return False          # abort the fetch
                 job.progress = f"Fetching from Shopify — {count:,} customers ({page} pages)"
                 db.session.commit()
+            return True
 
         shopify_customers = list_all_customers(progress_cb=_fetch_progress)
+
+        # A cancelled fetch returns None, and that distinction is the whole
+        # point of not returning a partial list.
+        #
+        # The delete step below removes every cached customer NOT present in the
+        # snapshot. Hand it a snapshot that stopped at page 40 of 649 and it
+        # would delete roughly 152,000 real customers — a cancel button that
+        # wipes the database. So a stopped fetch exits here, before anything is
+        # written or removed.
+        if shopify_customers is None:
+            job.status = 'cancelled'
+            job.progress = 'Cancelled while fetching — nothing was changed'
+            job.finished_at = datetime.utcnow()
+            db.session.commit()
+            log_event("info", "customers.sync_cancelled_during_fetch",
+                      "Customer sync stopped during the Shopify fetch; "
+                      "no rows were written or deleted")
+            return
 
         snapshot = {str(sc['shopify_id']): sc for sc in shopify_customers}
         # Don't load all rows just to check existence — fetch IDs only.

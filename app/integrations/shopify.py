@@ -891,9 +891,18 @@ def _real_list_all_customers(progress_cb=None) -> list[dict]:
             # in, so a sync stuck on page 3 and a sync on page 600 looked
             # identical from outside — "Fetching customers from Shopify..." for
             # an hour, with no way to tell progress from a hang.
+            # The callback also gets to stop us. Returning False aborts the
+            # fetch — which is the only way a cancel can land during this phase,
+            # since the loop is otherwise busy for the full 649 pages and the
+            # write loop (where the other cancel check lives) has not started.
             if progress_cb:
                 try:
-                    progress_cb(len(all_customers), _page)
+                    if progress_cb(len(all_customers), _page) is False:
+                        log_event("info", "integrations.shopify.fetch_aborted",
+                                  f"Customer fetch stopped on request after "
+                                  f"{len(all_customers):,} customers",
+                                  payload={"page": _page})
+                        return None      # NOT a partial list — see below
                 except Exception:
                     pass          # a status update must never break a sync
             _page += 1
