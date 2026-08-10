@@ -364,10 +364,22 @@ def cron_sync_customers():
 
         def flush_buffer():
             nonlocal added, updated
+            # One lookup for the whole buffer, not one per customer. Same fix as
+            # the manual sync in customers.py: the per-row query measured 58x
+            # slower on a 2,000-row sample, and every one of those trips crosses
+            # the network from Render to Supabase.
+            buffered_ids = [spid for spid, _snap in buffer]
+            rows_by_id = {
+                r.shopify_customer_id: r
+                for r in CustomerCache.query.filter(
+                    CustomerCache.shopify_customer_id.in_(buffered_ids)
+                ).all()
+            } if buffered_ids else {}
+
             for spid, snap in buffer:
                 last_order = _parse_dt(snap.get('updated_at'))
                 if spid in existing_ids:
-                    row = CustomerCache.query.filter_by(shopify_customer_id=spid).first()
+                    row = rows_by_id.get(spid)
                     if row is None:
                         existing_ids.discard(spid)
                     else:
