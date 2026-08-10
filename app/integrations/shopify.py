@@ -1601,7 +1601,7 @@ query Ql($q: String!) {
 #
 # Per-process, so N workers back off independently; that is fine, they each make
 # far fewer calls than the loop they replace.
-_QL_COOLDOWN = timedelta(seconds=90)
+_QL_COOLDOWN = timedelta(minutes=10)
 _QL_BLOCKED_UNTIL = None
 
 
@@ -1628,19 +1628,18 @@ def shopifyql(query: str):
 
     data, err = shopify_graphql(_SHOPIFYQL, {'q': query})
 
-    # One retry, because the limiter is bursty: a query refused now often
-    # succeeds a beat later, and a single sleep here is cheaper than leaving the
-    # chart empty for six hours until the cache TTL comes round again.
-    if err and _ql_rate_limited(err):
-        import time as _time
-        _time.sleep(2.0)
-        data, err = shopify_graphql(_SHOPIFYQL, {'q': query})
-
+    # NO retry on a rate limit.
+    #
+    # There was one here, on the theory that the limiter is bursty. It is the
+    # opposite of helpful: a refused call still counts against the bucket, so
+    # retrying two seconds later spends a second token to be refused again and
+    # pushes recovery further away. With two callers per page load that turned
+    # one request into four refusals — which is exactly what the log showed.
     if err:
         if _ql_rate_limited(err):
             _QL_BLOCKED_UNTIL = datetime.utcnow() + _QL_COOLDOWN
             log_event("info", "integrations.shopify.ql_cooldown",
-                      f"Rate limited — pausing ShopifyQL for {_QL_COOLDOWN.seconds}s")
+                      f"Rate limited — pausing ShopifyQL for {_QL_COOLDOWN.seconds // 60} min")
         return None, err
 
     _QL_BLOCKED_UNTIL = None
@@ -1925,3 +1924,37 @@ def fetch_sales_series(granularity: str = 'month', since: str = '2000-01-01',
             pass
 
     return out, None
+
+
+def warm_sales_caches():
+    """
+    Populate the ShopifyQL caches from a background job, not a page load.
+
+    The request path only ever needed these because nothing else filled them,
+    and that is what kept the store rate-limited: every visitor's page load
+    raced to be the one that populated the cache, each refusal counting against
+    the same bucket, so the cache that would have stopped the calls could never
+    be written.
+
+    Called from the customer sync — which already runs on a schedule, already
+    talks to Shopify, and is the natural place to refresh figures derived from
+    the same data. One call each, sequential, failures logged and swallowed:
+    a cold analytics cache must never fail a sync.
+    """
+    results = {}
+    try:
+        data, err = fetch_sales_breakdown(use_cache=False)
+        results['breakdown'] = 'ok' if data else f'failed: {err}'
+    except Exception as e:
+        results['breakdown'] = f'error: {str(e)[:120]}'
+
+    for grain in ('month', 'week', 'day'):
+        try:
+            rows, err = fetch_sales_series(grain, use_cache=False)
+            results[grain] = f'{len(rows)} rows' if rows else f'failed: {err}'
+        except Exception as e:
+            results[grain] = f'error: {str(e)[:120]}'
+
+    log_event("info", "integrations.shopify.warm_sales_caches",
+              "Refreshed Shopify analytics caches", payload=results)
+    return results

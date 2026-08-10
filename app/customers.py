@@ -898,6 +898,24 @@ def sync_customers():
             db.session.commit()
             db.session.expunge_all()  # release per-row references between chunks
 
+        # Refresh the Shopify analytics caches here, off the request path.
+        #
+        # They used to be filled lazily by whichever page load found them cold —
+        # which meant every visitor raced to make the same two ShopifyQL calls,
+        # each refusal counting against the same rate-limit bucket, so the cache
+        # that would have stopped the calls could never get written. Doing it
+        # once, on a job that already runs on a schedule and already talks to
+        # Shopify, removes the race entirely.
+        #
+        # Best-effort: an analytics figure must never fail a customer sync.
+        try:
+            job.progress = "Refreshing Shopify analytics..."
+            db.session.commit()
+            from app.integrations.shopify import warm_sales_caches
+            warm_sales_caches()
+        except Exception as e:
+            log_event("warn", "customers.warm_sales_caches_failed", str(e)[:160])
+
         # Deletes (also chunked for symmetry)
         to_delete_ids = existing_ids - set(snapshot.keys())
         to_delete_list = list(to_delete_ids)
