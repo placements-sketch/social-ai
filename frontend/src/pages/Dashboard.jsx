@@ -95,6 +95,27 @@ const alertStyles = {
 // Raw reasons are the code's vocabulary, not the reader's. 'ready_to_order' is
 // good news and 'ai_unavailable' is an incident; neither reads that way as a
 // snake_case token on a dashboard.
+// Kept in step with Analytics.jsx::FAILURE_LABELS — the same incident has to
+// read the same on both pages, and "Bad request" for a billing problem is what
+// cost most of 6 Aug.
+const FAILURE_LABELS = {
+  no_credit:          'Anthropic credit exhausted',
+  quota:              'Anthropic usage limit reached',
+  auth:               'Anthropic API key rejected',
+  bad_model:          'Configured Claude model not found',
+  rate_limit:         'Anthropic rate limit hit',
+  timeout:            'Claude timed out',
+  api_error:          'Claude API error',
+  network:            'Could not reach Anthropic',
+  too_long:           'Prompt exceeded model context',
+  bad_request:        'Malformed request sent to Claude',
+  bad_output:         'Claude returned unreadable output',
+  dispatch_failed:    'Written but not delivered',
+  pipeline_exception: 'Error while building the reply',
+  no_json_in_verdict: 'AI returned unreadable output',
+  unknown:            'Unknown error',
+}
+
 const ESCALATION_LABELS = {
   ready_to_order:     'Ready to order',
   order_request:      'Ready to order',
@@ -1395,8 +1416,33 @@ export default function Dashboard() {
                       </div>
                     </div>
                   )}
-                  <div className="hidden">
-                  </div>
+                  {/* Why they failed. The card reported "Failed 11" and
+                      stopped there — a number with no cause, on the one tile
+                      that means something is broken. 11 timeouts is a bad
+                      afternoon; 11 no_credit is the whole assistant being down
+                      and nobody knowing why. The data was already in this
+                      payload, just never rendered. */}
+                  {(kpis.failure_breakdown?.length > 0) && (
+                    <div className="pt-3 mt-3 border-t border-gray-100">
+                      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">
+                        Why replies failed
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {kpis.failure_breakdown.map(({ reason, count }) => (
+                          <span
+                            key={reason}
+                            title={FAILURE_LABELS[reason] ? undefined : reason}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-red-50 text-[12px]"
+                          >
+                            <span className="font-bold text-red-700">{count}</span>
+                            <span className="text-gray-600 truncate max-w-[14rem]">
+                              {FAILURE_LABELS[reason] || reason}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               )
             })()}

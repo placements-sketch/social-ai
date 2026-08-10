@@ -442,21 +442,59 @@ def summary():
         # mechanism that caught it ('ai_detected', 'intent') while detail is
         # what was actually wrong ('abuse', 'ready_to_order'). Falls back to
         # reason when detail is absent on older rows.
+        # ONE reason per conversation, and the numbers must add up to
+        # `escalated`.
+        #
+        # This grouped by reason and counted distinct conversations within each
+        # group — so a thread escalated twice for different reasons landed in
+        # both buckets. 3 escalations reported 6 reasons, and a breakdown that
+        # cannot sum to its own total is worse than no breakdown: it invites
+        # someone to add the chips up and act on a number that never existed.
+        #
+        # Reduced in Python rather than DISTINCT ON in SQL because _scope_filter
+        # applies the per-agent visibility rules, and raw SQL would step around
+        # them. Escalation volume is small enough that this is free.
         try:
-            esc_rows = _scope_filter(
+            esc_log_rows = _scope_filter(
                 db.session.query(
+                    Log.conversation_id,
                     func.coalesce(
                         text("logs.payload ->> 'detail'"),
                         text("logs.payload ->> 'reason'"),
                     ).label('why'),
-                    func.count(func.distinct(Log.conversation_id)),
+                    Log.created_at,
                 ).filter(Log.source == 'handoff.triggered')
+                 .filter(Log.conversation_id.isnot(None))
                  .filter(Log.created_at >= start_dt)
                  .filter(Log.created_at < end_dt),
                 Log, user,
-            ).group_by('why').all()
+            ).all()
+
+            # Latest escalation wins. A thread that was escalated for a
+            # complaint and later because the AI fell over is, today, an
+            # ai_unavailable — describing it by the older reason would point at
+            # the wrong fix.
+            latest = {}
+            for conv_id, why, created in esc_log_rows:
+                prev = latest.get(conv_id)
+                if prev is None or created > prev[1]:
+                    latest[conv_id] = (why, created)
+
+            counts = {}
+            for why, _created in latest.values():
+                key = why or 'unrecorded'
+                counts[key] = counts.get(key, 0) + 1
+
+            # Conversations counted in `escalated` via Conversation.escalated_at
+            # that have no handoff.triggered log — rows predating handoff
+            # logging. Without this the chips silently under-report instead of
+            # over-reporting, which is the same fault in the other direction.
+            unlogged = max(0, escalated - len(latest))
+            if unlogged:
+                counts['unrecorded'] = counts.get('unrecorded', 0) + unlogged
+
             escalation_breakdown = sorted(
-                [{'reason': (w or 'unrecorded'), 'count': int(c)} for w, c in esc_rows],
+                [{'reason': k, 'count': v} for k, v in counts.items()],
                 key=lambda r: r['count'], reverse=True,
             )
         except Exception as e:
