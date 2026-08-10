@@ -721,6 +721,23 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
     # Update the inbound record's intent now that we know it.
     _patch_inbound_intent(inbound_record, intents)
 
+    # Link this person to their Shopify record when the message proves who they
+    # are. Runs on every inbound because the proof usually arrives mid-thread —
+    # a customer types their email to chase an order, and from that moment the
+    # conversation can carry their purchase history.
+    #
+    # Best-effort and silent: it never overwrites an agent's link and a failure
+    # must not cost the customer a reply.
+    try:
+        from app.identity import try_auto_link
+        from app.models import User as _User
+        _cust = (_User.query.get(inbound_record.user_id)
+                 if inbound_record is not None else None)
+        if _cust is not None:
+            try_auto_link(_cust, message)
+    except Exception as e:
+        log_event("warn", "services.auto_link_failed", str(e)[:160])
+
     # ── Step 3.2: Praise gets a like, not a reply ────────────────────────
     # "Love this 😍" wants nothing from us, and answering it under a public
     # post is noise. But leaving it in silence is a wasted moment with someone

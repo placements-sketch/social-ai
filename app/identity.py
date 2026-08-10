@@ -20,6 +20,20 @@ import re
 
 from app import db
 from app.models import Conversation, User
+from app.utils.logger import log_event
+
+# Same shape services.py uses to pull an address out of a sentence. Duplicated
+# rather than imported: services.py imports THIS module, and reaching back the
+# other way makes a cycle. One regex is a cheaper price than that.
+_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+
+
+def extract_email(text_value):
+    """First email address in the text, lowercased, or None."""
+    if not text_value:
+        return None
+    m = _EMAIL_RE.search(text_value)
+    return m.group(0).strip().lower() if m else None
 
 # Candidate identifiers inside free text. Long digit runs cover IGSIDs and
 # Facebook PSIDs; the second form catches the seeded/handle-style ids that are
@@ -248,3 +262,110 @@ def resolve_rows(rows, text_fields, conversation_attr='conversation_id',
         if handle:
             handles[i] = handle
     return handles, by_ext
+
+
+# ─────────────────────────────────────────────
+# Automatic linking to a Shopify customer
+# ─────────────────────────────────────────────
+# The ask was "link on the customer's Instagram email". There is no such thing:
+# Instagram hands us an IGSID and sometimes a username, never an email address,
+# and `users` has no email column to hold one. Nothing can be matched that we do
+# not have.
+#
+# Two identifiers we DO hold can prove identity, and both are exact:
+#
+#   1. An email the customer types into the chat. The order-status flow already
+#      extracts these. 115,655 Shopify customers have an email and ZERO of those
+#      emails are duplicated, so a hit is unambiguous.
+#   2. A WhatsApp number. On that channel external_id IS the phone, and 98,954
+#      Shopify customers carry one.
+#
+# Anything less exact — matching on a display name, a fuzzy phone — is a guess,
+# and a wrong guess here attaches a real person's purchase history to a stranger
+# and then shows an agent their spend. So: exact, unique, or nothing.
+
+def _phone_key(value):
+    """
+    Last 9 digits, which is what makes Kenyan numbers comparable.
+
+    The same person is stored as +254712345678, 254712345678 and 0712345678
+    across Shopify and the messaging platforms. The trailing nine survive every
+    one of those forms.
+    """
+    digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+    return digits[-9:] if len(digits) >= 9 else None
+
+
+def find_shopify_customer_by_email(email):
+    """The single Shopify customer with this email, or None."""
+    email = (email or '').strip().lower()
+    if not email or '@' not in email:
+        return None
+    from app.models import CustomerCache
+    rows = CustomerCache.query.filter(
+        db.func.lower(CustomerCache.email) == email).limit(2).all()
+    # Exactly one. Two customers sharing an address means we cannot tell them
+    # apart, and picking either would be a coin flip with someone's order
+    # history on it.
+    return rows[0] if len(rows) == 1 else None
+
+
+def find_shopify_customer_by_phone(raw_phone):
+    """The single Shopify customer whose phone ends the same way, or None."""
+    key = _phone_key(raw_phone)
+    if not key:
+        return None
+    from app.models import CustomerCache
+    rows = CustomerCache.query.filter(
+        CustomerCache.phone.isnot(None),
+        CustomerCache.phone.like(f'%{key}')).limit(2).all()
+    return rows[0] if len(rows) == 1 else None
+
+
+def try_auto_link(user, message=None):
+    """
+    Link this social customer to a Shopify customer when we can prove it.
+
+    Returns the shopify_customer_id if a NEW link was made, else None.
+
+    Never overwrites an existing link. An agent's identification outranks a
+    string match, and re-deciding it on every inbound message would let one
+    forwarded email quietly reassign a conversation someone had already
+    attributed by hand.
+    """
+    if user is None or user.shopify_customer_id:
+        return None
+
+    match = None
+    how = None
+
+    email = extract_email(message)
+    if email:
+        match = find_shopify_customer_by_email(email)
+        how = f'email {email}'
+
+    if match is None and (user.channel or '').startswith('whatsapp'):
+        ext = str(user.external_id or '')
+        if not ext.startswith('seed:'):
+            match = find_shopify_customer_by_phone(ext)
+            how = f'WhatsApp number {ext}'
+
+    if match is None:
+        return None
+
+    from datetime import datetime
+    user.shopify_customer_id = match.shopify_customer_id
+    user.shopify_linked_at = datetime.utcnow()
+    # NULL linked_by means the system did it. The column exists to answer "who
+    # decided this was the same person", and "nobody, it was a match" is a real
+    # and important answer — it tells an agent the link is evidence-based rather
+    # than someone's judgement, and which of the two to trust if they disagree.
+    user.shopify_linked_by = None
+    db.session.commit()
+
+    log_event("info", "identity.auto_linked",
+              f"Linked {user.handle} to Shopify customer "
+              f"{match.shopify_customer_id} on {how}",
+              payload={'shopify_customer_id': match.shopify_customer_id,
+                       'matched_on': how, 'user_id': user.id})
+    return match.shopify_customer_id
