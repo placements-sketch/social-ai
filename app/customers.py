@@ -826,12 +826,26 @@ def sync_customers():
         # a hang. Committing per page would be 649 writes; every 10 is enough
         # for a human watching a button.
         def _fetch_progress(count, page):
-            if page % 10 == 1:
-                db.session.refresh(job)
-                if job.cancel_requested:
-                    return False          # abort the fetch
-                job.progress = f"Fetching from Shopify — {count:,} customers ({page} pages)"
-                db.session.commit()
+            if page % 10 != 1:
+                return True
+            # Refetch by id — never refresh(job).
+            #
+            # This whole function runs in a background thread with its own
+            # session, and the chunk loop calls expunge_all(), so the `job`
+            # object handed in is detached. refresh() on a detached instance
+            # raises "Instance ... is not persistent within this Session" and
+            # killed the sync outright — the update meant to make a long fetch
+            # visible is what stopped it finishing.
+            #
+            # update_progress() above already established the pattern; this
+            # should have used it.
+            j = SyncJob.query.get(job_id)
+            if j is None:
+                return True
+            if j.cancel_requested:
+                return False              # abort the fetch
+            j.progress = f"Fetching from Shopify — {count:,} customers ({page} pages)"
+            db.session.commit()
             return True
 
         shopify_customers = list_all_customers(progress_cb=_fetch_progress)
@@ -845,10 +859,12 @@ def sync_customers():
         # wipes the database. So a stopped fetch exits here, before anything is
         # written or removed.
         if shopify_customers is None:
-            job.status = 'cancelled'
-            job.progress = 'Cancelled while fetching — nothing was changed'
-            job.finished_at = datetime.utcnow()
-            db.session.commit()
+            j = SyncJob.query.get(job_id)
+            if j is not None:
+                j.status = 'cancelled'
+                j.progress = 'Cancelled while fetching — nothing was changed'
+                j.finished_at = datetime.utcnow()
+                db.session.commit()
             log_event("info", "customers.sync_cancelled_during_fetch",
                       "Customer sync stopped during the Shopify fetch; "
                       "no rows were written or deleted")
@@ -955,11 +971,11 @@ def sync_customers():
             # are Shopify's current values, so a cancelled sync leaves the cache
             # partly refreshed and wholly correct, rather than rolled back to
             # older data. Re-running simply continues the job.
-            db.session.refresh(job)
-            if job.cancel_requested:
-                job.status = 'cancelled'
-                job.progress = f"Cancelled after {processed:,} of {total_items:,} customers"
-                job.finished_at = datetime.utcnow()
+            j = SyncJob.query.get(job_id)
+            if j is not None and j.cancel_requested:
+                j.status = 'cancelled'
+                j.progress = f"Cancelled after {processed:,} of {total_items:,} customers"
+                j.finished_at = datetime.utcnow()
                 db.session.commit()
                 log_event("info", "customers.sync_cancelled",
                           f"Customer sync cancelled by request after {processed:,} rows")
