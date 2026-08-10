@@ -42,7 +42,14 @@ export default function ScrollToTop() {
     <ModalPortal>
       <button
         onClick={scrollToTop}
-        className="fixed bottom-24 right-6 w-10 h-10 rounded-full bg-black text-white flex items-center justify-center transition-all duration-200 hover:bg-gray-900 shadow-lg z-50 hover:scale-110"
+        /* Bottom of the fixed-corner ladder, top slot:
+             Ask the docs   bottom 20   (h 40)  ->  20-60
+             Customer AI    bottom 72   (h 56)  ->  72-128
+             Scroll to top  bottom 140  (h 40)  -> 140-180
+           12px of clear space between each. This was bottom-24 (96px), which
+           sat inside the customer assistant's box and over the pagination. */
+        className="fixed right-6 w-10 h-10 rounded-full bg-black text-white flex items-center justify-center transition-all duration-200 hover:bg-gray-900 shadow-lg z-50 hover:scale-110"
+        style={{ bottom: 140 }}
         title="Scroll to top"
         aria-label="Scroll to top"
       >

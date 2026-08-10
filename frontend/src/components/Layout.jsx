@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import DocsAssistant from './DocsAssistant'
+import ScrollToTop from './ScrollToTop'
 import clsx from 'clsx'
 
 export default function Layout() {
@@ -112,12 +113,11 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* ScrollToTop removed — it sat at bottom-24 right-6, in the same corner
-          as the docs pill and the customer assistant, and covered the
-          pagination controls underneath. Three floating buttons stacked in one
-          square inch, two of which do the same job the scrollbar already does.
-          The component file is still there if it is ever wanted back. */}
+      {/* Three floating controls share this corner. Their offsets are set so
+          they stack instead of overlapping — see ScrollToTop.jsx for the ladder.
+          Anything new added here has to take a slot above them. */}
       <DocsAssistant />
+      <ScrollToTop />
     </div>
   )
 }

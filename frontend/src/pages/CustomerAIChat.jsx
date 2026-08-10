@@ -208,7 +208,7 @@ export default function CustomerAIChat() {
           // Sits ABOVE the "Ask the docs" pill, which is fixed at bottom-5
           // right-5. Both were in the same corner, so this covered it and the
           // pagination beneath — two assistants fighting for one square inch.
-          bottom: 88, right: 24, width: 56, height: 56,
+          bottom: 72, right: 24, width: 56, height: 56,
           background: 'linear-gradient(135deg, #c9ff5c, #99e600)',
           boxShadow: '0 8px 24px -6px rgba(255,89,0,0.5)',
         }}
