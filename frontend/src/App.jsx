@@ -22,7 +22,6 @@ import Notifications from './pages/Notifications'
 import Profile from './pages/Profile'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
-import CustomerConfig from './pages/CustomerConfig'
 import Activity from './pages/Activity'
 import AIAndAutomation from './pages/AIAndAutomation'
 import SettingsAndChannels from './pages/SettingsAndChannels'
@@ -74,15 +73,6 @@ export default function App() {
                 element={
                   <ProtectedRoute requiredRole={['admin', 'supervisor']}>
                     <Customers />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="customers/config"
-                element={
-                  <ProtectedRoute requiredRole={['admin', 'supervisor']}>
-                    <CustomerConfig />
                   </ProtectedRoute>
                 }
               />

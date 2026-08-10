@@ -16,9 +16,11 @@ const allNav = [
 
   // Customer Profiling — PARKED 2026-08-01, hidden from the nav on purpose.
   //
-  // The routes and pages are untouched; /customers and /customers/config still
-  // work if you type them. Only the way in is removed, so nobody wanders into
-  // a page whose scope is still an open question.
+  // The route and page are untouched; /customers still works if you type it.
+  // Only the way in was removed, so nobody wandered into a page whose scope was
+  // an open question. (Profiling Config has since been deleted outright — it
+  // was a static page describing how the system works, with no data behind it
+  // and nothing reading from it, so it could only ever drift from the code.)
   //
   // Why: it profiles 161,639 Shopify customers, 38 of whom have ever messaged
   // us, and there is no key that joins the two — our users are keyed on
@@ -36,10 +38,7 @@ const allNav = [
   // questions — and whether reading the latter verbatim is worth the
   // read_reports scope plus a GraphQL client.
   //
-  { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business',
-    children: [
-      { to: '/customers/config', label: 'Profiling Config', roles: ['admin', 'supervisor'] },
-    ] },
+  { to: '/customers', icon: UserCircle, label: 'Customer Profiling', roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/products',  icon: Package,   label: 'Products',  roles: ['admin', 'supervisor'], group: 'Business' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics', roles: ['admin', 'agent', 'supervisor'], group: 'Business' },
 
@@ -88,7 +87,9 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
   const nav = allNav.filter(item => item.roles.includes(user?.role))
 
   // Which parent menus are manually open. Unset = auto (open when a child
-  // route is active), so landing on /customers/config shows it expanded.
+  // route is active). Nothing has children today — Profiling Config was the
+  // only one and it is gone — but the machinery is left in place because it is
+  // the group/children contract every future nav entry will use.
   const [openMenus, setOpenMenus] = useState({})
 
   // Live badge for Messages. Counted server-side: this used to pull 100 full
