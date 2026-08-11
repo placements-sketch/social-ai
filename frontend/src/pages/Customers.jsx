@@ -472,7 +472,12 @@ export default function Customers() {
               icon={TrendingUp}
               label="Revenue"
               value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
-              sub={`Every customer's "Total spent" in Shopify, added up · incl. tax and shipping, refunds not deducted`}
+              /* "refunds not deducted" was wrong. Shopify zeroes an order's
+                 current total when it is refunded — order 223224 reads total
+                 0.00 against refunded 1,500.00 — so amountSpent is already net
+                 of refunds. The old wording described the pre-sync figure,
+                 which was inflated by a stale writer, not by refund policy. */
+              sub={`Every customer's "Total spent" in Shopify, added up · incl. tax and shipping, net of refunds`}
               tone="bg-blue-50 text-blue-600"
             />
             {/* Shopify's "Total sales", as a KPI rather than a footnote.
@@ -658,17 +663,20 @@ export default function Customers() {
             )}
             <p>
               <span className="font-semibold text-gray-700">Revenue above</span> is the sum of
-              every customer's <em>Total spent</em> — gross, VAT included, with refunded
-              orders still counted. It is what you see on a customer's record in Shopify.
+              every customer's <em>Total spent</em> in Shopify — what each person has
+              actually paid across their lifetime, including VAT and shipping, and net of
+              anything refunded. It is the figure on their customer record.
             </p>
             <p>
-              <span className="font-semibold text-gray-700">Total sales</span> in Shopify
-              Analytics excludes VAT, drops cancelled and unpaid orders, and subtracts
-              returns.
+              <span className="font-semibold text-gray-700">Total sales</span> is Shopify
+              Analytics' figure for a period: gross sales less discounts and returns, plus
+              shipping and taxes.
             </p>
-            <p className="text-gray-400">
-              Our estimate of the second is within about 1% of Shopify's, the difference
-              being orders not yet in our cache and partial refunds we cannot see per order.
+            <p>
+              They are close because both net out refunds. They are not identical because
+              Total sales is measured per order over a window, while Revenue is measured
+              per customer over all time — and orders that belong to no customer record
+              (guest checkouts, deleted customers) appear in one and not the other.
             </p>
           </div>
         </details>
