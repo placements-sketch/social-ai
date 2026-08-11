@@ -492,8 +492,11 @@ def cron_sync_customers():
         # they did anything. Without this, an untouched customer keeps whatever
         # segment they had on the day they last ordered, forever.
         try:
+            update_progress("Correcting last-order dates...")
+            from app.customers import backfill_last_order_dates, refresh_all_segments
+            # Order matters: segments are computed FROM last_order_date.
+            backfill_last_order_dates()
             update_progress("Recomputing segments...")
-            from app.customers import refresh_all_segments
             refresh_all_segments()
         except Exception as e:
             log_event("warn", "cron.segment_refresh_failed", str(e)[:160])

@@ -359,22 +359,41 @@ def list_customers():
     query = CustomerCache.query
 
     if search:
-        like = f"%{search.strip()}%"
-        query = query.filter(or_(
-            CustomerCache.email.ilike(like),
-            CustomerCache.first_name.ilike(like),
-            CustomerCache.last_name.ilike(like),
-            CustomerCache.phone.ilike(like),
-        ))
+        # Every word must match SOMETHING, rather than the whole string matching
+        # ONE column.
+        #
+        # first_name and last_name are separate columns, so "Marina Aholie"
+        # was matched against each of them whole and found nothing — 17 results
+        # for "Marina", 5 for "Aholie", 0 for the person's actual name. Typing
+        # a full name is the first thing anyone does with a customer search.
+        #
+        # Splitting on whitespace also makes "aholie marina" work, which matters
+        # because nothing on screen tells an agent which order we store.
+        terms = [t for t in (search or '').split() if t.strip()]
+        for term in terms[:5]:          # a cap, so a pasted paragraph cannot
+            like = f"%{term.strip()}%"  # build a 40-clause query
+            query = query.filter(or_(
+                CustomerCache.email.ilike(like),
+                CustomerCache.first_name.ilike(like),
+                CustomerCache.last_name.ilike(like),
+                CustomerCache.phone.ilike(like),
+            ))
 
     # Sort (pushed to SQL)
+    # nullslast() on every descending sort.
+    #
+    # Postgres puts NULLs FIRST under plain DESC, so a customer with no spend
+    # recorded would head the table under "highest spending" — top of page one,
+    # above the real top spender. No such row exists today, which is exactly why
+    # it would go unnoticed until a sync wrote one.
     sort_map = {
-        'spent_desc':  CustomerCache.total_spent.desc(),
-        'orders_desc': CustomerCache.total_orders.desc(),
+        'spent_desc':  CustomerCache.total_spent.desc().nullslast(),
+        'orders_desc': CustomerCache.total_orders.desc().nullslast(),
         'recent':      CustomerCache.last_order_date.desc().nullslast(),
-        'name':        CustomerCache.first_name.asc(),
+        'name':        CustomerCache.first_name.asc().nullslast(),
     }
-    query = query.order_by(sort_map.get(sort_by, CustomerCache.total_spent.desc()))
+    query = query.order_by(
+        sort_map.get(sort_by, CustomerCache.total_spent.desc().nullslast()))
 
     vip_threshold = _vip_threshold()
 
@@ -1016,6 +1035,16 @@ def sync_customers():
                 return
             db.session.expunge_all()  # release per-row references between chunks
 
+        # Real last-order dates BEFORE segments, because segments are computed
+        # from them. The customer sync can only store `updated_at` as a proxy —
+        # Shopify's customer object has no last-order date — so this replaces it
+        # with MAX(order_date) from the orders we hold.
+        try:
+            update_progress("Correcting last-order dates...")
+            backfill_last_order_dates()
+        except Exception as e:
+            log_event("warn", "customers.last_order_backfill_failed", str(e)[:160])
+
         # Segments last, after every total_spent and last_order_date is current.
         #
         # The upsert already sets a segment per row, but only for customers this
@@ -1367,3 +1396,47 @@ def exclude_internal(query):
     from sqlalchemy import and_, or_, not_
     conds = [CustomerCache.email.ilike(p) for p in pats]
     return query.filter(or_(CustomerCache.email.is_(None), not_(or_(*conds))))
+
+
+def backfill_last_order_dates():
+    """
+    Set last_order_date from the ORDERS we hold, not from the customer record's
+    modification time.
+
+    The customer sync has no real last-order date to work with — Shopify's REST
+    customer object carries orders_count, total_spent and last_order_id, but not
+    the date — so it stored `updated_at` as a proxy and said so in a docstring.
+    A proxy is fine until something depends on it, and four things do: the "Last
+    Order" column, the recency chart, compute_segment() (churned / at_risk /
+    VIP all turn on days-since-order), and the R in every RFM score.
+
+    Measured against orders_cache: 3,463 of 36,583 buyers had the wrong date,
+    averaging 11 days out and reaching 1,443 days. An address edit or a tag
+    change resets the proxy, which is why the error is unbounded.
+
+    Only touches customers whose orders we actually hold. A customer with no
+    cached orders keeps the proxy — wrong, but better than NULL, which would
+    drop them out of the recency chart and reset their segment to 'regular'.
+
+    Returns rows changed.
+    """
+    sql = db.text("""
+        WITH real AS (
+            SELECT shopify_customer_id, MAX(order_date) AS last_order
+              FROM orders_cache
+             WHERE shopify_customer_id IS NOT NULL
+               AND order_date IS NOT NULL
+             GROUP BY shopify_customer_id
+        )
+        UPDATE customers_cache c
+           SET last_order_date = real.last_order
+          FROM real
+         WHERE c.shopify_customer_id = real.shopify_customer_id
+           AND c.last_order_date IS DISTINCT FROM real.last_order
+    """)
+    changed = db.session.execute(sql).rowcount or 0
+    db.session.commit()
+    log_event("info", "customers.last_order_backfilled",
+              f"Corrected last_order_date on {changed:,} customers from orders_cache",
+              payload={'changed': changed})
+    return changed
