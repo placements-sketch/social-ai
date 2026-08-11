@@ -621,6 +621,7 @@ def summary():
         handled_total = len(handled_conv_ids)
 
         engaged_total = 0
+        handled_breakdown = []
         if handled_conv_ids:
             # Multi-turn: conversations with >=2 inbound messages.
             multiturn_ids = set(
@@ -686,6 +687,31 @@ def summary():
                 - punted_ids - failed_ids
             )
 
+            # Where the OTHER conversations went.
+            #
+            # The card said "of the 8 the AI was on duty for, 4 handled
+            # successfully" and stopped — leaving half unaccounted for on the
+            # one card that is supposed to say how the assistant is doing. It
+            # also sat beside Channel Performance reporting "8 answered by AI"
+            # for the same window, which reads as a contradiction: one counts
+            # replies sent, the other counts conversations that went well.
+            #
+            # These four are mutually exclusive, evaluated in this order, and
+            # together with engaged_total they sum to handled_total exactly.
+            handled_set = set(handled_conv_ids)
+            _succeeded = (multiturn_ids | ordered_ids) & answered_conv_ids - punted_ids - failed_ids
+            _failed    = handled_set & failed_ids - _succeeded
+            _punted    = handled_set & punted_ids - _succeeded - _failed
+            _silent    = handled_set - answered_conv_ids - _succeeded - _failed - _punted
+            _brief     = handled_set - _succeeded - _failed - _punted - _silent
+            handled_breakdown = [
+                {'key': 'succeeded', 'count': len(_succeeded)},
+                {'key': 'failed',    'count': len(_failed)},
+                {'key': 'escalated', 'count': len(_punted)},
+                {'key': 'unanswered','count': len(_silent)},
+                {'key': 'brief',     'count': len(_brief)},
+            ]
+
         success_rate = (engaged_total / handled_total) if handled_total else 0.0
 
         # Override rate, on the SAME population as the success rate: of the
@@ -721,6 +747,8 @@ def summary():
             'ai_success_rate':     round(success_rate, 4),    # NEW — real success
             'ai_handled_total':    handled_total,             # denominator, for context
             'ai_engaged_total':    engaged_total,             # numerator, for context
+            # Every on-duty conversation, accounted for. Sums to ai_handled_total.
+            'ai_handled_breakdown': handled_breakdown,
             'human_override_total': human_override,
             'override_rate':       round(override_rate, 4),   # of AI-on-duty convos
             'overridden_in_handled': overridden_in_handled,   # numerator, for context

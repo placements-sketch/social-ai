@@ -1354,6 +1354,28 @@ export default function Dashboard() {
                               </span>
                             </button>
                           )}
+                          {/* The rest of them.
+                              This listed successes and never-answered and
+                              stopped, so "8 on duty, 4 handled successfully"
+                              left half the conversations unexplained on the one
+                              card meant to say how the assistant is doing. The
+                              remaining outcomes are mutually exclusive and sum
+                              with the two above to the on-duty figure exactly. */}
+                          {(kpis.ai_handled_breakdown || [])
+                            .filter(({ key, count }) => count > 0 && !['succeeded', 'unanswered'].includes(key))
+                            .map(({ key, count }) => (
+                              <p key={key} className="flex items-center gap-2 text-gray-600">
+                                <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0',
+                                  key === 'failed' ? 'bg-red-400'
+                                    : key === 'escalated' ? 'bg-purple-400' : 'bg-gray-300')} />
+                                <span>
+                                  <span className="font-bold text-gray-900 tabular-nums">{count}</span>{' '}
+                                  {key === 'failed'    ? 'failed — the AI could not produce a reply'
+                                   : key === 'escalated' ? 'escalated — handed to a person'
+                                   : 'answered, but the customer did not come back'}
+                                </span>
+                              </p>
+                            ))}
                         </div>
                       </div>
                     )}
