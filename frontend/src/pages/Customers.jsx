@@ -205,6 +205,11 @@ export default function Customers() {
   // pixel. Changing granularity resets this to a span that can actually be
   // drawn at that resolution.
   const [rangeKey, setRangeKey] = useState('12m')
+  // Internal accounts are excluded from the ranked lists by default. The toggle
+  // exists so that is visible: a filter nobody can see is indistinguishable
+  // from missing data, and the first person to notice a till was gone would
+  // reasonably assume the page was broken.
+  const [showInternal, setShowInternal] = useState(false)
   const [page, setPage] = useState(1)
   const PER_PAGE = 25
 
@@ -229,14 +234,14 @@ export default function Customers() {
   const loadOverview = useCallback(async () => {
     setLoadingOverview(true)
     try {
-      const data = await getCustomersOverview({ granularity: resolveGranularity(granularity, rangeKey) })
+      const data = await getCustomersOverview({ granularity: resolveGranularity(granularity, rangeKey), showInternal })
       setOverview(data)
     } catch (err) {
       setError(err.message)
     } finally {
       setLoadingOverview(false)
     }
-  }, [granularity, rangeKey])
+  }, [granularity, rangeKey, showInternal])
 
   const loadSyncStatus = useCallback(async () => {
     try {
@@ -887,6 +892,26 @@ export default function Customers() {
       <CustomerTrends />
 
       {/* ─── TOP SPENDERS + FREQUENT ────────────────────────── */}
+      {/* Says what is being held back, and lets you see it.
+          Retail tills are Shopify customers: Vivo's Yaya Centre bills walk-in
+          sales to vivo.yaya@vivoactivewear.com, 780 orders, which ranked first
+          on both lists below. Their money is real and stays in Revenue and the
+          segments — they just stop being presented as people to look after. */}
+      {overview && (overview.internal_hidden > 0 || showInternal) && (
+        <div className="flex items-center justify-between gap-3 -mb-1">
+          <p className="text-[12px] text-gray-500">
+            {showInternal
+              ? 'Including internal accounts — tills and staff are ranked as customers.'
+              : `${formatKES(overview.internal_hidden)} internal account${overview.internal_hidden === 1 ? '' : 's'} excluded from these lists.`}
+          </p>
+          <button
+            onClick={() => setShowInternal(v => !v)}
+            className="text-[12px] font-semibold text-brand-600 hover:text-brand-700 transition-colors shrink-0"
+          >
+            {showInternal ? 'Hide internal' : 'Show internal'}
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {overview ? (
           <>

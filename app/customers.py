@@ -492,8 +492,20 @@ def customers_overview():
     retention_rate = (repeat / buyers) if buyers else 0
 
     # ── Top spenders (only 5 rows loaded) ────────────────────────────────
+    # Ranked lists exclude internal accounts unless asked otherwise.
+    #
+    # Without this the Yaya Centre till is your #1 customer on both lists — 780
+    # orders billed to vivo.yaya@vivoactivewear.com. It is a real Shopify
+    # customer and its money is real, so it stays in Revenue and in the
+    # segments; it just stops being presented as a person to look after.
+    show_internal = (request.args.get('show_internal') or '').lower() in ('1', 'true', 'yes')
+
+    def _ranked():
+        q = CustomerCache.query
+        return q if show_internal else exclude_internal(q)
+
     top_spenders_rows = (
-        CustomerCache.query
+        _ranked()
         .order_by(CustomerCache.total_spent.desc().nullslast())
         .limit(5)
         .all()
@@ -502,7 +514,7 @@ def customers_overview():
 
     # ── Top frequent (only 5 rows loaded) ────────────────────────────────
     top_frequent_rows = (
-        CustomerCache.query
+        _ranked()
         .order_by(CustomerCache.total_orders.desc().nullslast())
         .limit(5)
         .all()
@@ -632,6 +644,10 @@ def customers_overview():
             **_total_sales_block(),
         },
         'segment_counts': segment_counts,
+        'internal_hidden': (
+            0 if show_internal
+            else CustomerCache.query.count() - exclude_internal(CustomerCache.query).count()
+        ),
         'top_spenders': top_spenders_out,
         'top_frequent': top_frequent_out,
         # Shopify's own series, plotted instead of ours.
@@ -1315,3 +1331,39 @@ def refresh_all_segments():
               f"(VIP threshold KES {vip_threshold:,.0f})",
               payload={'changed': changed, 'vip_threshold': vip_threshold})
     return changed
+
+
+def internal_email_patterns():
+    """
+    LIKE patterns marking a Shopify customer as one of ours.
+
+    Configurable because "internal" is a business judgement, not a technical
+    one — whoever owns the customer list decides which addresses are tills,
+    staff or test accounts, and that answer will change.
+    """
+    try:
+        from app.settings import get_section
+        pats = get_section("business").get("internal_email_patterns")
+        return [p for p in (pats or []) if isinstance(p, str) and p.strip()]
+    except Exception:
+        return []
+
+
+def exclude_internal(query):
+    """
+    Drop internal accounts from a CustomerCache query.
+
+    Applied where customers are RANKED or COUNTED as customers. Not applied to
+    search or to the link-customer picker: an agent looking up a till by name
+    should still find it, because linking a conversation to it may be exactly
+    right.
+
+    A NULL email is kept. Absence of an address is not evidence of being
+    internal, and dropping those would quietly remove real walk-in customers.
+    """
+    pats = internal_email_patterns()
+    if not pats:
+        return query
+    from sqlalchemy import and_, or_, not_
+    conds = [CustomerCache.email.ilike(p) for p in pats]
+    return query.filter(or_(CustomerCache.email.is_(None), not_(or_(*conds))))

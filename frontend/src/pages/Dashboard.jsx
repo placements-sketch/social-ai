@@ -1566,12 +1566,11 @@ export default function Dashboard() {
                         {/* Identity + volume */}
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-3 min-w-0">
-                            <div
-                              className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0"
-                              style={{ background: meta.color }}
-                            >
-                              <Icon size={17} />
-                            </div>
+                            {/* Was a saturated tile in the platform colour with a
+                                white glyph — the loudest element in a row whose
+                                point is the numbers beside it, and a hardcoded
+                                colour with no dark-mode counterpart. */}
+                            <ChannelIcon channel={c.channel} size="md" />
                             <div className="min-w-0">
                               <h4 className="font-semibold text-gray-900 text-sm truncate">{meta.name}</h4>
                               <p className="text-[12px] text-gray-500">

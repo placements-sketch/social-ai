@@ -40,6 +40,22 @@ DEFAULTS = {
     },
     "business": {
         "store_name": "Shop Zetu",
+        # Email patterns that mark a Shopify customer as OURS, not a customer.
+        #
+        # Retail tills are recorded as customers. "Vivo - Yaya Centre" bills
+        # walk-in sales to vivo.yaya@vivoactivewear.com, which then ranks first
+        # in Top Spenders and Most Frequent Buyers — a shop, presented as your
+        # best customer, on the one list people read to answer "who should we
+        # look after".
+        #
+        # Excluded accounts are NOT deleted or hidden from the database: they
+        # stay searchable, stay linkable to a conversation, and stay in the
+        # totals. They stop being *ranked* as customers, and the page carries a
+        # "Show internal" toggle so the filtering is visible rather than a
+        # silent rule nobody can see.
+        #
+        # SQL LIKE patterns, matched case-insensitively.
+        "internal_email_patterns": ["%@vivoactivewear.com"],
         # Freeform knowledge the assistant should have about the business.
         #
         # Every other field here answers one specific question — hours, phone,
