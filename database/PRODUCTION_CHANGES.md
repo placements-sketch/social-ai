@@ -2491,3 +2491,96 @@ discount that does not exist — the check is explicit for that reason.
 `read_discounts` and `read_price_rules` remain unused. Worth keeping: the moment
 someone runs a code-based promotion they become the right source, and asking for
 a scope back later is harder than holding one.
+
+---
+
+### Step 36 — Returns policy and the real delivery table
+
+The assistant had no returns policy at all, and its delivery figures came from
+whatever anyone had typed into Settings. Both now come from the published
+policy.
+
+**Delivery goes in `delivery.zones`** — structured, so `format_delivery_for_prompt()`
+renders it and it is injected only on delivery questions.
+
+**Returns goes in `delivery.returns_policy`** — one block of text, injected only
+when the classifier returns the new `return_request` intent. It is ~2,000
+characters and most conversations are about a dress; paying for it on every
+reply would spend most of a prompt on a policy nobody asked about.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         jsonb_set(
+           COALESCE(data, '{}'::jsonb),
+           '{delivery,zones}',
+           '[
+             {"name": "Nairobi",                    "fee": "KES 220", "eta": "1-3 business days"},
+             {"name": "Nairobi environs (Ngong, Rongai, Kiserian, Kiambu, Juja, Thika, Kikuyu, Limuru, Kitengela, Athi River)",
+                                                    "fee": "KES 300", "eta": "1-3 business days"},
+             {"name": "Other towns outside Nairobi","fee": "KES 500", "eta": "3-5 business days"},
+             {"name": "East Africa (outside Kenya)","fee": "Varies by country, passed on to the customer", "eta": "7-10 business days"},
+             {"name": "International",              "fee": "Varies by country, passed on to the customer", "eta": "10-14 business days"}
+           ]'::jsonb),
+         '{delivery,returns_policy}',
+         to_jsonb($returns$
+RETURNS AND EXCHANGES
+
+Eligibility (Kenya, Uganda, Rwanda and rest of world)
+- Return or exchange within 7 DAYS of delivery.
+- Original condition, unworn, all tags attached, not washed.
+- Must meet hygiene standards: no sweat, dirt or stains.
+- Must be accompanied by the Shop Zetu invoice.
+
+Refunds and exchanges
+- Refund goes to the original payment method, or the customer may choose M-Pesa,
+  card, or a Shop Zetu gift card.
+- ITEMS ON SALE ARE ELIGIBLE FOR EXCHANGE ONLY. No refund is given on a sale item.
+
+Starting a return
+- The customer MUST call customer support first. NO RETURN IS ACCEPTED unless
+  support has initiated it.
+- Support: +254 748 419357, +254 703 420780, +254 705 408426, support@shopzetu.com
+- Kenya: pack securely with all original packaging and the invoice, then drop at
+  the nearest Vivo store or Shop Zetu store.
+- Uganda, Rwanda, rest of world: pack securely and send to the return address
+  support provides.
+
+Return shipping costs
+- Nairobi: call to initiate, then drop at the nearest Vivo store. Alternative
+  arrangements are available for an additional fee.
+- Outside Nairobi: the customer pays return shipping via the nearest Speedaf agent.
+- Uganda, Rwanda, rest of world: the customer pays return shipping.
+
+Refund timing
+- Processed within 2-3 business days of us receiving and inspecting the item.
+
+NOT eligible for return, anywhere
+- Skincare, make-up, swimwear, fragrances, underwear.
+$returns$::text)
+       )
+ WHERE id = 1;
+
+SELECT jsonb_array_length(data -> 'delivery' -> 'zones') AS zones,
+       length(data -> 'delivery' ->> 'returns_policy')   AS policy_chars
+  FROM app_settings WHERE id = 1;
+
+COMMIT;
+```
+
+Expect `5` zones and roughly `1700` characters.
+
+**Two rules are stated in capitals on purpose**, because they are the ones an
+assistant will otherwise get wrong and the business will have to honour:
+
+- **Sale items are exchange only.** This is now enforceable rather than hoped
+  for: since Step 35 the assistant knows which variants carry a markdown
+  (`compare_at_price`), so it can tell a customer their item is reduced and
+  therefore exchange-only instead of promising a refund.
+- **Nothing is accepted unless support started it.** A customer told to "just
+  drop it at a Vivo store" arrives and is turned away.
+
+`app_settings` is a single JSON row (id=1), so this is an in-place edit of two
+keys. Nothing else in the document is touched.

@@ -1150,6 +1150,12 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                           },
                           conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
+    # Returns, exchanges and refunds. Intent-driven like delivery, not keyword
+    # matched - "it does not fit, can I swap it" contains none of the obvious
+    # words and is exactly the message that must reach the policy.
+    if "return_request" in intents:
+        context_data["returns_asked"] = True
+
     if "delivery_inquiry" in intents:
         context_data["delivery_asked"] = True
         context_data["delivery_location"] = _extract_location(message)
