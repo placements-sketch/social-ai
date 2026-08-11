@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search, X, Tag } from 'lucide-react'
+import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Search, X, Tag, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
@@ -73,11 +73,31 @@ function ProductDetailModal({ product, onClose }) {
                 {product.handle ? `/${product.handle}` : `Shopify id ${product.shopify_product_id}`}
               </p>
             </div>
-            <button onClick={onClose}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
-                    aria-label="Close">
-              <X size={16} />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Straight to the storefront page.
+                  The handle is already on screen as "/spades-2pack-boys-boxers"
+                  — checking whether a product looks right, is published, or has
+                  the images we think it has meant copying that into a browser by
+                  hand. No UTM parameters: those exist to attribute a SALE to an
+                  assistant recommendation, and a staff member checking a listing
+                  would pollute that attribution with internal traffic. */}
+              {product.handle && (
+                <a
+                  href={`https://www.shopzetu.com/products/${product.handle}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                  title="Open this product on shopzetu.com"
+                >
+                  <ExternalLink size={13} /> See live
+                </a>
+              )}
+              <button onClick={onClose}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
+                      aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
           <div className="p-5 grid grid-cols-1 sm:grid-cols-[minmax(0,220px)_1fr] gap-5">
