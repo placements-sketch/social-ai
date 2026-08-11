@@ -296,16 +296,29 @@ def _mock_reply(intents: list[str], context_data: dict) -> str:
             desc = product.get("description", "a beautiful piece from our latest collection")
             parts.append(f"Here's more about {name}: {desc}.")
 
+    # No invented figures, anywhere in here.
+    #
+    # This template kept its own prices: KES 350 for delivery and a fallback of
+    # "KES 1,800" for any product without one. Neither came from anywhere. The
+    # published rate is KES 220 in Nairobi, so during the 6 Aug credit outage
+    # customers were quoted a delivery charge that has never existed, and any
+    # product missing a price was quoted 1,800 as if that were its price.
+    #
+    # Keeping this path revertible was the ask. Keeping it able to make up money
+    # was not. Where a real figure is available it is used; where it is not, the
+    # template says so rather than filling the gap.
     if "price_inquiry" in intents:
         name  = product.get("name", "this item")
-        price = product.get("price", "KES 1,800")
-        parts.append(f"The {name} is priced at {price}.")
+        price = product.get("price")
+        parts.append(f"The {name} is priced at {price}." if price
+                     else f"Let me confirm the current price on {name} for you.")
 
     if "delivery_inquiry" in intents:
-        if location:
-            parts.append(f"We deliver to {location}! 🚚 Delivery takes 1–3 business days and costs KES 350.")
-        else:
-            parts.append("We deliver nationwide across Kenya. 🚚 Delivery costs KES 350 and takes 1–3 business days.")
+        where = f" to {location}" if location else " across Kenya"
+        parts.append(
+            f"We deliver{where}. 🚚 Charges and timings depend on the destination — "
+            "let me confirm the exact rate for you."
+        )
 
     if "order_status" in intents:
         parts.append("Happy to check your order! Could you share the full name and email used to place the order?")
