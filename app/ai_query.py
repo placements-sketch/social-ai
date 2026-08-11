@@ -12,7 +12,6 @@ from sqlalchemy import func, and_
 
 from app import db
 from app.models import CustomerCache, OrderCache
-from app.customers import ex_vat
 
 MAX_ROWS = 50  # hard cap — the AI cannot exceed this no matter what it asks
 
@@ -62,7 +61,15 @@ def _customer_row(c):
         'city': c.city,
         'country': c.country,
         'segment': c.segment,
-        'total_spent': ex_vat(c.total_spent),
+        # Shopify's figure, not ours.
+        #
+        # This divided by 1.16 to strip VAT, so the assistant answered "Marina
+        # has spent KES 3,346,494" for a customer every other surface reports as
+        # 3,881,933 — the Revenue card, the segment chart, the linked-customer
+        # panel and the Shopify admin all agree, and only the AI disagreed.
+        # Being wrong in a chat window is worse than being wrong on a chart: it
+        # gets quoted verbatim to a stakeholder.
+        'total_spent': float(c.total_spent or 0),
         'total_orders': c.total_orders or 0,
         'last_order_date': c.last_order_date.strftime('%Y-%m-%d') if c.last_order_date else None,
     }
@@ -155,8 +162,20 @@ def aggregate_orders(time_window='this_month', group_by='customer', metric='sum_
         grp = CustomerCache.shopify_customer_id
         label_cols = [CustomerCache.first_name, CustomerCache.last_name, CustomerCache.city, CustomerCache.segment]
     elif group_by == 'city':
-        grp = CustomerCache.city
-        label_cols = [CustomerCache.city]
+        # Group on the normalised city, not the raw string.
+        #
+        # Shopify stores whatever the customer typed. "Nairobi" exists in EIGHT
+        # casings across 38,359 customers — nairobi, NAIROBI, NairobI, NaIrobi…
+        # — plus "Nairobi Kenya" as its own town. Grouping on the raw value
+        # split one city into eight rows and reported the largest as the whole:
+        # 539,990,264 for "Nairobi" when the real figure was 24M higher, spread
+        # across the variants beneath it.
+        #
+        # Casing is safe to fold. Free-text variants like "Nairobi Kenya" are
+        # NOT folded — that needs a place list, and silently merging towns is a
+        # worse error than splitting them.
+        grp = func.lower(func.btrim(CustomerCache.city))
+        label_cols = []
     else:  # segment
         grp = CustomerCache.segment
         label_cols = [CustomerCache.segment]
@@ -180,13 +199,16 @@ def aggregate_orders(time_window='this_month', group_by='customer', metric='sum_
 
     out = []
     for r in results:
-        revenue = ex_vat(r.revenue)
+        # Same reason as above — no VAT arithmetic of our own.
+        revenue = float(r.revenue or 0)
         orders = int(r.orders or 0)
         if group_by == 'customer':
             name = ' '.join(p for p in [r[1], r[2]] if p) or 'Unknown'
             entry = {'name': name, 'city': r[3], 'segment': r[4]}
         elif group_by == 'city':
-            entry = {'city': r[1] or 'Unknown'}
+            # r.grp is the normalised key; title-case it for display so the
+            # answer reads "Nairobi" rather than "nairobi".
+            entry = {'city': (r[0] or 'unknown').title()}
         else:
             entry = {'segment': r[1] or 'Unknown'}
         entry['revenue'] = round(revenue)
