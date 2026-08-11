@@ -3,7 +3,6 @@ import { RefreshCw, Package, Loader2, AlertCircle, ChevronLeft, ChevronRight, Se
 import clsx from 'clsx'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ModalPortal } from '../context/ModalPortal'
-import szLogo from '../images/sz-bg.jpg'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatTimeAgo } from '../utils/time'
 
@@ -87,18 +86,15 @@ function ProductDetailModal({ product, onClose }) {
                   href={`https://www.shopzetu.com/products/${product.handle}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  /* The SZ mark instead of a colour fill.
-                     The lime read as a primary action competing with the
-                     product itself; the logo says where the button goes without
-                     needing to. Kept on a neutral ground — the asset is already
-                     a black tile with the mark reversed out, so it carries its
-                     own contrast in either theme. */
-                  className="inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-lg text-[12px] font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                  /* Lime fill, black glyph and label. bg-brand-500 rather than
+                     btn-primary: that class is bg-black, which the dark theme
+                     remaps to the brand colour — so btn-primary would render
+                     black in light mode and lime in dark, the same control
+                     looking like two different things. */
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold bg-brand-500 hover:bg-brand-400 text-black transition-colors"
                   title="Open this product on shopzetu.com"
                 >
-                  <img src={szLogo} alt="" aria-hidden="true" className="w-5 h-5 rounded-md shrink-0" />
-                  See live
-                  <ExternalLink size={11} className="text-gray-400" />
+                  <ExternalLink size={13} /> See live
                 </a>
               )}
               <button onClick={onClose}

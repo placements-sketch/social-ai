@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Loader2, Mail, ArrowLeft, MailCheck, ArrowRight } from 'lucide-react'
 import bgImage from '../images/bg9.png'
-import szLogo from '../images/sz.png'
+import szLogo from '../images/sz-bg.jpg'
 
 /*
  * Password reset.
@@ -71,7 +71,7 @@ export default function ForgotPassword() {
         />
 
         <div className="relative flex items-center gap-3">
-          <img src={szLogo} alt="" aria-hidden="true" className="w-9 h-9" />
+          <img src={szLogo} alt="" aria-hidden="true" className="w-9 h-9 rounded-lg" />
           <div>
             <p className="text-sm font-bold leading-tight tracking-tight">Shop Zetu</p>
             <p className="text-[12px] text-white/50 mt-0.5">Social AI</p>
@@ -102,7 +102,7 @@ export default function ForgotPassword() {
           {/* Logo repeats only where the panel is hidden, so small screens keep
               branding without duplicating it on desktop. */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">
-            <img src={szLogo} alt="" aria-hidden="true" className="w-8 h-8" />
+            <img src={szLogo} alt="" aria-hidden="true" className="w-8 h-8 rounded-lg" />
             <div>
               <p className="text-sm font-bold leading-tight tracking-tight">Shop Zetu</p>
               <p className="text-[11px] text-white/50">Social AI</p>

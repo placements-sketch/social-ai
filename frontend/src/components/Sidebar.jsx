@@ -8,7 +8,7 @@ import {
 import PresenceDot from './PresenceDot'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
-import szLogo from '../images/sz.png'
+import szLogo from '../images/sz-bg.jpg'
 
 const allNav = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'agent', 'supervisor'], group: 'Core' },
@@ -153,7 +153,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
         )}
       >
         <div className="flex items-center gap-2.5">
-          <img src={szLogo} alt="Shop Zetu" className="w-8 h-8 lg:w-9 lg:h-9 shrink-0" />
+          <img src={szLogo} alt="Shop Zetu" className="w-8 h-8 lg:w-9 lg:h-9 shrink-0 rounded-lg" />
           <div className={clsx(isMobile ? 'block' : (collapsed ? 'md:hidden' : 'block'))}>
             <p className="text-sm font-bold text-white leading-tight tracking-tight">Shop Zetu</p>
             <p className="text-[12px] text-gray-300 mt-0.5">Social AI</p>

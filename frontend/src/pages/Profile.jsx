@@ -131,26 +131,30 @@ export default function Profile() {
           opens with a piece of the brand instead of a fourth grey rectangle. */}
       <div className="card rounded-3xl overflow-hidden mb-5">
         <div className="relative h-28 sm:h-32 overflow-hidden">
-          {/* One element, the image across the whole band.
-              The colour is set inline, NOT with bg-black: index.css remaps
-              `.dark .bg-black` to var(--brand), so the div added to make this
-              band black rendered it lime — the green was the fix, not the thing
-              being fixed.
-              The asset's own ground is this same black, so the logo sits in the
-              middle of an unbroken field with no seam at its edges. `contain`
-              because the tile is square and the band is wide: `cover` would
-              scale it until only a horizontal slice through the middle of the S
-              survived, wordmark cropped away. */}
+          {/* Tiled, not one centred mark.
+              A single logo left most of a very wide band empty — the asset is
+              square and the band is roughly 8:1, so "fit the area" and "show
+              one clean logo" cannot both hold. Repeating it fills the space and
+              reads as brand texture.
+
+              Every colour here is inline. index.css remaps `.dark .bg-black` to
+              var(--brand), so a bg-black div meant to darken this band painted
+              it lime instead — that was the mystery green, not a leftover from
+              the old gradient. */}
           <div
             className="absolute inset-0"
             style={{
               backgroundColor: '#0a0a0a',
               backgroundImage: `url(${szBanner})`,
-              backgroundRepeat: 'no-repeat',
-              backgroundSize: 'contain',
+              backgroundRepeat: 'repeat',
+              backgroundSize: '112px 112px',
               backgroundPosition: 'center',
             }}
           />
+          {/* Held back so the avatar and the name stay legible on top. The tile
+              is high-contrast black and white; at full strength it competes with
+              everything placed over it. */}
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
         </div>
 
         <div className="px-5 sm:px-7 pb-6">
