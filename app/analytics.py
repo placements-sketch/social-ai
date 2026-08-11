@@ -566,6 +566,23 @@ def summary():
             Log, user,
         ).scalar() or 0
 
+        # The same failures counted as CONVERSATIONS.
+        #
+        # `failed` counts log rows: one conversation that failed three times
+        # contributes three. Printed as "Failed 11" beside "8 conversations the
+        # AI was on duty for", it read as more failures than there were
+        # conversations — a number that cannot be true, so a reader either
+        # distrusts the card or invents an explanation. Both figures are real;
+        # they were just never labelled with their unit.
+        failed_conversations = _scope_filter(
+            db.session.query(func.count(func.distinct(Log.conversation_id)))
+              .filter(Log.created_at >= start_dt)
+              .filter(Log.created_at < end_dt)
+              .filter(Log.conversation_id.isnot(None))
+              .filter(_ai_failure_clause()),
+            Log, user,
+        ).scalar() or 0
+
         # Still worth tracking separately: inbound with no AI reply. Mostly
         # legitimate (coalesced bursts, skipped non-question comments), so it
         # is NOT a failure count.
@@ -737,7 +754,8 @@ def summary():
             'inbound_total':       inbound,
             'ai_replies_total':    ai_repl,
             'human_replies_total': human_repl,
-            'failed_responses':    failed,
+            'failed_responses':    failed,                  # LOG ROWS, not conversations
+            'failed_conversations': failed_conversations,   # distinct conversations affected
             'unanswered_inbound':  unanswered,
             # round(), not int(). int() truncates toward zero, so every reported
             # average response time was up to 1ms below the true value —

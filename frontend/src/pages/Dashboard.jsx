@@ -1337,7 +1337,10 @@ export default function Dashboard() {
                         <div className="mt-1.5 space-y-1">
                           <p className="flex items-center gap-2 text-gray-600">
                             <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
-                            <span><span className="font-bold text-gray-900 tabular-nums">{engaged}</span> handled successfully</span>
+                            <span>
+                              <span className="font-bold text-gray-900 tabular-nums">{engaged}</span> handled successfully
+                              <span className="text-gray-400"> — customer wrote back or ordered</span>
+                            </span>
                           </p>
                           {neverAnswered > 0 && (
                             <button
@@ -1383,16 +1386,32 @@ export default function Dashboard() {
 
                   {/* Metrics strip */}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-3 border-t border-gray-100">
+                    {/* Every tile says its UNIT and its denominator.
+                        "Failed 11" sat beside "8 conversations the AI was on
+                        duty for" and read as more failures than conversations —
+                        impossible, so a reader either distrusts the card or
+                        invents an explanation. It counts individual replies;
+                        one conversation failing three times contributes three.
+                        Saying so costs a line and removes the question. */}
                     {[
-                      { label: 'Response rate', value: `${responseRate}%`,   color: 'text-brand-600' },
-                      { label: 'Avg response',  value: avgResponseStr,       color: 'text-gray-900'  },
-                      { label: 'Override rate', value: `${overrideRate}%`,    color: 'text-amber-600' },
-                      { label: 'Escalated',     value: escalated,            color: 'text-purple-600'},
-                      { label: 'Failed',        value: failed,               color: failed > 0 ? 'text-red-600' : 'text-gray-900' },
-                    ].map(({ label, value, color }) => (
+                      { label: 'Response rate', value: `${responseRate}%`, color: 'text-brand-600',
+                        sub: 'of inbound that got a reply' },
+                      { label: 'Avg response',  value: avgResponseStr,     color: 'text-gray-900',
+                        sub: 'AI replies only' },
+                      { label: 'Override rate', value: `${overrideRate}%`, color: 'text-amber-600',
+                        sub: `of the ${handled} on duty, taken over by a person` },
+                      { label: 'Escalated',     value: escalated,          color: 'text-purple-600',
+                        sub: 'conversations handed to a person' },
+                      { label: 'Failed replies', value: failed,
+                        color: failed > 0 ? 'text-red-600' : 'text-gray-900',
+                        sub: kpis.failed_conversations != null
+                          ? `across ${kpis.failed_conversations} conversation${kpis.failed_conversations === 1 ? '' : 's'}`
+                          : 'individual replies, not conversations' },
+                    ].map(({ label, value, color, sub }) => (
                       <div key={label} className="flex flex-col">
                         <span className={clsx('text-lg font-bold leading-none', color)}>{value}</span>
                         <span className="text-[12px] text-gray-500 mt-1">{label}</span>
+                        {sub && <span className="text-[11px] text-gray-400 leading-snug mt-0.5">{sub}</span>}
                       </div>
                     ))}
                   </div>
@@ -1654,7 +1673,14 @@ export default function Dashboard() {
                               <span className="flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                                 <span className="font-bold text-gray-900 tabular-nums">{c.answered_convos}</span>
-                                <span className="text-gray-500">answered by AI</span>
+                                {/* "answered" means a reply was SENT. It is a
+                                    weaker claim than "handled successfully" on
+                                    the AI Performance card, which also requires
+                                    the customer to have engaged. Same window,
+                                    same denominator, different bars — without
+                                    saying so, 8 here against 4 there reads as a
+                                    contradiction. */}
+                                <span className="text-gray-500">got an AI reply</span>
                               </span>
                               {c.human_convos > 0 && (
                                 <span className="flex items-center gap-1.5">
