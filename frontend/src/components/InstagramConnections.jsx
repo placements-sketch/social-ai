@@ -155,11 +155,14 @@ export default function InstagramConnections() {
         <button
           onClick={handleConnect}
           disabled={connecting}
-          className="btn-primary inline-flex items-center gap-1.5 shrink-0 disabled:opacity-60"
+          /* text-xs to match the identical button on Channels.jsx. Without it
+             this one inherits btn-primary's default size and the same action
+             renders visibly larger on one screen than the other. */
+          className="btn-primary inline-flex items-center gap-2 text-xs shrink-0 disabled:opacity-60"
         >
           {connecting
-            ? <Loader2 size={14} className="animate-spin" />
-            : <Plus size={14} />}
+            ? <Loader2 size={13} className="animate-spin" />
+            : <Plus size={13} />}
           Connect Instagram
         </button>
       </div>
