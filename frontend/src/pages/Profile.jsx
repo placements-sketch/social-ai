@@ -131,27 +131,23 @@ export default function Profile() {
           opens with a piece of the brand instead of a fourth grey rectangle. */}
       <div className="card rounded-3xl overflow-hidden mb-5">
         <div className="relative h-28 sm:h-32 overflow-hidden">
-          {/* The brand mark itself, not an approximation of it in gradient
-              stops. `repeat` at a fixed size rather than `cover`: the asset is
-              a square logo tile, and stretching one copy across a 32-unit-tall
-              band would crop it to an unreadable slice of the S. Tiled, it
-              reads as brand texture. */}
+          {/* Black field, one mark. The asset's own ground is black, so the
+              band extends it rather than framing it — no visible edge where the
+              image stops. */}
+          <div className="absolute inset-0 bg-black" />
+
+          {/* Placed right, clear of the avatar breaking the lower-left edge.
+              `contain` so the logo is never cropped: the tile is square and the
+              band is wide, so any `cover` fit would slice the wordmark off. */}
           <div
-            className="absolute inset-0"
+            className="absolute inset-y-0 right-5 w-28 sm:w-32"
             style={{
               backgroundImage: `url(${szBanner})`,
-              backgroundRepeat: 'repeat',
-              backgroundSize: '112px 112px',
+              backgroundRepeat: 'no-repeat',
+              backgroundSize: 'contain',
               backgroundPosition: 'center',
             }}
           />
-          {/* Held back so the avatar, the name and the wordmark stay legible on
-              top. The tile is high-contrast black and white; at full strength
-              it competes with everything placed over it. */}
-          <div className="absolute inset-0 bg-black/45" />
-          <span className="absolute top-4 right-5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70">
-            Shop Zetu
-          </span>
         </div>
 
         <div className="px-5 sm:px-7 pb-6">
