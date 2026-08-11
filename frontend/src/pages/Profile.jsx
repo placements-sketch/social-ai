@@ -131,17 +131,20 @@ export default function Profile() {
           opens with a piece of the brand instead of a fourth grey rectangle. */}
       <div className="card rounded-3xl overflow-hidden mb-5">
         <div className="relative h-28 sm:h-32 overflow-hidden">
-          {/* Black field, one mark. The asset's own ground is black, so the
-              band extends it rather than framing it — no visible edge where the
-              image stops. */}
-          <div className="absolute inset-0 bg-black" />
-
-          {/* Placed right, clear of the avatar breaking the lower-left edge.
-              `contain` so the logo is never cropped: the tile is square and the
-              band is wide, so any `cover` fit would slice the wordmark off. */}
+          {/* One element, the image across the whole band.
+              The colour is set inline, NOT with bg-black: index.css remaps
+              `.dark .bg-black` to var(--brand), so the div added to make this
+              band black rendered it lime — the green was the fix, not the thing
+              being fixed.
+              The asset's own ground is this same black, so the logo sits in the
+              middle of an unbroken field with no seam at its edges. `contain`
+              because the tile is square and the band is wide: `cover` would
+              scale it until only a horizontal slice through the middle of the S
+              survived, wordmark cropped away. */}
           <div
-            className="absolute inset-y-0 right-5 w-28 sm:w-32"
+            className="absolute inset-0"
             style={{
+              backgroundColor: '#0a0a0a',
               backgroundImage: `url(${szBanner})`,
               backgroundRepeat: 'no-repeat',
               backgroundSize: 'contain',
