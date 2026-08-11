@@ -101,12 +101,25 @@ def _format_variants_inline(product: dict) -> tuple[str, str]:
             sold_out_labels.append(label)
             continue
 
+        # A markdown is worth saying out loud. Shopify sets compare_at_price
+        # above price when an item is reduced, and this store runs its sales
+        # that way rather than through discount codes — no automatic discount is
+        # active, yet a fifth of the catalogue is marked down. Without this the
+        # assistant quotes the sale price as if it were the normal price and the
+        # customer never learns they are saving anything.
+        was = v.get('compare_at_price')
+        try:
+            markdown = (f" was {float(was):,.0f}"
+                        if was and float(was) > float(v.get('price') or 0) else "")
+        except (TypeError, ValueError):
+            markdown = ""
+
         if not tracked or qty is None:
-            in_stock_parts.append(f"{label} (in stock)")
+            in_stock_parts.append(f"{label} (in stock{markdown})")
         elif qty <= LOW_STOCK_THRESHOLD:
-            in_stock_parts.append(f"{label} ({qty} left LOW)")
+            in_stock_parts.append(f"{label} ({qty} left LOW{markdown})")
         else:
-            in_stock_parts.append(f"{label} ({qty} in stock)")
+            in_stock_parts.append(f"{label} ({qty} in stock{markdown})")
 
     in_stock_line = ", ".join(in_stock_parts)
     sold_out_note = f"Also sold out: {', '.join(sold_out_labels)}" if sold_out_labels else ""
@@ -757,6 +770,33 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
                 context_lines.append(
                     "Recommend the most relevant 1-2 available products with specific names and prices. "
                     "Don't list everything unless asked."
+                )
+
+        # Returns, exchanges and refunds — only when raised.
+        #
+        # Same reasoning as delivery: this is ~2,000 characters and most
+        # conversations are about a dress. Paying for it on every reply would be
+        # most of a prompt spent on a policy nobody asked about.
+        if context_data.get("returns_asked"):
+            returns_block = ""
+            try:
+                from app.settings import format_returns_for_prompt
+                returns_block = format_returns_for_prompt()
+            except Exception as e:
+                log_event("warn", "ai.generator.returns_inject_failed", str(e))
+            if returns_block:
+                context_lines.append(
+                    "The customer is asking about a return, exchange or refund. "
+                    "Answer ONLY from the policy below - never invent a window, a "
+                    "fee, an address or an eligibility rule. "
+                    "Two things it is easy to get wrong, and both matter. "
+                    "FIRST: sale items are EXCHANGE ONLY, no refund - if the "
+                    "product line above shows 'was N' it is reduced, so say "
+                    "exchange, not refund. "
+                    "SECOND: nothing is accepted unless customer support has "
+                    "started the return first; give the numbers and say that step "
+                    "comes before anything is packed or dropped off.\n\n"
+                    f"{returns_block}"
                 )
 
         if context_data.get("delivery_asked"):

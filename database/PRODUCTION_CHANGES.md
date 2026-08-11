@@ -2444,3 +2444,50 @@ reverted to older data. Re-running continues the job rather than undoing it.
 The second statement matters as much as the first: killing the Render process to
 stop a sync leaves its `sync_jobs` row saying `running` forever, and the UI will
 not start a new one while it thinks one is in flight.
+
+---
+
+### Step 35 — Sale prices the assistant could not see
+
+The app holds `read_discounts` and `read_price_rules` and has never used them —
+Shopify's own app page flags both as "Unused access, no activity in the last 30
+days". The obvious move was to wire them up. Checked first:
+
+```
+ACTIVE automatic discounts : 0
+products sampled           : 100
+with a compareAtPrice markdown : 22
+```
+
+**This store does not run sales through discount codes.** It marks products
+down, which shows up as `compare_at_price` above `price` on the variant — and
+that needs only `read_products`, which we already had. Wiring up the discount
+APIs would have returned an empty list.
+
+What we were doing instead: dropping `compare_at_price` on every sync, so the
+assistant quoted "KES 1,825" for a dress reduced from 2,900 and never mentioned
+the saving. A fifth of the catalogue, silently.
+
+No schema change — `variants_detail` is JSON, so the new key lands with the next
+product sync. Run one after deploying:
+
+```sql
+-- Before: expect 0.
+SELECT count(*) FROM products_cache
+ WHERE variants_detail::text LIKE '%compare_at_price%';
+
+-- After a product sync, expect most rows. Spot-check a marked-down item:
+SELECT name, variants_detail -> 0 ->> 'price'             AS price,
+              variants_detail -> 0 ->> 'compare_at_price' AS was
+  FROM products_cache
+ WHERE variants_detail -> 0 ->> 'compare_at_price' IS NOT NULL
+ LIMIT 5;
+```
+
+**A markdown is only a markdown when compare_at_price is HIGHER than price.**
+Shopify allows the reverse, and treating that as a sale would advertise a
+discount that does not exist — the check is explicit for that reason.
+
+`read_discounts` and `read_price_rules` remain unused. Worth keeping: the moment
+someone runs a code-based promotion they become the right source, and asking for
+a scope back later is harder than holding one.

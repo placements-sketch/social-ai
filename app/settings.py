@@ -85,6 +85,18 @@ DEFAULTS = {
     "delivery": {
         "zones": [],
         "notes": "",
+        # The returns and exchanges policy, verbatim.
+        #
+        # Lives here rather than in business.about because about goes into
+        # EVERY reply and this is ~2,000 characters — most conversations are
+        # about a dress, not a return. Injected only when the customer raises
+        # one, the same way delivery zones are.
+        #
+        # Worth stating plainly because it is the line most often got wrong:
+        # SALE ITEMS ARE EXCHANGE ONLY, no refund. The assistant now knows
+        # which products are marked down (compare_at_price), so it can apply
+        # that rule instead of promising a refund the business will not give.
+        "returns_policy": "",
     },
     "notifications": {
         "discord_enabled": True,
@@ -177,6 +189,14 @@ def week_starts_on_sunday() -> bool:
         return (get_section("business").get("week_starts_on") or "").strip().lower() == "sunday"
     except Exception:
         return False
+
+def format_returns_for_prompt() -> str:
+    """The returns policy for the AI prompt. Empty if unconfigured."""
+    try:
+        return (get_section("delivery").get("returns_policy") or "").strip()
+    except Exception:
+        return ""
+
 
 def format_delivery_for_prompt() -> str:
     """Delivery zones + notes for the AI system prompt. Empty if unconfigured."""
