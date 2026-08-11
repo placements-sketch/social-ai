@@ -86,7 +86,12 @@ function ProductDetailModal({ product, onClose }) {
                   href={`https://www.shopzetu.com/products/${product.handle}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                  /* Lime fill, black glyph and label. bg-brand-500 rather
+                     than btn-primary: that class is bg-black, which the dark
+                     theme remaps to the brand colour anyway — so in light mode
+                     it would have been a black button and in dark a lime one,
+                     the same control looking like two different things. */
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold bg-brand-500 hover:bg-brand-400 text-black transition-colors"
                   title="Open this product on shopzetu.com"
                 >
                   <ExternalLink size={13} /> See live
