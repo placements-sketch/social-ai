@@ -6,6 +6,7 @@ import {
   AlertCircle, ImageOff, Inbox,
 } from 'lucide-react'
 import clsx from 'clsx'
+import ChannelIcon from '../components/ChannelIcon'
 import {
   listConversations, getConversation, sendReply, toggleAI, markRead,
   assignConversation, unassignConversation, listAgents, deleteMessage, editMessage,
@@ -17,26 +18,12 @@ import { ConfirmationContext } from '../context/ConfirmationContext'
 import { useAuth } from '../context/AuthContext'
 import { parseBackendTime, formatTimeOfDay, formatTimeAgo, formatDateAgo } from '../utils/time'
 
-const FbIcon = () => (
-  <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[9px]"
-    style={{ background: '#1877F2' }}>f</span>
-)
-
-const TikTokIcon = () => (
-  <span className="inline-flex items-center justify-center w-3 h-3 rounded text-white font-black text-[9px]"
-    style={{ background: '#000000' }}>♪</span>
-)
-
 // Conversations carry `platform` (an alias of the DB `channel`) for display.
-const platformIcon = (p) => {
-  if (p === 'instagram_dm')      return <Instagram size={12} className="text-pink-500" />
-  if (p === 'instagram_comment') return <MessageCircle size={12} className="text-pink-500" />
-  if (p === 'whatsapp')          return <Smartphone size={12} className="text-green-500" />
-  if (p === 'facebook_dm')       return <FbIcon />
-  if (p === 'facebook_comment')  return <FbIcon />
-  if (p === 'tiktok_dm')         return <TikTokIcon />
-  if (p === 'tiktok_comment')    return <TikTokIcon />
-}
+//
+// The local FbIcon/TikTokIcon and this mapping are gone — Dashboard.jsx and
+// Channels.jsx each had their own, with different glyphs and sizes for the same
+// channel. ChannelIcon is the one definition.
+const platformIcon = (p) => <ChannelIcon channel={p} size="xs" bare />
 
 const platformLabel = (p) => {
   if (p === 'instagram_dm')      return 'Instagram DM'

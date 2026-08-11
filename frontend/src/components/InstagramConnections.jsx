@@ -4,6 +4,7 @@ import {
   AlertTriangle, XCircle, Loader2, HelpCircle, ShieldCheck,
 } from 'lucide-react'
 import clsx from 'clsx'
+import ChannelIcon from './ChannelIcon'
 import { useToast } from './Toast'
 import {
   listConnections, startInstagramConnect, refreshConnection, disconnectConnection,
@@ -201,9 +202,8 @@ export default function InstagramConnections() {
                 c.is_active ? 'bg-gray-50' : 'bg-gray-50 opacity-60'
               )}
             >
-              <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                <Instagram size={15} className="text-pink-500" />
-              </div>
+              {/* The design the rest of the app now follows. */}
+              <ChannelIcon channel="instagram" size="md" />
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">

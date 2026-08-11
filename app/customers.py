@@ -318,7 +318,20 @@ def _serialize_customer(c, vip_threshold):
         'days_since_last_order': days_since,
         'first_order_date': c.first_order_date.isoformat() if c.first_order_date else None,
         'created_at': c.shopify_created_at.isoformat() if c.shopify_created_at else None,
-        'segment': compute_segment(c, vip_threshold),
+        # The STORED segment, not a fresh calculation.
+        #
+        # This called compute_segment() per row while the filter and the chip
+        # counts both read the stored column — so the three disagreed the moment
+        # anything moved. And compute_segment turns on days-since-last-order,
+        # which changes at midnight with no sync involved: a customer who
+        # ordered 61 days ago stopped being VIP overnight, the badge updated
+        # instantly, and the column still said vip. Clicking VIP then returned
+        # rows whose badges said something else.
+        #
+        # One source now. refresh_all_segments() rewrites the column in a single
+        # statement, so the badge, the count and the filter always agree.
+        # Falls back to computing only when the column has never been written.
+        'segment': c.segment or compute_segment(c, vip_threshold),
         'rfm_r': c.rfm_r,
         'rfm_f': c.rfm_f,
         'rfm_m': c.rfm_m,
@@ -987,6 +1000,19 @@ def sync_customers():
                 return
             db.session.expunge_all()  # release per-row references between chunks
 
+        # Segments last, after every total_spent and last_order_date is current.
+        #
+        # The upsert already sets a segment per row, but only for customers this
+        # sync touched — and segments also move with the CALENDAR, not just the
+        # data. A customer crosses 60/90/180 days at midnight with nothing
+        # syncing. One statement over the whole table keeps the badge, the chip
+        # count and the table filter reading the same value.
+        try:
+            update_progress("Recomputing segments...")
+            refresh_all_segments()
+        except Exception as e:
+            log_event("warn", "customers.segment_refresh_failed", str(e)[:160])
+
         # Refresh the Shopify analytics caches here, off the request path.
         #
         # They used to be filled lazily by whichever page load found them cold —
@@ -1211,3 +1237,81 @@ def cancel_customers_sync():
               f"{user.full_name} asked the customer sync to stop",
               payload={'job_id': job.id})
     return jsonify({'current_job': job.to_dict()}), 200
+
+
+def refresh_all_segments():
+    """
+    Recompute every customer's segment in one statement.
+
+    Segments turn on days-since-last-order, so they go stale with the calendar
+    rather than with the data — a customer crosses the 60/90/180-day boundaries
+    at midnight whether or not anything synced. Recomputing per request made the
+    badge disagree with the filter and the counts; recomputing per row in Python
+    would be 162,211 round trips.
+
+    This mirrors compute_segment() exactly, in the same order, because that
+    function is first-match-wins and the order IS the logic. If you change one,
+    change the other — they are two expressions of one rule, and there is no
+    third place that reconciles them.
+
+    Returns the number of rows whose segment actually changed.
+    """
+    vip_threshold = _vip_threshold()
+    # Two things this has to get exactly right, both found by diffing the SQL
+    # against compute_segment() over 3,000 real rows (26 disagreed):
+    #
+    # 1. now() is TIMESTAMPTZ in the session zone — Africa/Nairobi, +03:00 —
+    #    while last_order_date is a naive UTC timestamp. Comparing them shifted
+    #    every boundary by three hours. `now() AT TIME ZONE 'UTC'` gives a naive
+    #    UTC value that lines up with what we store.
+    #
+    # 2. Python's (now - last_order).days FLOORS. So `days > 180` means at least
+    #    181 whole days elapsed, not "more than 180.0" — the intervals below are
+    #    off-by-one from the numbers in compute_segment's docstring on purpose.
+    #      days <= 60  ->  elapsed < 61
+    #      days >  90  ->  elapsed >= 91
+    #      days > 180  ->  elapsed >= 181
+    sql = db.text("""
+        WITH now_utc AS (SELECT (now() AT TIME ZONE 'UTC') AS t),
+        computed AS (
+            SELECT c.id,
+                   CASE
+                     WHEN COALESCE(c.total_orders, 0) = 0 THEN 'never_bought'
+                     WHEN COALESCE(c.total_spent, 0) >= :vip
+                          AND c.last_order_date IS NOT NULL
+                          AND c.last_order_date > n.t - interval '61 days'
+                          THEN 'vip'
+                     WHEN COALESCE(c.total_orders, 0) >= 5
+                          AND c.last_order_date IS NOT NULL
+                          AND c.last_order_date > n.t - interval '61 days'
+                          THEN 'loyal'
+                     WHEN c.last_order_date IS NOT NULL
+                          AND c.last_order_date <= n.t - interval '181 days'
+                          AND COALESCE(c.total_orders, 0) >= 2
+                          THEN 'churned'
+                     WHEN c.last_order_date IS NOT NULL
+                          AND c.last_order_date <= n.t - interval '91 days'
+                          AND COALESCE(c.total_orders, 0) >= 2
+                          THEN 'at_risk'
+                     WHEN COALESCE(c.total_orders, 0) = 1
+                          AND c.shopify_created_at IS NOT NULL
+                          AND c.shopify_created_at > n.t - interval '31 days'
+                          THEN 'new'
+                     ELSE 'regular'
+                   END AS seg
+              FROM customers_cache c CROSS JOIN now_utc n
+        )
+        UPDATE customers_cache c
+           SET segment = computed.seg
+          FROM computed
+         WHERE c.id = computed.id
+           AND c.segment IS DISTINCT FROM computed.seg
+    """)
+    result = db.session.execute(sql, {'vip': vip_threshold})
+    changed = result.rowcount or 0
+    db.session.commit()
+    log_event("info", "customers.segments_refreshed",
+              f"Recomputed segments — {changed:,} changed "
+              f"(VIP threshold KES {vip_threshold:,.0f})",
+              payload={'changed': changed, 'vip_threshold': vip_threshold})
+    return changed

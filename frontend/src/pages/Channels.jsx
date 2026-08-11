@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from 'react'
 import { Instagram, Smartphone, MessageCircle, CheckCircle, AlertTriangle, ExternalLink, Loader2, Copy, Check, Zap, ZapOff, Plus, CheckCircle2 } from 'lucide-react'
 import clsx from 'clsx'
+import ChannelIcon from '../components/ChannelIcon'
 import { SkeletonHeader, SkeletonList } from '../components/Skeleton'
 import { ConfirmationContext } from '../context/ConfirmationContext'
 import { parseBackendTime } from '../utils/time'
@@ -119,13 +120,13 @@ function ChannelRow({ ch, config, testingChannelId, testResults, onToggle, onTes
 
   return (
     <div className="flex items-center gap-5 px-5 py-4 hover:bg-gray-50/60 transition-colors group">
-      {/* Icon */}
-      <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: config.accentLight }}
-      >
-        <config.Icon size={20} />
-      </div>
+      {/* Icon.
+          Was a hardcoded accentLight tint (#fdf2f8 and friends) — a light
+          value with no dark-mode counterpart, so these tiles stayed pale
+          against a dark page while the connections list beside them used the
+          themed treatment. ChannelIcon uses bg-gray-100, which the dark
+          stylesheet already remaps. */}
+      <ChannelIcon channel={ch.channel} size="lg" />
 
       {/* Name + description */}
       <div className="flex-1 min-w-0">
@@ -546,9 +547,7 @@ export default function Channels({ embedded = false }) {
               const config = channelConfig[ch.channel]
               return (
                 <div key={ch.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/60 transition-colors">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: config?.accentLight }}>
-                    {config && <config.Icon size={16} />}
-                  </div>
+                  <ChannelIcon channel={ch.channel} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-gray-600 mb-0.5">{config?.name || ch.display_name}</p>
                     <p className="text-xs font-mono text-brand-600 truncate">{ch.webhook_url}</p>

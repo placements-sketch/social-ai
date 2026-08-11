@@ -484,6 +484,20 @@ def cron_sync_customers():
         # (A delta run only sees changed customers, so existing_ids - seen_ids
         #  would wrongly target almost the whole table.)
 
+        # Segments over the WHOLE table, not just the rows this delta touched.
+        #
+        # This is the run that matters for segments. A delta sync only sees
+        # customers Shopify marked as changed, but segments move with the
+        # calendar — everyone crosses 60/90/180 days at midnight whether or not
+        # they did anything. Without this, an untouched customer keeps whatever
+        # segment they had on the day they last ordered, forever.
+        try:
+            update_progress("Recomputing segments...")
+            from app.customers import refresh_all_segments
+            refresh_all_segments()
+        except Exception as e:
+            log_event("warn", "cron.segment_refresh_failed", str(e)[:160])
+
         # ── Advance watermark — only reached on successful completion ──────
         state = SyncState.query.filter_by(kind='customers').first()
         if state is None:

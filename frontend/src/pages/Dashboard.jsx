@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
+import ChannelIcon from '../components/ChannelIcon'
 import { displayForExternalId } from '../utils/identity'
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
@@ -193,17 +194,11 @@ const channelStatus = (c) => {
   return { label: 'Healthy', cls: 'bg-green-50 text-green-700' }
 }
 
-const channelIcon = (ch) => {
-  if (ch === 'instagram_dm' || ch === 'instagram_comment') return <Instagram size={13} className="text-pink-500" />
-  if (ch === 'whatsapp')       return <Smartphone size={13} className="text-green-500" />
-  if (ch === 'facebook_dm' || ch === 'facebook_comment')
-    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-white font-black text-[10px]" style={{ background: '#1877F2' }}>f</span>
-  if (ch === 'tiktok_dm' || ch === 'tiktok_comment')
-    return <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded font-black text-[10px]" style={{ background: '#000000', color: '#ffffff' }}>♪</span>
-  if (ch === 'shopify')        return <ShoppingBag size={13} className="text-emerald-500" />
-  if (ch === 'alert')          return <AlertTriangle size={13} className="text-amber-500" />
-  return <Bot size={13} className="text-brand-500" />
-}
+// One definition, shared with Messages and Channels. This had its own Facebook
+// mark (an inline "f" on a blue square) and its own TikTok glyph (a "♪"), both
+// different from the other two pages'.
+const channelIcon = (ch) => <ChannelIcon channel={ch} size="xs" bare />
+
 
 // Separate component for activity item to use the useTimeAgo hook
 function ActivityItem({ item }) {
