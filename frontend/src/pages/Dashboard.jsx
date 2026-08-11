@@ -1373,7 +1373,17 @@ export default function Dashboard() {
                                     : key === 'escalated' ? 'bg-purple-400' : 'bg-gray-300')} />
                                 <span>
                                   <span className="font-bold text-gray-900 tabular-nums">{count}</span>{' '}
-                                  {key === 'failed'    ? 'failed — the AI could not produce a reply'
+                                  {/* "hit an error" not "could not reply".
+                                      A conversation lands in this bucket when
+                                      it has at least one generator failure and
+                                      did not reach the success bar — it may
+                                      still have been answered on another turn,
+                                      which is why Channel Performance can show
+                                      every conversation getting an AI reply
+                                      while these three also errored. The old
+                                      wording claimed more than the set holds
+                                      and made the two cards contradict. */}
+                                  {key === 'failed'    ? 'hit an error — a reply attempt failed'
                                    : key === 'escalated' ? 'escalated — handed to a person'
                                    : 'answered, but the customer did not come back'}
                                 </span>
@@ -1668,6 +1678,14 @@ export default function Dashboard() {
                             <p className="text-[12px] text-gray-500 mb-1.5">
                               <span className="font-bold text-gray-900 tabular-nums">{c.handled_convos}</span>
                               {' '}conversation{c.handled_convos === 1 ? '' : 's'} the AI was on duty for
+                            </p>
+                            {/* Says which question this box answers, because
+                                the AI Performance card answers a different one
+                                over the same conversations and the two were
+                                read as disagreeing. */}
+                            <p className="text-[11px] text-gray-400 mb-1.5 leading-snug">
+                              Whether anyone replied at all. How well those replies went is on the
+                              AI performance card.
                             </p>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
                               <span className="flex items-center gap-1.5">
