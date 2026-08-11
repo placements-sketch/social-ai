@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import szBanner from '../images/sz-bg.jpg'
 import { User, Lock, Save, Eye, EyeOff, ShieldCheck, Calendar } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
@@ -129,18 +130,26 @@ export default function Profile() {
           A tinted band with the avatar breaking its lower edge, so the page
           opens with a piece of the brand instead of a fourth grey rectangle. */}
       <div className="card rounded-3xl overflow-hidden mb-5">
-        <div className="relative h-28 sm:h-32" style={{
-          // Brand 500 → 600 → 700. Was three hand-picked stops on the old hue,
-          // which the palette swap left stranded a different colour from
-          // everything around them. Using ramp members means the next change
-          // carries them too.
-          background: 'linear-gradient(115deg, #99e600 0%, #81c200 42%, #669900 100%)',
-        }}>
-          {/* Soft vignette so the avatar's ring has something to sit against. */}
-          <div className="absolute inset-0" style={{
-            background: 'radial-gradient(120% 140% at 82% -20%, rgba(255,255,255,0.42), transparent 58%)',
-          }} />
-          <span className="absolute top-4 right-5 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">
+        <div className="relative h-28 sm:h-32 overflow-hidden">
+          {/* The brand mark itself, not an approximation of it in gradient
+              stops. `repeat` at a fixed size rather than `cover`: the asset is
+              a square logo tile, and stretching one copy across a 32-unit-tall
+              band would crop it to an unreadable slice of the S. Tiled, it
+              reads as brand texture. */}
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${szBanner})`,
+              backgroundRepeat: 'repeat',
+              backgroundSize: '112px 112px',
+              backgroundPosition: 'center',
+            }}
+          />
+          {/* Held back so the avatar, the name and the wordmark stay legible on
+              top. The tile is high-contrast black and white; at full strength
+              it competes with everything placed over it. */}
+          <div className="absolute inset-0 bg-black/45" />
+          <span className="absolute top-4 right-5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70">
             Shop Zetu
           </span>
         </div>
