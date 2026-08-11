@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { initials } from '../utils/identity'
 import { useToast } from './Toast'
 import Celebration from './Celebration'
 import {
@@ -744,7 +745,7 @@ export default function TopBar({ onMenuClick }) {
             className="flex items-center justify-center w-8 h-8 rounded-full bg-black hover:bg-gray-800 transition-colors"
           >
             <div className="text-white text-xs font-medium">
-              {user?.full_name?.charAt(0).toUpperCase() || 'U'}
+              {initials(user?.full_name)}
             </div>
           </button>
 

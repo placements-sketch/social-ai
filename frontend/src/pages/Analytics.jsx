@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { initials } from '../utils/identity'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
@@ -875,7 +876,7 @@ export default function Analytics() {
                     <tr key={a.agent?.id || name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-3">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-7 h-7 rounded-full bg-gray-900 text-white text-[12px] font-semibold flex items-center justify-center shrink-0">{name.charAt(0).toUpperCase()}</span>
+                          <span className="w-7 h-7 rounded-full bg-gray-900 text-white text-[12px] font-semibold flex items-center justify-center shrink-0">{initials(name)}</span>
                           <span className="font-medium text-gray-800 truncate">{name}</span>
                         </div>
                       </td>

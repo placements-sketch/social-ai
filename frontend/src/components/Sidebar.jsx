@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { initials } from '../utils/identity'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, MessageSquare, Package, Bot,
@@ -340,7 +341,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
           <div className={clsx('flex-col items-center', collapsed ? 'md:flex hidden' : 'hidden')}>
             <div className="relative" title={`${user?.full_name || 'User'} · ${user?.role || ''}`}>
               <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
-                {user?.full_name?.charAt(0).toUpperCase() || 'U'}
+                {initials(user?.full_name)}
               </div>
               <PresenceDot
                 status={user?.presence || 'online'}
@@ -353,7 +354,7 @@ export default function Sidebar({ collapsed, onToggle, onClose, isMobile = false
 
         <div className={clsx('flex items-center gap-2.5', isMobile ? 'flex' : (collapsed ? 'md:hidden flex' : 'flex'))}>
           <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
-            {user?.full_name?.charAt(0).toUpperCase() || 'U'}
+            {initials(user?.full_name)}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[14px] font-semibold text-white truncate">{user?.full_name || 'User'}</p>

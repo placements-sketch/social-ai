@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { initials } from '../utils/identity'
 import szBanner from '../images/sz-bg.jpg'
 import { User, Lock, Save, Eye, EyeOff, ShieldCheck, Calendar } from 'lucide-react'
 import clsx from 'clsx'
@@ -53,7 +54,7 @@ export default function Profile() {
   const [pwMsg, setPwMsg] = useState(null)
 
   const strength = strengthOf(newPw)
-  const initial = user?.full_name?.charAt(0).toUpperCase() || 'U'
+  const initial = initials(user?.full_name)
   const memberSince = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-KE', { month: 'long', year: 'numeric' })
     : null

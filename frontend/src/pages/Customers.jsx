@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { initials } from '../utils/identity'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
@@ -1047,7 +1048,7 @@ export default function Customers() {
               {customers.map(c => {
                 const meta = SEGMENT_META[c.segment] || SEGMENT_META.regular
                 const SegIcon = meta.icon
-                const initial = (c.name || '?').charAt(0).toUpperCase()
+                const initial = initials(c.name)
                 return (
                   <div
                     key={c.id}
