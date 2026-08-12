@@ -1114,6 +1114,74 @@ def _refunded_total(o):
     return total
 
 
+def _refund_rows(o):
+    """
+    One row per refund on this order, each with its own date.
+
+    Monthly Returns cannot be derived from a per-order total. Shopify attributes
+    a return to the date the REFUND was processed, not the date of the order —
+    an order placed in March and refunded in May reduces May, not March. Summing
+    a lifetime per-order column by `order_date` moves money into the wrong month
+    in both directions and no total anywhere would reveal it.
+
+    Two different amounts come back, and they are not interchangeable:
+
+      goods_subtotal - the value of the items sent back, from refund_line_items.
+                       THIS is Shopify's "Returns" line. It excludes refunded
+                       tax and shipping, because the breakdown subtracts those
+                       through the Taxes and Shipping lines instead. Using the
+                       money-moved figure here would double-count them.
+
+      amount_refunded - what actually left the bank, summed from settled refund
+                        transactions. Right for "how much did we pay back",
+                        wrong for the Returns line.
+
+    Returns [] when the order has no refunds, and [] when the payload never
+    carried them — the caller cannot tell the difference and does not need to,
+    because absent refunds contribute nothing to a sum either way.
+    """
+    out = []
+    for r in (o.get('refunds') or []):
+        rid = r.get('id')
+        if rid is None:
+            continue
+
+        goods = tax = 0.0
+        for li in (r.get('refund_line_items') or []):
+            goods += _money(li.get('subtotal')) or 0.0
+            tax += _money(li.get('total_tax')) or 0.0
+
+        moved = 0.0
+        for t in (r.get('transactions') or []):
+            # Only settled money. A 'pending' or 'failure' row is not a refund.
+            if t.get('kind') == 'refund' and t.get('status') == 'success':
+                moved += _money(t.get('amount')) or 0.0
+
+        # Note: goods_subtotal is counted independently of whether any money
+        # moved, and that is deliberate but not certain. A refund can carry
+        # returned line items with no successful transaction — goods came back
+        # but the customer took store credit or an exchange. Those ARE returns.
+        # The cost of the choice is that a genuinely pending refund also lands
+        # in the Returns line early. Which behaviour matches Shopify is a
+        # question the reconciliation against ShopifyQL should answer before
+        # these figures are displayed; both amounts are stored so it can be
+        # re-derived either way without another sync.
+
+        out.append({
+            'shopify_refund_id': str(rid),
+            'shopify_order_id': str(o.get('id')),
+            # processed_at is when the money moved; created_at is when the
+            # refund record was opened. Shopify's reporting follows the former,
+            # and they differ whenever a refund is drafted and settled later.
+            'refund_date': r.get('processed_at') or r.get('created_at'),
+            'goods_subtotal': goods,
+            'goods_tax': tax,
+            'amount_refunded': moved,
+            'currency': o.get('currency'),
+        })
+    return out
+
+
 def _real_list_all_orders() -> list[dict]:
     """
     GET /admin/api/2024-01/orders.json?status=any&limit=250
@@ -1159,6 +1227,9 @@ def _real_list_all_orders() -> list[dict]:
                     "total_refunded": _refunded_total(o),
                     "cancelled_at": o.get('cancelled_at'),
                     "is_test": bool(o.get('test')) if o.get('test') is not None else None,
+                    # Individual refunds, each carrying its own date — monthly
+                    # Returns belongs to the refund's month, not the order's.
+                    "refunds": _refund_rows(o),
                 })
 
             link_header = response.headers.get('Link', '')
@@ -1265,6 +1336,9 @@ def _real_iter_all_orders(start_url=None, updated_at_min=None):
                     "total_refunded": _refunded_total(o),
                     "cancelled_at": o.get('cancelled_at'),
                     "is_test": bool(o.get('test')) if o.get('test') is not None else None,
+                    # Individual refunds, each carrying its own date — monthly
+                    # Returns belongs to the refund's month, not the order's.
+                    "refunds": _refund_rows(o),
                 }, next_url)
                 total_yielded += 1
 
@@ -1324,6 +1398,9 @@ def _real_get_customer_orders(shopify_customer_id: str) -> list[dict]:
                     "total_refunded": _refunded_total(o),
                     "cancelled_at": o.get('cancelled_at'),
                     "is_test": bool(o.get('test')) if o.get('test') is not None else None,
+                    # Individual refunds, each carrying its own date — monthly
+                    # Returns belongs to the refund's month, not the order's.
+                    "refunds": _refund_rows(o),
                 })
 
             # Pagination via Link header

@@ -20,6 +20,7 @@ from app.auth import log_audit, current_user_id
 from app.integrations.shopify import list_all_orders, iter_all_orders
 from app.sync_jobs import start_background_job, get_latest_job
 from app.customers import compute_segment, _vip_threshold, recompute_rfm, _dec
+from app.refunds import upsert_refunds
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
 
@@ -150,6 +151,12 @@ def sync_orders():
                 existing_ids.add(spid)
                 added += 1
 
+            # Step 38 — refunds ride along in the same transaction as their
+            # orders. commit=False so an order batch and its refunds cannot be
+            # half-written: if this raises, the whole batch rolls back rather
+            # than leaving orders whose refunds never landed (which would read
+            # as revenue that was never returned).
+            upsert_refunds([snap for _spid, snap in buffer], commit=False)
             db.session.commit()
             db.session.expunge_all()
             buffer.clear()

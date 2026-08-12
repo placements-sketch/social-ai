@@ -573,6 +573,34 @@ class OrderCache(db.Model):
 # STOCK CACHE
 # ─────────────────────────────────────────────────────────────────────────────
 
+class RefundCache(db.Model):
+    """
+    One row per refund, added by Step 38.
+
+    Separate from orders_cache because monthly Returns belongs to the month the
+    REFUND was processed, not the month of the order. A per-order total summed
+    by order_date silently moves money between months while leaving the annual
+    figure correct — so nothing would ever flag it except finance.
+
+    `goods_subtotal` is Shopify's "Returns" line (items sent back, excluding
+    refunded tax and shipping). `amount_refunded` is the money that actually
+    moved. Using the second where the first belongs double-counts tax and
+    shipping, which are subtracted by their own lines in the breakdown.
+    """
+    __tablename__ = 'refunds_cache'
+
+    id                = db.Column(db.Integer, primary_key=True)
+    shopify_refund_id = db.Column(db.String(64), unique=True, nullable=False)
+    shopify_order_id  = db.Column(db.String(64), nullable=False, index=True)
+    # processed_at (when the money moved), falling back to created_at.
+    refund_date       = db.Column(db.DateTime, nullable=True, index=True)
+    goods_subtotal    = db.Column(db.Numeric(12, 2), nullable=True)
+    goods_tax         = db.Column(db.Numeric(12, 2), nullable=True)
+    amount_refunded   = db.Column(db.Numeric(12, 2), nullable=True)
+    currency          = db.Column(db.String(8), nullable=True)
+    cached_at         = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class StockCache(db.Model):
     __tablename__ = "stock_cache"
 

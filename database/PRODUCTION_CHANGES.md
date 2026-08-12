@@ -2661,3 +2661,72 @@ does not explain, but `is_test` and `cancelled_at` settle it directly: if the
 665 missing orders turn out to be flagged, Shopify was right and we replicate
 its exclusions; if they are ordinary paid orders, Reports is dropping revenue.
 Either way the columns are needed.
+
+---
+
+### Step 38 — Refunds get their own table, so monthly Returns lands in the right month
+
+Step 37 added `orders_cache.total_refunded`: one lifetime figure per order. That
+is enough for "what did this customer cost us" and **not** enough for a monthly
+Returns line, which is what the sales breakdown needs.
+
+Shopify attributes a return to the date the **refund** was processed, not the
+date of the order. An order placed in March and refunded in May reduces **May**.
+Summing a per-order column by `order_date` pushes that money into March —
+understating May and overstating March — and because the annual total still
+comes out right, nothing in any check would show it. Only the months are wrong,
+which is exactly what finance reads.
+
+So refunds need their own rows, each with its own date.
+
+```sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS refunds_cache (
+    id                 SERIAL PRIMARY KEY,
+    shopify_refund_id  VARCHAR(64)  NOT NULL UNIQUE,
+    shopify_order_id   VARCHAR(64)  NOT NULL,
+    refund_date        TIMESTAMP,
+    goods_subtotal     NUMERIC(12,2),
+    goods_tax          NUMERIC(12,2),
+    amount_refunded    NUMERIC(12,2),
+    currency           VARCHAR(8),
+    cached_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- The two ways this table gets read: "Returns for a month" and
+-- "everything refunded against this order".
+CREATE INDEX IF NOT EXISTS ix_refunds_cache_date  ON refunds_cache (refund_date);
+CREATE INDEX IF NOT EXISTS ix_refunds_cache_order ON refunds_cache (shopify_order_id);
+
+COMMIT;
+```
+
+Populated by the same order sync as Step 37 — Shopify returns the full `refunds`
+array inside each order payload, so this costs no extra API calls.
+
+**Two amounts per refund, and they are not interchangeable**
+
+| Column | Is | Use for |
+|---|---|---|
+| `goods_subtotal` | Value of the items sent back, from `refund_line_items` | **The "Returns" line.** Excludes refunded tax and shipping because the breakdown already subtracts those via its own Taxes and Shipping lines |
+| `amount_refunded` | What actually left the bank, from settled refund transactions | "How much did we pay back" — a real question, but the wrong number for Returns |
+
+Using `amount_refunded` in the Returns line double-counts refunded tax and
+shipping and will not reconcile against Shopify. `goods_tax` is kept so the tax
+portion can be netted off the Taxes line when the computed breakdown is built.
+
+Only transactions with `kind='refund'` and `status='success'` are counted. A
+pending or failed refund is not money returned, and counting it understates
+sales.
+
+`refund_date` prefers the refund's `processed_at` over `created_at` — the former
+is when the money moved, and they differ whenever a refund is drafted and
+settled later.
+
+**Run Steps 37 and 38 BEFORE deploying the code that goes with them.**
+
+This is a hard ordering dependency, not a preference. The models now declare the
+new columns and table, so every order INSERT names them. Deploying first means
+the order sync fails outright — and the nightly cron with it — until the SQL
+lands. SQL first, then deploy, then re-sync orders.

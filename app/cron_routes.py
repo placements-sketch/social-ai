@@ -310,6 +310,7 @@ def cron_sync_customers():
     from app.integrations.shopify import list_all_customers
     from app.models import CustomerCache
     from app.customers import _truncate, _parse_dt, _dec
+    from app.refunds import upsert_refunds
     from decimal import Decimal
 
     def do_sync(job):
@@ -654,6 +655,11 @@ def cron_sync_orders():
                 existing_ids.add(spid)
                 added += 1
 
+            # Step 38 — refunds ride along in the same transaction as their
+            # orders. commit=False so the pair cannot be half-written: if this
+            # raises, the batch rolls back instead of leaving orders whose
+            # refunds never landed, which would read as revenue never returned.
+            upsert_refunds([snap for _spid, snap in buffer], commit=False)
             db.session.commit()
             db.session.expunge_all()
             buffer.clear()

@@ -152,7 +152,8 @@ def _handle_order(data: dict):
     from app.customers import compute_segment, _vip_threshold, _truncate, _dec
     # Same two helpers the sync paths use, so a webhook-written row and a
     # sync-written row can never disagree about what "shipping" means.
-    from app.integrations.shopify import _shipping_total, _refunded_total
+    from app.integrations.shopify import _shipping_total, _refunded_total, _refund_rows
+    from app.refunds import upsert_refunds
 
     oid = str(data.get('id') or '')
     if not oid:
@@ -188,6 +189,15 @@ def _handle_order(data: dict):
     row.total_refunded      = _dec(_refunded_total(data))
     row.cancelled_at        = _parse_dt(data.get('cancelled_at'))
     row.is_test             = bool(data.get('test')) if data.get('test') is not None else None
+
+    # Step 38 — individual refunds, with their own dates.
+    #
+    # This path carries the most weight of the four: a refund processed today
+    # arrives here immediately, whereas the syncs would not record it until the
+    # next full pass. Since monthly Returns is keyed on the refund date, a
+    # refund captured late still lands in the correct month — but only if it is
+    # captured at all, and between full syncs this is the only thing that does.
+    upsert_refunds([{'refunds': _refund_rows(data)}], commit=False)
     db.session.commit()
 
     log_event("info", "shopify_webhook.order_upserted",
