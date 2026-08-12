@@ -1104,6 +1104,12 @@ def _refunded_total(o):
     if 'refunds' not in o:
         return None
     refunds = o.get('refunds') or []
+    # Same trap as _refund_rows: the list endpoint omits refund transactions, so
+    # an order with real refunds would total 0.0 here and claim nothing was ever
+    # refunded. If any refund on this order withheld its transactions, the total
+    # is unknowable and must stay NULL rather than become a floor.
+    if any(r.get('transactions') is None for r in refunds):
+        return None
     total = 0.0
     for r in refunds:
         for t in (r.get('transactions') or []):
@@ -1151,11 +1157,25 @@ def _refund_rows(o):
             goods += _money(li.get('subtotal')) or 0.0
             tax += _money(li.get('total_tax')) or 0.0
 
-        moved = 0.0
-        for t in (r.get('transactions') or []):
-            # Only settled money. A 'pending' or 'failure' row is not a refund.
-            if t.get('kind') == 'refund' and t.get('status') == 'success':
-                moved += _money(t.get('amount')) or 0.0
+        # No transactions array at all -> we were not told, so NULL.
+        #
+        # This shipped as 0.0 and wrote a confident "nothing was refunded" into
+        # 87% of rows: orders.json's LIST response carries refund_line_items but
+        # not the refund transactions, which only arrive on a single-order
+        # fetch. Summing that column understated money refunded by 13x, and a
+        # column of zeroes looks like data rather than absence — the exact
+        # failure the nullable columns elsewhere exist to prevent.
+        #
+        # Present but empty, or present with nothing settled, is a real zero.
+        txns = r.get('transactions')
+        if txns is None:
+            moved = None
+        else:
+            moved = 0.0
+            for t in txns:
+                # Only settled money. 'pending' or 'failure' is not a refund.
+                if t.get('kind') == 'refund' and t.get('status') == 'success':
+                    moved += _money(t.get('amount')) or 0.0
 
         # Note: goods_subtotal is counted independently of whether any money
         # moved, and that is deliberate but not certain. A refund can carry

@@ -2783,3 +2783,59 @@ failing or it has not advanced the watermark since 2 July — which is also why
 `orders_cache` holds nothing newer than that date. Fixing the backfill does not
 explain the six-week gap, and the gap will come back if whatever caused it is
 still there.
+
+---
+
+### Step 40 — Correction to Step 38: refunded amounts of 0.00 are unknown, not zero
+
+Step 38 shipped `amount_refunded` defaulting to `0.0` whenever no settled refund
+transaction was found. Against production that produced:
+
+```
+refunds                 51,818
+amount_refunded = 0     47,543   (92%)
+  of which goods > 0    44,981   (87%)
+```
+
+Those rows do not mean nothing was refunded. `orders.json`'s **list** response
+carries `refund_line_items` but not the refund **transactions** — those arrive
+only on a single-order fetch. So the filter matched nothing and wrote a
+confident zero. Summed, it reported KES 16.2M refunded against KES 216.3M of
+goods returned: understated roughly 13x.
+
+A column of zeroes reads as data. NULL reads as absence. This is the same rule
+the Step 37 columns were built on, broken in the one place that sums money.
+
+**The code fix** (deploy before running the SQL below): a missing `transactions`
+key now yields NULL. Present-but-empty, or present with nothing settled, stays a
+real 0.00 — Shopify did tell us, and the answer was none.
+
+```sql
+BEGIN;
+
+-- Existing zeros cannot be told apart after the fact: a genuine zero and a
+-- never-reported one look identical. Both become NULL, which is the honest
+-- reading of "we do not know" and is what the fixed code would have written
+-- for the overwhelming majority of them.
+UPDATE refunds_cache
+   SET amount_refunded = NULL
+ WHERE amount_refunded = 0;
+
+UPDATE orders_cache
+   SET total_refunded = NULL
+ WHERE total_refunded = 0;
+
+COMMIT;
+```
+
+**No re-sync is needed, and none would help.** The list endpoint will never
+return those transactions, so a full backfill would rewrite the same NULLs. Going
+forward the webhook path receives complete order payloads, so refunds processed
+from now on will populate it; history stays NULL.
+
+**Nothing that matters depends on this column.** The Returns line uses
+`goods_subtotal`, which comes from `refund_line_items` and is present and
+healthy — 216.3M against ShopifyQL's 188.4M, and a ~30% return rate that both
+sources independently agree on. `amount_refunded` answers "what did we pay back",
+which is a real question and now correctly answers "unknown" for history rather
+than "nothing".
