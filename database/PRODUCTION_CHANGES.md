@@ -2584,3 +2584,80 @@ assistant will otherwise get wrong and the business will have to honour:
 
 `app_settings` is a single JSON row (id=1), so this is an in-place edit of two
 keys. Nothing else in the document is touched.
+
+---
+
+### Step 37 — Stop trusting Shopify Reports: capture the fields needed to compute sales ourselves
+
+**Why.** Every sales figure on Customer Profiling — Total sales, its seven-row
+breakdown, order count, AOV, and the revenue chart — came from ShopifyQL, which
+requires the `read_reports` scope and reads Shopify's *analytics* layer: the
+same derived data behind the admin's Reports section. Finance has been
+reporting for a while that Reports is short a few orders against what the tech
+team sees in the API.
+
+That is now measured rather than reported. Comparing ShopifyQL's monthly order
+counts against `orders_cache` over 52 complete months:
+
+```
+ShopifyQL LOWER than the transactional API : 52 months
+ShopifyQL HIGHER                           :  0 months
+exactly equal                              :  0 months
+```
+
+Every month, without exception, between 5 and 35 orders short — roughly 0.5% to
+1.4% each month, ~665 orders across the window. A one-directional gap in all 52
+of 52 months is not sampling noise.
+
+A separate defect made it worse: `GROUP BY day` hits ShopifyQL's 1,000-row cap,
+so the daily chart plotted an arbitrary 1,000 of 1,617 days spread across the
+full date range — missing 617 days and 91.9M in revenue while looking
+continuous. That one was ours, not Shopify's.
+
+**What this step does.** Nothing user-visible. It adds the columns needed to
+compute Shopify's own sales definitions from the transactional order payload,
+which we already fetch and already throw most of away. Displaying computed
+figures comes later, once they can be reconciled against ShopifyQL side by side.
+
+Every column is nullable with **no default**, deliberately. A row synced before
+this step must read as "not captured", not as a confident zero — otherwise a
+half-populated table produces a total that is quietly too low, which is the
+failure this whole step exists to remove.
+
+```sql
+BEGIN;
+
+ALTER TABLE orders_cache
+  ADD COLUMN IF NOT EXISTS gross_sales     NUMERIC(12,2),  -- total_line_items_price
+  ADD COLUMN IF NOT EXISTS total_discounts NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS total_tax       NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS total_shipping  NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS total_refunded  NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS cancelled_at    TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS is_test         BOOLEAN;
+
+COMMIT;
+```
+
+**After running it, re-sync orders** (`POST /api/orders/sync`). Until that
+finishes the new columns are NULL everywhere, which is why nothing reads them
+yet.
+
+**What each column is for**
+
+| Column | Feeds |
+|---|---|
+| `gross_sales` | Gross sales — the top line of the breakdown |
+| `total_discounts` | Discounts |
+| `total_refunded` | Returns. Shopify attributes a return to the **refund date**, not the order date — a detail that will move monthly figures if we get it wrong |
+| `total_tax` | Taxes. Also retires `ex_vat()`'s hardcoded 1.16 divisor, which is wrong for anything zero-rated or exempt |
+| `total_shipping` | Shipping |
+| `cancelled_at`, `is_test` | Exclusions. Shopify's analytics leaves test and cancelled orders out; a computed total that includes them will not reconcile |
+
+**One open question this data will answer.** A shortfall in all 52 months is
+also what we would see if Shopify *correctly* excludes orders we include — test
+or cancelled ones. Finance's complaint is about real orders, which that theory
+does not explain, but `is_test` and `cancelled_at` settle it directly: if the
+665 missing orders turn out to be flagged, Shopify was right and we replicate
+its exclusions; if they are ordinary paid orders, Reports is dropping revenue.
+Either way the columns are needed.

@@ -893,9 +893,15 @@ export default function Customers() {
                   on a page whose whole purpose is to report what Shopify
                   reports.
 
-                  The chart below still plots our per-period aggregates, because
-                  Shopify has no per-day series we can read cheaply — but the
-                  totals a reader will quote are now Shopify's. */}
+                  The chart below plots Shopify's own per-period series too —
+                  this comment used to say it was our aggregates, which stopped
+                  being true when the chart was switched to `sales_series`.
+
+                  Both are on their way out. Measured over 52 complete months,
+                  Shopify's analytics layer reported FEWER orders than the
+                  transactional API in 52 of 52 — 5 to 35 short every month,
+                  never once higher. Step 37 captures what is needed to compute
+                  these figures from the orders themselves. */}
               {overview.kpis?.shopify_orders != null && (
                 <p className="text-xs text-gray-400 mt-0.5">
                   {formatKES(overview.kpis.shopify_orders)} orders · KES {formatKES(overview.kpis.net_sales)} · AOV KES {formatKES(overview.kpis.shopify_aov)} · Shopify, all time

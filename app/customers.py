@@ -21,7 +21,7 @@ Segments computed on-the-fly:
 """
 
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from sqlalchemy import func, or_
@@ -102,6 +102,23 @@ def _require_admin():
 def _require_viewer():
     """Reading customer records. Supervisors oversee the floor, so they may look."""
     return _require_role('admin', 'supervisor')
+
+
+def _dec(v):
+    """
+    A number from a Shopify payload -> Decimal for a NUMERIC column, or None.
+
+    None in, None out — never Decimal(0). A tax or refund that was never sent
+    must land in the database as NULL, because 0.00 is a claim: it says Shopify
+    charged no tax on this order, and a column full of that inflates net sales
+    with nothing anywhere to flag it. Callers must treat NULL as "not captured".
+    """
+    if v is None:
+        return None
+    try:
+        return Decimal(str(v))
+    except (TypeError, ValueError, InvalidOperation):
+        return None
 
 
 def _truncate(value, max_len):

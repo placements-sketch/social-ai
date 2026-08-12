@@ -1041,6 +1041,79 @@ def list_all_orders() -> list[dict]:
     return _real_list_all_orders()
 
 
+# ── Step 37: money out of an order payload ──────────────────────────────────
+#
+# All three return None rather than 0.0 when the field is absent, and callers
+# store None. The distinction is the whole point: a missing tax that lands in
+# the database as 0.0 makes net sales look larger and nothing anywhere will ever
+# flag it. "Not captured" has to stay distinguishable from "genuinely nothing".
+
+def _money(v):
+    """A Shopify money string -> float, or None if it wasn't sent."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _shipping_total(o):
+    """
+    What the customer was charged for shipping.
+
+    Prefers `total_shipping_price_set.shop_money` — the store-currency figure —
+    over summing `shipping_lines`, because the lines carry their own discounts
+    and adding them up double-counts a discounted shipping promotion.
+    """
+    try:
+        shop = ((o.get('total_shipping_price_set') or {}).get('shop_money') or {})
+        if shop.get('amount') is not None:
+            return _money(shop.get('amount'))
+    except AttributeError:
+        pass
+    lines = o.get('shipping_lines') or []
+    if not lines:
+        return None
+    total = 0.0
+    for ln in lines:
+        total += _money(ln.get('price')) or 0.0
+    return total
+
+
+def _refunded_total(o):
+    """
+    What has actually been refunded against this order.
+
+    Summed from refund transactions rather than taken from a single field,
+    because a partially-refunded order has no top-level "amount refunded" —
+    which is exactly why `_net_sales_estimate()` had to treat partial refunds as
+    full-value and call itself an estimate.
+
+    Note for whoever computes Returns from this: Shopify attributes a return to
+    the date of the REFUND, not the date of the order. Summing this column by
+    `order_date` will produce monthly figures that do not match Shopify. The
+    refund's own `created_at` is the date that matters, and it is not stored
+    here — this is a lifetime-to-date total per order.
+    """
+    # Key absent means the payload never carried refunds -> unknown. Key present
+    # but empty means Shopify told us there are none -> a real, known zero.
+    # Collapsing both to None would make every unrefunded order indistinguishable
+    # from a row synced before Step 37, which is the ambiguity these columns
+    # exist to avoid.
+    if 'refunds' not in o:
+        return None
+    refunds = o.get('refunds') or []
+    total = 0.0
+    for r in refunds:
+        for t in (r.get('transactions') or []):
+            # Only settled money movements. A 'pending' or 'failure' row is not
+            # a refund, and counting it understates sales.
+            if t.get('kind') == 'refund' and t.get('status') == 'success':
+                total += _money(t.get('amount')) or 0.0
+    return total
+
+
 def _real_list_all_orders() -> list[dict]:
     """
     GET /admin/api/2024-01/orders.json?status=any&limit=250
@@ -1075,6 +1148,17 @@ def _real_list_all_orders() -> list[dict]:
                     "financial_status": o.get('financial_status'),
                     "fulfillment_status": o.get('fulfillment_status'),
                     "order_date": o.get('created_at'),
+                    # Step 37 — the components of Shopify's own sales figures.
+                    # `total_price` folds tax and shipping in and leaves refunds
+                    # out, so it cannot be decomposed after the fact; these have
+                    # to be captured at sync time or not at all.
+                    "gross_sales": _money(o.get('total_line_items_price')),
+                    "total_discounts": _money(o.get('total_discounts')),
+                    "total_tax": _money(o.get('total_tax')),
+                    "total_shipping": _shipping_total(o),
+                    "total_refunded": _refunded_total(o),
+                    "cancelled_at": o.get('cancelled_at'),
+                    "is_test": bool(o.get('test')) if o.get('test') is not None else None,
                 })
 
             link_header = response.headers.get('Link', '')
@@ -1170,6 +1254,17 @@ def _real_iter_all_orders(start_url=None, updated_at_min=None):
                     "financial_status": o.get('financial_status'),
                     "fulfillment_status": o.get('fulfillment_status'),
                     "order_date": o.get('created_at'),
+                    # Step 37 — the components of Shopify's own sales figures.
+                    # `total_price` folds tax and shipping in and leaves refunds
+                    # out, so it cannot be decomposed after the fact; these have
+                    # to be captured at sync time or not at all.
+                    "gross_sales": _money(o.get('total_line_items_price')),
+                    "total_discounts": _money(o.get('total_discounts')),
+                    "total_tax": _money(o.get('total_tax')),
+                    "total_shipping": _shipping_total(o),
+                    "total_refunded": _refunded_total(o),
+                    "cancelled_at": o.get('cancelled_at'),
+                    "is_test": bool(o.get('test')) if o.get('test') is not None else None,
                 }, next_url)
                 total_yielded += 1
 
@@ -1218,6 +1313,17 @@ def _real_get_customer_orders(shopify_customer_id: str) -> list[dict]:
                     "financial_status": o.get('financial_status'),
                     "fulfillment_status": o.get('fulfillment_status'),
                     "order_date": o.get('created_at'),
+                    # Step 37 — the components of Shopify's own sales figures.
+                    # `total_price` folds tax and shipping in and leaves refunds
+                    # out, so it cannot be decomposed after the fact; these have
+                    # to be captured at sync time or not at all.
+                    "gross_sales": _money(o.get('total_line_items_price')),
+                    "total_discounts": _money(o.get('total_discounts')),
+                    "total_tax": _money(o.get('total_tax')),
+                    "total_shipping": _shipping_total(o),
+                    "total_refunded": _refunded_total(o),
+                    "cancelled_at": o.get('cancelled_at'),
+                    "is_test": bool(o.get('test')) if o.get('test') is not None else None,
                 })
 
             # Pagination via Link header
@@ -1945,6 +2051,25 @@ def fetch_sales_series(granularity: str = 'month', since: str = '2000-01-01',
     """
     grain = _SERIES_GRAINS.get((granularity or 'month').lower(), 'month')
     cache_kind = f'sales_series_{grain}'
+
+    # ShopifyQL caps a response at 1,000 rows and says nothing when it truncates.
+    #
+    # At day grain over all history that is 1,000 of 1,617 days — and because the
+    # rows come back unordered and we sort them, the missing 617 were scattered
+    # through the range instead of falling off one end. The chart looked
+    # continuous while omitting 38% of its days and KES 91.9M of revenue.
+    #
+    # Weekly (235 rows) and monthly (55) are nowhere near the cap. Only the daily
+    # window needs clamping, and 900 days keeps a margin under it.
+    #
+    # This is a containment measure, not the fix. Step 37 captures the fields
+    # needed to compute these figures from the transactional orders instead,
+    # which has no row cap — see database/PRODUCTION_CHANGES.md.
+    if grain == 'day':
+        _DAY_CAP = 900
+        earliest = (datetime.utcnow() - timedelta(days=_DAY_CAP)).strftime('%Y-%m-%d')
+        if since < earliest:
+            since = earliest
 
     if use_cache:
         try:

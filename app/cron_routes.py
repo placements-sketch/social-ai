@@ -309,7 +309,7 @@ def cron_sync_customers():
     """Trigger a customers sync. Uses the same async pattern as /api/customers/sync."""
     from app.integrations.shopify import list_all_customers
     from app.models import CustomerCache
-    from app.customers import _truncate, _parse_dt
+    from app.customers import _truncate, _parse_dt, _dec
     from decimal import Decimal
 
     def do_sync(job):
@@ -619,6 +619,15 @@ def cron_sync_orders():
                         row.fulfillment_status = _truncate(snap.get('fulfillment_status'), 64)
                         row.order_date = order_date
                         row.cached_at = now
+                        # Step 37 sales components. Decimal(str(...)) only
+                        # when present — None must stay None, never 0.
+                        row.gross_sales         = _dec(snap.get('gross_sales'))
+                        row.total_discounts     = _dec(snap.get('total_discounts'))
+                        row.total_tax           = _dec(snap.get('total_tax'))
+                        row.total_shipping      = _dec(snap.get('total_shipping'))
+                        row.total_refunded      = _dec(snap.get('total_refunded'))
+                        row.cancelled_at        = _parse_dt(snap.get('cancelled_at'))
+                        row.is_test             = snap.get('is_test')
                         updated += 1
                         continue
 
@@ -634,6 +643,13 @@ def cron_sync_orders():
                     fulfillment_status=_truncate(snap.get('fulfillment_status'), 64),
                     order_date=order_date,
                     cached_at=now,
+                    gross_sales=_dec(snap.get('gross_sales')),
+                    total_discounts=_dec(snap.get('total_discounts')),
+                    total_tax=_dec(snap.get('total_tax')),
+                    total_shipping=_dec(snap.get('total_shipping')),
+                    total_refunded=_dec(snap.get('total_refunded')),
+                    cancelled_at=_parse_dt(snap.get('cancelled_at')),
+                    is_test=snap.get('is_test'),
                 ))
                 existing_ids.add(spid)
                 added += 1

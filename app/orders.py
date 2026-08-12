@@ -19,7 +19,7 @@ from app.models import AuthUser, OrderCache, CustomerCache
 from app.auth import log_audit, current_user_id
 from app.integrations.shopify import list_all_orders, iter_all_orders
 from app.sync_jobs import start_background_job, get_latest_job
-from app.customers import compute_segment, _vip_threshold, recompute_rfm
+from app.customers import compute_segment, _vip_threshold, recompute_rfm, _dec
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
 
@@ -115,6 +115,15 @@ def sync_orders():
                         row.fulfillment_status  = _truncate(snap.get('fulfillment_status'),  64)
                         row.order_date          = order_date
                         row.cached_at           = now
+                        # Step 37 sales components. Decimal(str(...)) only
+                        # when present — None must stay None, never 0.
+                        row.gross_sales         = _dec(snap.get('gross_sales'))
+                        row.total_discounts     = _dec(snap.get('total_discounts'))
+                        row.total_tax           = _dec(snap.get('total_tax'))
+                        row.total_shipping      = _dec(snap.get('total_shipping'))
+                        row.total_refunded      = _dec(snap.get('total_refunded'))
+                        row.cancelled_at        = _parse_dt(snap.get('cancelled_at'))
+                        row.is_test             = snap.get('is_test')
                         updated += 1
                         continue
 
@@ -130,6 +139,13 @@ def sync_orders():
                     fulfillment_status=_truncate(snap.get('fulfillment_status'),    64),
                     order_date=order_date,
                     cached_at=now,
+                    gross_sales=_dec(snap.get('gross_sales')),
+                    total_discounts=_dec(snap.get('total_discounts')),
+                    total_tax=_dec(snap.get('total_tax')),
+                    total_shipping=_dec(snap.get('total_shipping')),
+                    total_refunded=_dec(snap.get('total_refunded')),
+                    cancelled_at=_parse_dt(snap.get('cancelled_at')),
+                    is_test=snap.get('is_test'),
                 ))
                 existing_ids.add(spid)
                 added += 1

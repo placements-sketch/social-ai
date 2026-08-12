@@ -149,7 +149,10 @@ def _handle_order(data: dict):
     from sqlalchemy import func
     from app import db
     from app.models import OrderCache, CustomerCache
-    from app.customers import compute_segment, _vip_threshold, _truncate
+    from app.customers import compute_segment, _vip_threshold, _truncate, _dec
+    # Same two helpers the sync paths use, so a webhook-written row and a
+    # sync-written row can never disagree about what "shipping" means.
+    from app.integrations.shopify import _shipping_total, _refunded_total
 
     oid = str(data.get('id') or '')
     if not oid:
@@ -174,6 +177,17 @@ def _handle_order(data: dict):
     row.fulfillment_status  = _truncate(data.get('fulfillment_status'), 64)
     row.order_date          = _parse_dt(data.get('created_at'))
     row.cached_at           = now
+    # Step 37 sales components. This path matters more than the two sync paths:
+    # it is the only one that sees an order the moment it changes, so an order
+    # refunded today gets its `total_refunded` here and not days later. Omitting
+    # it would leave live orders permanently NULL between full syncs.
+    row.gross_sales         = _dec(data.get('total_line_items_price'))
+    row.total_discounts     = _dec(data.get('total_discounts'))
+    row.total_tax           = _dec(data.get('total_tax'))
+    row.total_shipping      = _dec(_shipping_total(data))
+    row.total_refunded      = _dec(_refunded_total(data))
+    row.cancelled_at        = _parse_dt(data.get('cancelled_at'))
+    row.is_test             = bool(data.get('test')) if data.get('test') is not None else None
     db.session.commit()
 
     log_event("info", "shopify_webhook.order_upserted",

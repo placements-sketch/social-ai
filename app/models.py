@@ -543,6 +543,28 @@ class OrderCache(db.Model):
     order_date          = db.Column(db.DateTime, nullable=True)
     cached_at           = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    # Added by Step 37, to compute Shopify's sales figures from the
+    # transactional payload instead of the analytics layer behind Reports —
+    # which was measured short on orders in 52 of 52 months.
+    #
+    # `total` alone cannot produce any of this: it is one number with tax and
+    # shipping already folded in and refunds not taken out. Shopify sends all of
+    # the below on every order; we were discarding it.
+    #
+    # NULL means "synced before Step 37", NOT zero — and the difference matters.
+    # A missing tax value that reads as 0.0 silently inflates net sales, which
+    # is precisely the class of quiet wrongness this replaces. Anything reading
+    # these must treat None as unknown and fall back explicitly.
+    gross_sales         = db.Column(db.Numeric(12, 2), nullable=True)   # total_line_items_price
+    total_discounts     = db.Column(db.Numeric(12, 2), nullable=True)
+    total_tax           = db.Column(db.Numeric(12, 2), nullable=True)
+    total_shipping      = db.Column(db.Numeric(12, 2), nullable=True)
+    total_refunded      = db.Column(db.Numeric(12, 2), nullable=True)
+    # Shopify's analytics excludes both. A computed total that counts them will
+    # not reconcile against anything.
+    cancelled_at        = db.Column(db.DateTime, nullable=True)
+    is_test             = db.Column(db.Boolean, nullable=True)
+
     def __repr__(self):
         return f"<OrderCache #{self.order_number} KES {self.total}>"
     
