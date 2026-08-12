@@ -37,6 +37,22 @@ customers_bp = Blueprint('customers', __name__, url_prefix='/api')
 
 
 STALE_AFTER = timedelta(hours=12)
+
+# How old the OLDEST cached customer may be before the whole cache counts as
+# needing a full refresh.
+#
+# Two different questions, and the page was only answering the first:
+#   - "did a sync run recently?"        -> MAX(cached_at), STALE_AFTER
+#   - "is every record actually fresh?" -> MIN(cached_at), FULL_REFRESH_AFTER
+#
+# They diverge because the nightly cron is a DELTA sync: it only touches
+# customers Shopify marked as changed, so it moves MAX while leaving most rows
+# untouched. Three changed customers were enough to make the banner read
+# "Synced 5m ago" over 162,000 records nobody had re-checked in weeks.
+#
+# 7 days rather than 12 hours, because a full sync is a deliberate ~12-minute
+# operation and flagging it hourly would make the warning furniture.
+FULL_REFRESH_AFTER = timedelta(days=7)
 DEFAULT_PER_PAGE = 20
 MAX_PER_PAGE = 100
 
@@ -1127,16 +1143,29 @@ def customers_sync_status():
         return _err
 
     last = db.session.query(func.max(CustomerCache.cached_at)).scalar()
+    oldest = db.session.query(func.min(CustomerCache.cached_at)).scalar()
     count = CustomerCache.query.count()
     stale = (last is None) or (datetime.utcnow() - last) > STALE_AFTER
+    # Rows the delta sync has not revisited. Counted rather than inferred, so
+    # the page can say how many instead of implying "some".
+    unrefreshed = (
+        CustomerCache.query
+        .filter(CustomerCache.cached_at < datetime.utcnow() - FULL_REFRESH_AFTER)
+        .count()
+    )
+    needs_full_refresh = oldest is not None and (datetime.utcnow() - oldest) > FULL_REFRESH_AFTER
 
     # Include the most recent customer sync job for polling
     job = get_latest_job('customers_apply')
 
     return jsonify({
         'last_synced_at': last.isoformat() if last else None,
+        'oldest_record_at': oldest.isoformat() if oldest else None,
         'customer_count': count,
         'stale': stale,
+        'needs_full_refresh': bool(needs_full_refresh),
+        'unrefreshed_count': unrefreshed,
+        'full_refresh_threshold_days': int(FULL_REFRESH_AFTER.days),
         'stale_threshold_hours': int(STALE_AFTER.total_seconds() // 3600),
         'current_job': job.to_dict() if job else None,
     }), 200

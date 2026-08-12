@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
-  Repeat, Tag, Heart, Crown, Sparkles, AlertTriangle, UserMinus, Users,
-  Loader2, AlertCircle, Package, UserPlus, ChevronLeft, ChevronRight,
+  Repeat, Tag, Heart, Crown, Sparkles,
+  Loader2, AlertCircle, Package, ChevronLeft, ChevronRight,
   Activity, Clock, Award, Target, Zap, ExternalLink, Hash, CheckCircle2,
 } from 'lucide-react'
 import {
@@ -14,16 +14,7 @@ import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatDateAgo, formatTimeAgo, parseBackendTime } from '../utils/time'
 import { getCustomer, getCustomerOrders } from '../api/customers'
 import CustomerProfileExtras from './CustomerProfileExtras'
-
-const SEGMENT_META = {
-  vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  ring: 'ring-amber-400/30',  accent: 'from-amber-400 to-amber-600' },
-  loyal:        { label: 'Loyal',        icon: Heart,         color: 'text-pink-600',   bg: 'bg-pink-50',   border: 'border-pink-200',   ring: 'ring-pink-400/30',   accent: 'from-pink-400 to-pink-600' },
-  regular:      { label: 'Regular',      icon: Users,         color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200',   ring: 'ring-blue-400/30',   accent: 'from-blue-400 to-blue-600' },
-  new:          { label: 'New Convert',  icon: Sparkles,      color: 'text-green-600',  bg: 'bg-green-50',  border: 'border-green-200',  ring: 'ring-green-400/30',  accent: 'from-green-400 to-green-600' },
-  never_bought: { label: 'Never Bought', icon: UserPlus,      color: 'text-slate-600',  bg: 'bg-slate-50',  border: 'border-slate-200',  ring: 'ring-slate-400/30',  accent: 'from-slate-400 to-slate-500' },
-  at_risk:      { label: 'At Risk',      icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', ring: 'ring-orange-400/30', accent: 'from-orange-400 to-orange-600' },
-  churned:      { label: 'Churned',      icon: UserMinus,     color: 'text-gray-600',   bg: 'bg-gray-100',  border: 'border-gray-300',   ring: 'ring-gray-400/30',   accent: 'from-gray-400 to-gray-600' },
-}
+import { SEGMENT_META } from '../utils/segments'
 
 const ORDERS_PER_PAGE = 10
 
@@ -282,26 +273,35 @@ export default function CustomerDetail() {
   const monScore = customer.rfm_m ?? 0
   const rfmTotal = recScore + freqScore + monScore
 
-  // Next milestone copy
+  // Next milestone copy.
+  //
+  // The tone is the colour of the segment the milestone points AT, not the one
+  // the customer is in now — "2 more orders to reach Loyal" is tinted Loyal, so
+  // the badge shows where they are heading. Taken from SEGMENT_META rather than
+  // written out, because these were hardcoded to the old palette and stayed
+  // green/pink/amber after it changed; a hint that names Loyal in its text and
+  // shows a different colour beside it is worse than an uncoloured one.
+  const toneFor = (seg) => `${SEGMENT_META[seg].color} ${SEGMENT_META[seg].bg}`
+
   let nextMilestone = null
   if (customer.segment === 'never_bought') {
-    nextMilestone = { label: 'Convert with first purchase', icon: Sparkles, tone: 'text-green-600 bg-green-50' }
+    nextMilestone = { label: 'Convert with first purchase', icon: Sparkles, tone: toneFor('new') }
   } else if (customer.segment === 'new') {
     const more = Math.max(0, 5 - customer.total_orders)
-    nextMilestone = { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`, icon: Heart, tone: 'text-pink-600 bg-pink-50' }
+    nextMilestone = { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`, icon: Heart, tone: toneFor('loyal') }
   } else if (customer.segment === 'regular') {
     const more = Math.max(0, 5 - customer.total_orders)
     nextMilestone = more > 0
-      ? { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`, icon: Heart, tone: 'text-pink-600 bg-pink-50' }
-      : { label: 'Re-engage to qualify for Loyal', icon: Activity, tone: 'text-pink-600 bg-pink-50' }
+      ? { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`, icon: Heart, tone: toneFor('loyal') }
+      : { label: 'Re-engage to qualify for Loyal', icon: Activity, tone: toneFor('loyal') }
   } else if (customer.segment === 'loyal') {
-    nextMilestone = { label: 'Top spenders reach VIP — keep them engaged', icon: Crown, tone: 'text-amber-600 bg-amber-50' }
+    nextMilestone = { label: 'Top spenders reach VIP — keep them engaged', icon: Crown, tone: toneFor('vip') }
   } else if (customer.segment === 'vip') {
-    nextMilestone = { label: 'VIP — protect this relationship', icon: Award, tone: 'text-amber-600 bg-amber-50' }
+    nextMilestone = { label: 'VIP — protect this relationship', icon: Award, tone: toneFor('vip') }
   } else if (customer.segment === 'at_risk') {
-    nextMilestone = { label: 'Win-back campaign needed', icon: Zap, tone: 'text-orange-600 bg-orange-50' }
+    nextMilestone = { label: 'Win-back campaign needed', icon: Zap, tone: toneFor('at_risk') }
   } else if (customer.segment === 'churned') {
-    nextMilestone = { label: 'Long inactive — try a re-acquisition offer', icon: Target, tone: 'text-gray-600 bg-gray-100' }
+    nextMilestone = { label: 'Long inactive — try a re-acquisition offer', icon: Target, tone: toneFor('churned') }
   }
 
   return (

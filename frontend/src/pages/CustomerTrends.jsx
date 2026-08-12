@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import { getCustomerTrends } from '../api/customers'
+import { SEGMENT_COLORS, SEGMENT_LABELS, SEGMENT_FALLBACK } from '../utils/segments'
 
 function formatKES(n) {
   return new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 }).format(n || 0)
@@ -32,15 +33,11 @@ const TOOLTIP_LABEL = { color: 'var(--text)', fontWeight: 600 }
 const TOOLTIP_ITEM = { color: 'var(--text)' }
 const TOOLTIP_CURSOR = { fill: 'var(--border)', fillOpacity: 0.35 }
 
-// Segment → colour, aligned with the app's segment palette.
-const SEG_COLORS = {
-  vip: '#f59e0b', loyal: '#ec4899', regular: '#3b82f6', new: '#22c55e',
-  never_bought: '#94a3b8', at_risk: '#f97316', churned: '#6b7280',
-}
-const SEG_LABELS = {
-  vip: 'VIP', loyal: 'Loyal', regular: 'Regular', new: 'New',
-  never_bought: 'Never bought', at_risk: 'At risk', churned: 'Churned',
-}
+// Aliased rather than renamed at every call site: the chart is the third
+// consumer of the shared palette, and these two names are used throughout the
+// file below.
+const SEG_COLORS = SEGMENT_COLORS
+const SEG_LABELS = SEGMENT_LABELS
 
 export default function CustomerTrends() {
   const [data, setData] = useState(null)
@@ -108,7 +105,7 @@ export default function CustomerTrends() {
             />
             <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
               {revenueData.map((entry, i) => (
-                <Cell key={i} fill={SEG_COLORS[entry.segment] || '#6b7280'} />
+                <Cell key={i} fill={SEG_COLORS[entry.segment] || SEGMENT_FALLBACK} />
               ))}
             </Bar>
           </BarChart>

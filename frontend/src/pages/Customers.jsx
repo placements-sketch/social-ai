@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { initials } from '../utils/identity'
+import { SEGMENT_META } from '../utils/segments'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
-  Crown, Heart, AlertTriangle, UserMinus, Sparkles, ChevronRight, ChevronLeft, ChevronDown,
-  Download, RefreshCw, Loader2, AlertCircle, Package, UserPlus,
+  ChevronRight, ChevronLeft, ChevronDown,
+  Download, RefreshCw, Loader2, AlertCircle, Package,
   Award, Activity, Target, Info,
 } from 'lucide-react'
 import {
@@ -42,15 +43,9 @@ const SEGMENT_DEFINITIONS = {
   regular:      'Has ordered at least once and fits none of the categories above.',
 }
 
-const SEGMENT_META = {
-  vip:          { label: 'VIP',          icon: Crown,         color: 'text-amber-600',  bg: 'bg-amber-50',   border: 'border-amber-200',  ring: 'ring-amber-400/30',  accent: 'from-amber-400 to-amber-600',  dot: 'bg-amber-500' },
-  loyal:        { label: 'Loyal',        icon: Heart,         color: 'text-pink-600',   bg: 'bg-pink-50',    border: 'border-pink-200',   ring: 'ring-pink-400/30',   accent: 'from-pink-400 to-pink-600',    dot: 'bg-pink-500' },
-  regular:      { label: 'Regular',      icon: Users,         color: 'text-blue-600',   bg: 'bg-blue-50',    border: 'border-blue-200',   ring: 'ring-blue-400/30',   accent: 'from-blue-400 to-blue-600',    dot: 'bg-blue-500' },
-  new:          { label: 'New Convert',  icon: Sparkles,      color: 'text-green-600',  bg: 'bg-green-50',   border: 'border-green-200',  ring: 'ring-green-400/30',  accent: 'from-green-400 to-green-600',  dot: 'bg-green-500' },
-  never_bought: { label: 'Never Bought', icon: UserPlus,      color: 'text-slate-600',  bg: 'bg-slate-50',   border: 'border-slate-200',  ring: 'ring-slate-400/30',  accent: 'from-slate-400 to-slate-500',  dot: 'bg-slate-400' },
-  at_risk:      { label: 'At Risk',      icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-50',  border: 'border-orange-200', ring: 'ring-orange-400/30', accent: 'from-orange-400 to-orange-600',dot: 'bg-orange-500' },
-  churned:      { label: 'Churned',      icon: UserMinus,     color: 'text-gray-600',   bg: 'bg-gray-100',   border: 'border-gray-300',   ring: 'ring-gray-400/30',   accent: 'from-gray-400 to-gray-600',    dot: 'bg-gray-500' },
-}
+// SEGMENT_META now lives in utils/segments.js — see the import above. It was
+// duplicated here, in CustomerDetail and in CustomerTrends, and the three had
+// already drifted apart.
 
 // Ranges in DAYS, converted to a number of points per granularity. Expressed
 // as time rather than "last N bars" so switching Daily→Weekly keeps showing the
@@ -310,21 +305,67 @@ export default function Customers() {
   const currentJob = syncStatus?.current_job
   const isJobRunning = currentJob?.status === 'running' || currentJob?.status === 'pending'
 
-  const exportToCSV = () => {
-    const headers = ['Name', 'Email', 'Phone', 'Location', 'Segment', 'Total Spent', 'Total Orders', 'Last Order']
-    const rows = customers.map(c => [
-      c.name, c.email || '', c.phone || '', c.location || '',
-      SEGMENT_META[c.segment]?.label || c.segment,
-      c.total_spent, c.total_orders, c.last_order_date || 'Never',
-    ])
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `customers-export-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+  const [exporting, setExporting] = useState(false)
+
+  // Escaping, not just quoting.
+  //
+  // Every field was wrapped as `"${v}"` with nothing done about quotes inside
+  // it. One customer named O"Brien, or an address containing a comma and a
+  // quote, shifts every later column on that row — and a subtly misaligned CSV
+  // is worse than one that fails to open, because someone will use it.
+  // Doubling the quote is the RFC 4180 escape.
+  const csvCell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"'
+
+  const exportToCSV = async () => {
+    setExporting(true)
+    try {
+      // EVERY matching customer, not the 20 on screen.
+      //
+      // This exported `customers`, which is one page. The button said "CSV"
+      // and handed over 20 rows out of 162,224 with nothing saying so — the
+      // kind of file someone forwards as "our customer list".
+      //
+      // Uses the same search, segment and sort as the table, so what you
+      // export is what you are looking at.
+      const all = []
+      const PER = 100                     // MAX_PER_PAGE server-side
+      for (let p = 1; p <= 200; p++) {    // 20,000-row browser-memory stop
+        const data = await listCustomers({
+          page: p, per_page: PER,
+          search: debouncedSearch || null,
+          segment: segmentFilter,
+          sort_by: sortBy,
+        })
+        const batch = data.customers || []
+        all.push(...batch)
+        if (batch.length === 0 || all.length >= (data.total || 0)) break
+      }
+
+      const headers = ['Name', 'Email', 'Phone', 'Location', 'Segment',
+                       'Total Spent (KES, incl. tax)', 'Total Orders', 'Last Order']
+      const rows = all.map(c => [
+        c.name, c.email || '', c.phone || '', c.location || '',
+        SEGMENT_META[c.segment]?.label || c.segment,
+        c.total_spent, c.total_orders,
+        c.last_order_date ? c.last_order_date.split('T')[0] : 'Never',
+      ])
+      // BOM so Excel reads it as UTF-8. Without it Excel assumes the system
+      // codepage and mangles every accented name on open.
+      const csv = '﻿' + [headers, ...rows]
+        .map(r => r.map(csvCell).join(',')).join('\r\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const scope = segmentFilter !== 'all' ? '-' + segmentFilter : ''
+      a.download = 'customers' + scope + '-' + new Date().toISOString().split('T')[0] + '.csv'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      setError('Export failed: ' + e.message)
+    } finally {
+      setExporting(false)
+    }
   }
 
   // ─── Empty state ────────────────────────────────────────────
@@ -370,15 +411,30 @@ export default function Customers() {
           <p className="text-sm text-gray-500 mt-0.5">
             Shopify customer data, order history, and spend analytics
             {lastSyncedIso && (
-              <> · <span className={isStale ? 'text-amber-600 font-medium' : ''}>
+              <> · <span
+                    className={isStale ? 'text-amber-600 font-medium' : ''}
+                    /* "Synced X ago" is MAX(cached_at) — the most recently
+                       touched row. The nightly cron is a delta sync, so three
+                       changed customers move that timestamp while leaving the
+                       rest untouched. The tooltip and the banner below say how
+                       many have not actually been re-checked, because "synced
+                       5m ago" over 162,000 unrefreshed records is a true
+                       sentence that gives a false impression. */
+                    title={syncStatus?.oldest_record_at
+                      ? `Most recent record. Oldest was refreshed ${formatTimeAgo(syncStatus.oldest_record_at)}.`
+                      : undefined}
+                  >
                 Synced {formatTimeAgo(lastSyncedIso)}
               </span></>
             )}
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={exportToCSV} className="btn-ghost flex items-center gap-2 text-xs">
-            <Download size={13} /> CSV
+          <button onClick={exportToCSV} disabled={exporting}
+                  title={'Exports all ' + formatKES(total) + ' matching customers, not just this page'}
+                  className="btn-ghost flex items-center gap-2 text-xs disabled:opacity-60">
+            {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+            {exporting ? 'Exporting…' : 'CSV'}
           </button>
           <button
             onClick={handleSync}
@@ -415,11 +471,33 @@ export default function Customers() {
         </div>
       )}
 
+      {/* Two different staleness questions, and the page only answered one.
+          "Did a sync run?" is MAX(cached_at). "Is every record fresh?" is
+          MIN(cached_at) — and because the nightly cron is a DELTA sync, three
+          changed customers move the first while leaving 162,000 rows untouched.
+          A banner reading "synced 5m ago" over records nobody had re-checked in
+          weeks is true and misleading at once. */}
       {isStale && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-3 items-center">
           <AlertCircle size={16} className="text-amber-600 shrink-0" />
           <p className="text-xs text-amber-900 font-medium">
-            Customer data is stale (last synced {formatTimeAgo(lastSyncedIso)}). Click "Sync Now" to refresh.
+            No sync has run in {syncStatus?.stale_threshold_hours ?? 12} hours
+            (last was {formatTimeAgo(lastSyncedIso)}). Click "Sync Now" to refresh.
+          </p>
+        </div>
+      )}
+
+      {!isStale && syncStatus?.needs_full_refresh && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex gap-3 items-center">
+          <Info size={16} className="text-gray-400 shrink-0" />
+          <p className="text-xs text-gray-600">
+            Syncs are running, but{' '}
+            <span className="font-semibold text-gray-900">
+              {formatKES(syncStatus.unrefreshed_count)} customer{syncStatus.unrefreshed_count === 1 ? '' : 's'}
+            </span>{' '}
+            {syncStatus.unrefreshed_count === 1 ? "hasn't" : "haven't"} been re-checked against Shopify in over{' '}
+            {syncStatus.full_refresh_threshold_days} days — the nightly sync only fetches customers Shopify
+            marks as changed. "Sync Now" refreshes every record.
           </p>
         </div>
       )}
