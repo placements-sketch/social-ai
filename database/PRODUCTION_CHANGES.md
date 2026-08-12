@@ -2730,3 +2730,56 @@ This is a hard ordering dependency, not a preference. The models now declare the
 new columns and table, so every order INSERT names them. Deploying first means
 the order sync fails outright — and the nightly cron with it — until the SQL
 lands. SQL first, then deploy, then re-sync orders.
+
+---
+
+### Step 39 — Force a full order backfill, so Steps 37 and 38 actually populate
+
+Run this **after** Steps 37 and 38 and after deploying, and **before** triggering
+the orders sync.
+
+The orders sync is incremental. `cron_sync_orders()` decides which mode to run
+purely from the watermark:
+
+```python
+is_delta = watermark is not None
+```
+
+The watermark currently reads `2026-07-02`, so triggering the sync — from the
+GitHub Actions "Daily Sync" workflow or anywhere else — fetches only orders
+Shopify has touched since then. Around 130,000 existing rows would keep NULL in
+every column Steps 37 and 38 added, and the computed sales figures would be
+built from the few hundred orders that happened to change. The result is a
+number that is far too low and looks like a working feature.
+
+A NULL watermark means "never synced" and triggers a full backfill.
+
+```sql
+BEGIN;
+
+UPDATE sync_state
+   SET watermark = NULL
+ WHERE kind = 'orders';
+
+COMMIT;
+```
+
+**This is safe.** The orders sync has no delete path — `removed_count` is
+initialised to 0 and never incremented. A full backfill only inserts and
+updates, so nothing can be lost the way it could have been in Step 22. It also
+resumes from a saved cursor if it is interrupted.
+
+It re-fetches all ~131,000 orders, so expect it to run for a while.
+
+**Then** trigger it: GitHub → Actions → *Daily Sync* → *Run workflow* →
+`sync_type: orders`.
+
+Afterwards the watermark sets itself again and every later run returns to being
+a delta. This is a one-time reset, not a change in how the sync works.
+
+**Separately worth looking at:** that watermark should never have been six weeks
+old. The schedule runs orders every three hours, so either the job has been
+failing or it has not advanced the watermark since 2 July — which is also why
+`orders_cache` holds nothing newer than that date. Fixing the backfill does not
+explain the six-week gap, and the gap will come back if whatever caused it is
+still there.
