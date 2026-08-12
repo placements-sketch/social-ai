@@ -1,11 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { initials } from '../utils/identity'
 import { SEGMENT_META } from '../utils/segments'
+import {
+  fetchMatchingCustomers, describeScope, exportCustomersCSV, exportCustomersPDF,
+  CSV_ROW_CAP, PDF_ROW_CAP, SORT_LABELS,
+} from '../utils/customerExport'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, TrendingUp, ShoppingBag, Repeat, Search,
   ChevronRight, ChevronLeft, ChevronDown,
   Download, RefreshCw, Loader2, AlertCircle, Package,
+  FileSpreadsheet, FileText,
   Award, Activity, Target, Info,
 } from 'lucide-react'
 import {
@@ -305,66 +310,59 @@ export default function Customers() {
   const currentJob = syncStatus?.current_job
   const isJobRunning = currentJob?.status === 'running' || currentJob?.status === 'pending'
 
-  const [exporting, setExporting] = useState(false)
-
-  // Escaping, not just quoting.
+  // ─── Export ─────────────────────────────────────────────────
   //
-  // Every field was wrapped as `"${v}"` with nothing done about quotes inside
-  // it. One customer named O"Brien, or an address containing a comma and a
-  // quote, shifts every later column on that row — and a subtly misaligned CSV
-  // is worse than one that fails to open, because someone will use it.
-  // Doubling the quote is the RFC 4180 escape.
-  const csvCell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"'
+  // Both formats pull EVERY matching customer, not the 20 on screen, using the
+  // same search/segment/sort the table is using — so what you export is what
+  // you were looking at. The mechanics live in utils/customerExport.js; see the
+  // note there for why CSV and PDF stop at different row counts.
+  const [exporting, setExporting] = useState(null)     // 'csv' | 'pdf' | null
+  const [exportProgress, setExportProgress] = useState(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef(null)
 
-  const exportToCSV = async () => {
-    setExporting(true)
+  // Close on outside click and on Escape. A menu that only closes by picking
+  // something from it traps someone who opened it to see what was there.
+  useEffect(() => {
+    if (!exportOpen) return
+    const onDown = (e) => {
+      if (exportRef.current && !exportRef.current.contains(e.target)) setExportOpen(false)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setExportOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [exportOpen])
+
+  const runExport = async (format) => {
+    setExportOpen(false)
+    setExporting(format)
+    setExportProgress(null)
     try {
-      // EVERY matching customer, not the 20 on screen.
-      //
-      // This exported `customers`, which is one page. The button said "CSV"
-      // and handed over 20 rows out of 162,224 with nothing saying so — the
-      // kind of file someone forwards as "our customer list".
-      //
-      // Uses the same search, segment and sort as the table, so what you
-      // export is what you are looking at.
-      const all = []
-      const PER = 100                     // MAX_PER_PAGE server-side
-      for (let p = 1; p <= 200; p++) {    // 20,000-row browser-memory stop
-        const data = await listCustomers({
-          page: p, per_page: PER,
-          search: debouncedSearch || null,
-          segment: segmentFilter,
-          sort_by: sortBy,
-        })
-        const batch = data.customers || []
-        all.push(...batch)
-        if (batch.length === 0 || all.length >= (data.total || 0)) break
-      }
-
-      const headers = ['Name', 'Email', 'Phone', 'Location', 'Segment',
-                       'Total Spent (KES, incl. tax)', 'Total Orders', 'Last Order']
-      const rows = all.map(c => [
-        c.name, c.email || '', c.phone || '', c.location || '',
-        SEGMENT_META[c.segment]?.label || c.segment,
-        c.total_spent, c.total_orders,
-        c.last_order_date ? c.last_order_date.split('T')[0] : 'Never',
-      ])
-      // BOM so Excel reads it as UTF-8. Without it Excel assumes the system
-      // codepage and mangles every accented name on open.
-      const csv = '﻿' + [headers, ...rows]
-        .map(r => r.map(csvCell).join(',')).join('\r\n')
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      const scope = segmentFilter !== 'all' ? '-' + segmentFilter : ''
-      a.download = 'customers' + scope + '-' + new Date().toISOString().split('T')[0] + '.csv'
-      a.click()
-      window.URL.revokeObjectURL(url)
+      const cap = format === 'pdf' ? PDF_ROW_CAP : CSV_ROW_CAP
+      const { rows, total, truncated } = await fetchMatchingCustomers({
+        search: debouncedSearch,
+        segment: segmentFilter,
+        sortBy,
+        cap,
+        // 20,000 rows is 200 round trips. Without a count the button looks hung
+        // and people click it again.
+        onProgress: (done, of) => setExportProgress({ done, of }),
+      })
+      const scope = describeScope({
+        search: debouncedSearch, segment: segmentFilter, sortBy,
+        total, exported: rows.length, truncated,
+      })
+      if (format === 'pdf') await exportCustomersPDF({ rows, scope, segment: segmentFilter })
+      else exportCustomersCSV({ rows, scope, segment: segmentFilter })
     } catch (e) {
       setError('Export failed: ' + e.message)
     } finally {
-      setExporting(false)
+      setExporting(null)
+      setExportProgress(null)
     }
   }
 
@@ -430,12 +428,64 @@ export default function Customers() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={exportToCSV} disabled={exporting}
-                  title={'Exports all ' + formatKES(total) + ' matching customers, not just this page'}
-                  className="btn-ghost flex items-center gap-2 text-xs disabled:opacity-60">
-            {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-            {exporting ? 'Exporting…' : 'CSV'}
-          </button>
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen(o => !o)}
+              disabled={!!exporting}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              title={'Exports all ' + formatKES(total) + ' matching customers, not just this page'}
+              className="btn-ghost flex items-center gap-2 text-xs disabled:opacity-60"
+            >
+              {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+              {exporting
+                /* The count, not a spinner word. At 162,000 rows this runs for
+                   a while, and "Exporting…" gives no way to tell progress from
+                   a hang. */
+                ? (exportProgress
+                    ? `Exporting ${formatKES(exportProgress.done)} / ${formatKES(exportProgress.of)}…`
+                    : 'Exporting…')
+                : 'Export'}
+              {!exporting && <ChevronDown size={12} className="opacity-60" />}
+            </button>
+
+            {exportOpen && !exporting && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-1 w-64 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg z-20 overflow-hidden"
+              >
+                {/* Each option says what it actually produces. The two are not
+                    the same export in different wrappers — one is the data, one
+                    is a document — and picking wrongly wastes a 200-request
+                    round trip. */}
+                <button
+                  role="menuitem"
+                  onClick={() => runExport('csv')}
+                  className="w-full text-left px-3 py-2.5 hover:bg-[var(--surface-2)] transition-colors"
+                >
+                  <span className="flex items-center gap-2 text-xs font-semibold text-[var(--text)]">
+                    <FileSpreadsheet size={13} /> CSV — full data
+                  </span>
+                  <span className="block text-[11px] text-[var(--text-muted)] mt-0.5 leading-snug">
+                    Every matching customer, up to {formatKES(CSV_ROW_CAP)} rows. For Excel.
+                  </span>
+                </button>
+                <div className="border-t border-[var(--border)]" />
+                <button
+                  role="menuitem"
+                  onClick={() => runExport('pdf')}
+                  className="w-full text-left px-3 py-2.5 hover:bg-[var(--surface-2)] transition-colors"
+                >
+                  <span className="flex items-center gap-2 text-xs font-semibold text-[var(--text)]">
+                    <FileText size={13} /> PDF — report
+                  </span>
+                  <span className="block text-[11px] text-[var(--text-muted)] mt-0.5 leading-snug">
+                    Segment mix plus the top {formatKES(PDF_ROW_CAP)} by {(SORT_LABELS[sortBy] || sortBy).toLowerCase()}. For sharing.
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={handleSync}
             disabled={syncing || isJobRunning}
