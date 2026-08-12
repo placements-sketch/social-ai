@@ -309,8 +309,7 @@ def cron_sync_customers():
     """Trigger a customers sync. Uses the same async pattern as /api/customers/sync."""
     from app.integrations.shopify import list_all_customers
     from app.models import CustomerCache
-    from app.customers import _truncate, _parse_dt, _dec
-    from app.refunds import upsert_refunds
+    from app.customers import _truncate, _parse_dt
     from decimal import Decimal
 
     def do_sync(job):
@@ -547,6 +546,8 @@ def cron_sync_orders():
     from app.models import OrderCache, CustomerCache
     from sqlalchemy import func
     from app.orders import _truncate, _parse_dt
+    from app.customers import _dec
+    from app.refunds import upsert_refunds
     from decimal import Decimal
 
     def do_sync(job):
