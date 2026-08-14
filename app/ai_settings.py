@@ -214,7 +214,7 @@ def reset_settings():
     settings = _get_or_create_settings()
     for key, value in DEFAULTS.items():
         setattr(settings, key, value)
-    settings.updated_at = utcnow()
+    settings.updated_at = datetime.utcnow()
 
     notify_admins(
         type_='ai_settings_reset',

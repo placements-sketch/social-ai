@@ -2,11 +2,26 @@ name: Daily Sync
 
 # Schedule times are in UTC. EAT = UTC+3.
 # So 3:00 AM EAT = 00:00 UTC, 3:15 AM EAT = 00:15 UTC, 3:45 AM EAT = 00:45 UTC.
+# Cadence dropped from every 3 hours to once daily on 2026-08-12.
+#
+# The 3-hourly schedule was costing more than the freshness was worth. Each run
+# pulls the ENTIRE id column of the table it syncs — ~162,000 customer ids and
+# ~130,000 order ids — across the network purely to decide insert-vs-update.
+# Eight runs a day of that put the Supabase egress allowance at 120% (6.02 GB
+# against a 5 GB plan), which risks throttling.
+#
+# Once a day removes 7/8 of that traffic. Customer segments and order history do
+# not move fast enough for three-hourly refreshes to change a decision anyone
+# makes, and anything genuinely live already arrives by webhook.
+#
+# The real fix is to stop reading the id column at all (INSERT ... ON CONFLICT),
+# which removes the reads rather than doing them less often. This buys headroom
+# until then.
 on:
   schedule:
-    - cron: '0 */3 * * *'    # every 3h on the hour — customers
-    - cron: '5 */3 * * *'    # every 3h, :05 — orders
-    - cron: '10 */3 * * *'   # every 3h, :10 — products
+    - cron: '0 0 * * *'      # daily 03:00 EAT — customers
+    - cron: '5 0 * * *'      # daily 03:05 EAT — orders
+    - cron: '10 0 * * *'     # daily 03:10 EAT — products
     - cron: '0 2 * * 0'    # Sunday 05:00 EAT — weekly reconcile
     - cron: '0 1 * * *'    # daily 04:00 EAT — conversion attribution
     - cron: '30 1 * * *'   # daily 04:30 EAT — auto-resolve stale conversations
@@ -45,13 +60,13 @@ jobs:
           if [ -n "$MANUAL_INPUT" ]; then
             echo "Manual run, sync_type=$MANUAL_INPUT"
             echo "sync=$MANUAL_INPUT" >> $GITHUB_OUTPUT
-          elif [ "$SCHEDULE" = "0 */3 * * *" ]; then
+          elif [ "$SCHEDULE" = "0 0 * * *" ]; then
             echo "Scheduled run for customers"
             echo "sync=customers" >> $GITHUB_OUTPUT
-          elif [ "$SCHEDULE" = "5 */3 * * *" ]; then
+          elif [ "$SCHEDULE" = "5 0 * * *" ]; then
             echo "Scheduled run for orders"
             echo "sync=orders" >> $GITHUB_OUTPUT
-          elif [ "$SCHEDULE" = "10 */3 * * *" ]; then
+          elif [ "$SCHEDULE" = "10 0 * * *" ]; then
             echo "Scheduled run for products"
             echo "sync=products" >> $GITHUB_OUTPUT
           elif [ "$SCHEDULE" = "0 2 * * 0" ]; then

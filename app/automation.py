@@ -460,6 +460,12 @@ def delete_rule(rule_id):
         return jsonify({'error': 'Rule not found'}), 404
 
     name = rule.name
+    # Captured BEFORE the delete, and before the commit further down: the audit
+    # entry is written after both, by which point the instance is gone and
+    # rule.to_dict() would raise. The comment at the log_audit call describes
+    # this snapshot, but the assignment was missing — so deleting any rule
+    # raised NameError instead of recording what was deleted.
+    snapshot = rule.to_dict()
     db.session.delete(rule)
 
     from app.notifications import notify_admins

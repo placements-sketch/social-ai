@@ -30,6 +30,10 @@ from flask_jwt_extended import jwt_required
 from app import db
 from app.models import AuthUser, AuditLog, Log
 from app.auth import current_user_id, log_audit
+# alerts() calls this from three except blocks and it was never imported, so a
+# failure in any of them raised NameError from inside the handler — replacing
+# the real error with a misleading one at the exact moment someone is debugging.
+from app.utils.logger import log_event
 
 logs_bp = Blueprint('logs', __name__, url_prefix='/api')
 

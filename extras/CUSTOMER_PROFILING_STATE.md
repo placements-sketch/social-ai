@@ -143,14 +143,31 @@ right, nothing would flag it except finance, who read the months.
 
 ## Also worth knowing
 
-- **The orders sync had not run since 2 July** — six weeks. The watermark was
-  stuck, which is why our order count sat 1,723 below Shopify's. The backfill
-  fixes the data; it does not explain the stall, and the stall will recur if
-  whatever caused it is still there. Unexamined.
-- **Three latent crashes found elsewhere** by static analysis, all pre-existing:
-  `logs.py` (three sites), `ai_settings.py`, `automation.py`. The `logs.py` ones
-  sit inside `except` blocks, so they replace a real error with a confusing one
-  at exactly the wrong moment. Not fixed — outside this page.
+- **There was no six-week sync stall.** An earlier version of this document said
+  the orders sync had been stuck since 2 July. That was wrong. The claim came
+  from the local development database, in which `orders_cache` and
+  `customers_cache` were both last written at `2026-07-02 07:28` — the same
+  second — while other tables have been written since. That is the signature of
+  a database copy taken on 2 July, not a stalled sync. The "1,723 orders behind
+  Shopify" was the same mistake: a six-week-old snapshot measured against
+  today's Shopify.
+
+  The 52-of-52 finding is unaffected. That comparison deliberately excluded
+  months from 2026-06 onward to avoid the snapshot's stale tail, so every month
+  it counted was fully present in both sources.
+
+  **General warning for anyone doing this again:** `DATABASE_URL` in `.env`
+  points at `localhost/social_ai`, not production. It holds real data and answers
+  queries convincingly, so it is easy to mistake for live. Production job ids
+  were in the 500s while the local copy's highest was 16.
+- **Three latent crashes found by static analysis** — all pre-existing, all now
+  fixed: `logs.py` called `log_event` in three `except` blocks without importing
+  it (so a failure raised `NameError` from inside the handler, hiding the real
+  error); `ai_settings.py` called bare `utcnow()` instead of `datetime.utcnow()`,
+  crashing reset-to-defaults; `automation.py` referenced a `snapshot` variable
+  that was never assigned, so deleting any automation rule raised `NameError`
+  instead of recording what was deleted. `pyflakes app/` now reports no undefined
+  names anywhere.
 - **Segment colours** were rebuilt to pass contrast and colour-blindness checks
   in both light and dark themes, and the definition now lives in one file
   (`utils/segments.js`) instead of being duplicated in three that had drifted.
