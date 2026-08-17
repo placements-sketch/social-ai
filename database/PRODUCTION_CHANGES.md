@@ -2839,3 +2839,86 @@ healthy — 216.3M against ShopifyQL's 188.4M, and a ~30% return rate that both
 sources independently agree on. `amount_refunded` answers "what did we pay back",
 which is a real question and now correctly answers "unknown" for history rather
 than "nothing".
+
+---
+
+### Step 41 — Reclaim disk: one duplicate index, one index nothing queries
+
+Supabase reports the database at **0.356 GB of a 0.5 GB free-plan limit (71%)**,
+and Steps 37/38 are actively adding to it (`refunds_cache` ~15 MB, the new order
+columns ~8 MB, plus row-version churn from the backfill). This buys headroom
+while the hosting plan is decided.
+
+Indexes are **44% of the database** — 101 MB against 230 MB of total size, and
+`customers_cache` carries more index (64 MB) than data (57 MB). Two of them earn
+nothing.
+
+```sql
+BEGIN;
+
+-- 1. An exact duplicate.
+--
+--    idx_customers_last_order       btree (last_order_date DESC)
+--    idx_customers_last_order_date  btree (last_order_date DESC)
+--
+--    Identical definition, identical column, identical ordering. Only the first
+--    appears in database/railway-backup.sql, so the second was added later
+--    without anyone noticing it already existed. Neither backs a constraint, so
+--    dropping one cannot change a query plan: the planner has an identical
+--    index still available. Keeping the original name.
+DROP INDEX IF EXISTS idx_customers_last_order_date;
+
+-- 2. A GIN index on jsonb that no query uses.
+--
+--    GIN is the correct index type for jsonb — this is not a wrong-index-type
+--    problem. It is that `variants_detail` is only ever written whole and read
+--    whole (app/ai/generator.py reads product['variants_detail'] in Python).
+--    There is no containment (@>), key-existence (?) or path query against it
+--    anywhere in the codebase, and a GIN index serves no other kind.
+--
+--    So it is pure cost: ~8 MB of disk, plus GIN maintenance on every product
+--    write — and products are re-synced in full on every products sync. Dropping
+--    it should make that sync faster as well as smaller.
+DROP INDEX IF EXISTS idx_products_cache_variants_detail;
+
+COMMIT;
+```
+
+Dropping an index returns its space immediately; no VACUUM is needed for that
+part. Expect roughly **13 MB** back.
+
+**If a jsonb query on `variants_detail` is ever added** — searching products by
+variant size or colour inside the JSON, say — recreate it:
+
+```sql
+CREATE INDEX idx_products_cache_variants_detail
+    ON products_cache USING gin (variants_detail);
+```
+
+---
+
+**Separately, after the order backfill finishes**, reclaim the row versions it
+left behind. Re-syncing ~130,000 existing orders writes a new version of every
+row, and the dead ones hold disk until vacuumed.
+
+`VACUUM` cannot run inside a transaction — run these **on their own**, with no
+`BEGIN`/`COMMIT` around them:
+
+```sql
+VACUUM (ANALYZE) orders_cache;
+VACUUM (ANALYZE) customers_cache;
+VACUUM (ANALYZE) products_cache;
+```
+
+Plain `VACUUM` is safe and does not lock the table against reads or writes, but
+it only marks space reusable internally — Supabase's reported size may barely
+move. To actually return disk to the operating system:
+
+```sql
+VACUUM FULL orders_cache;
+```
+
+`VACUUM FULL` takes an **exclusive lock** (nothing can read or write that table
+while it runs) and needs free space equal to the table's size to rebuild it.
+`orders_cache` is ~33 MB against ~144 MB free, so it fits — but run it in a
+quiet period, not while a sync is going.
