@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+#
+# Supabase -> Render, in small resumable pieces.
+#
+#   ./scripts/migrate_chunked.sh "<SUPABASE_URL>" "<RENDER_EXTERNAL_URL>"
+#
+# Why this exists: a single pg_dump of this database dies partway with
+# "SSL connection has been closed unexpectedly", on a different table each
+# attempt. That inconsistency rules out a per-table problem and points at the
+# connection being cut during long transfers — consistent with the Supabase
+# egress allowance sitting at 120% and their warning about restrictions.
+#
+# So: never hold a long transfer open. Schema comes over in one small step, then
+# data moves table by table, big tables in row ranges, each chunk retried on
+# failure. A dropped connection costs one chunk, not the whole migration.
+#
+# Re-runnable. Chunks already present on the target are skipped, so if this dies
+# you just run it again.
+#
+set -uo pipefail
+
+PGBIN="/c/Program Files/PostgreSQL/18/bin"
+SRC="${1:-}"; DST="${2:-}"
+CHUNK=${CHUNK:-20000}      # rows per transfer
+RETRIES=${RETRIES:-5}
+
+[ -z "$SRC" ] || [ -z "$DST" ] && { echo "usage: $0 '<SRC>' '<DST>'" >&2; exit 2; }
+
+# Scalars only: tr -d strips ALL whitespace, so never use these for a list.
+s() { "$PGBIN/psql" -X -A -t -q -d "$SRC" -c "$1" 2>/dev/null | tr -d '[:space:]'; }
+d() { "$PGBIN/psql" -X -A -t -q -d "$DST" -c "$1" 2>/dev/null | tr -d '[:space:]'; }
+# Lists: one value per line, whitespace left alone. Using s() here collapsed
+# "a b c" into "abc", the loop ran once on a table that does not exist, both
+# counts came back empty, empty matched empty, and the run declared success
+# having copied nothing.
+slist() { "$PGBIN/psql" -X -A -t -q -d "$SRC" -c "$1" 2>/dev/null | sed '/^$/d'; }
+
+say() { printf '\n=== %s ===\n' "$1"; }
+
+# ── 1. Schema ──────────────────────────────────────────────────────────────
+say "Schema"
+if [ "$(d "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")" = "0" ]; then
+  echo "target empty - transferring schema"
+  # Metadata only: small and quick, so the fragile-connection problem does not
+  # apply. Indexes come with it; they slow the data load but avoid a second
+  # pass, and at this size that trade is fine.
+  "$PGBIN/pg_dump" --schema-only --no-owner --no-privileges -d "$SRC" -f schema.sql || {
+    echo "FAIL: schema dump failed"; exit 1; }
+  "$PGBIN/psql" -X -q -d "$DST" -f schema.sql >/dev/null 2>&1
+  echo "tables now on target: $(d "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
+else
+  echo "target already has tables - skipping schema"
+fi
+
+# ── 1b. Take the foreign keys off ──────────────────────────────────────────
+#
+# Loading table-by-table means children can arrive before parents: audit_logs
+# sorts before auth_users, and logs references conversations which references
+# others again. Multi-pass eventually untangles it, but the dependency graph has
+# 42 edges and every wrong guess costs a full retry cycle.
+#
+# session_replication_role would switch enforcement off in one line, but Render
+# does not grant superuser, so the portable answer is to drop the constraints
+# and put them back afterwards. Re-adding revalidates every row, so referential
+# integrity is checked at the end rather than assumed.
+say "Dropping foreign keys for the load"
+"$PGBIN/psql" -X -A -t -q -d "$DST" -c "
+  select format('ALTER TABLE %s ADD CONSTRAINT %I %s;', conrelid::regclass, conname, pg_get_constraintdef(oid))
+  from pg_constraint where contype='f'" > fk_restore.sql
+"$PGBIN/psql" -X -A -t -q -d "$DST" -c "
+  select format('ALTER TABLE %s DROP CONSTRAINT %I;', conrelid::regclass, conname)
+  from pg_constraint where contype='f'" > fk_drop.sql
+echo "saved $(grep -c 'ADD CONSTRAINT' fk_restore.sql) constraints to fk_restore.sql"
+"$PGBIN/psql" -X -q -d "$DST" -f fk_drop.sql >/dev/null 2>&1
+echo "remaining FKs on target: $(d "select count(*) from pg_constraint where contype='f'")"
+
+# ── 2. Data, table by table ────────────────────────────────────────────────
+TABLES=$(slist "select tablename from pg_tables where schemaname='public' order by tablename")
+FAILED=0
+
+PASS=0
+while :; do
+  PASS=$((PASS+1))
+  PROGRESS=0
+  FAILED=0
+  [ "$PASS" -gt 1 ] && say "Pass $PASS (retrying tables blocked by foreign keys)"
+
+for t in $TABLES; do
+  src_n=$(s "select count(*) from $t")
+  dst_n=$(d "select count(*) from $t")
+  [ -z "$src_n" ] && continue
+
+  if [ "${dst_n:-0}" = "$src_n" ]; then
+    printf '%-22s %10s rows  already complete\n' "$t" "$src_n"
+    continue
+  fi
+
+  printf '%-22s %10s rows  -> copying\n' "$t" "$src_n"
+
+  # Deliberately NOT truncating a partially-loaded table. Each run is time
+  # capped, so wiping progress means a 259k-row table restarts from zero every
+  # time and never completes. Chunks are compared and skipped individually
+  # below, which makes repeated runs converge instead of thrash.
+
+  # Chunk on id when there is one; otherwise take the table in a single pass
+  # (only small tables lack a serial id here).
+  has_id=$(s "select count(*) from information_schema.columns where table_name='$t' and column_name='id'")
+  if [ "$has_id" = "1" ] && [ "$src_n" -gt "$CHUNK" ]; then
+    maxid=$(s "select coalesce(max(id),0) from $t")
+    lo=0
+    while [ "$lo" -le "$maxid" ]; do
+      hi=$((lo + CHUNK))
+      # Already have this range? Skip it. This is what lets an interrupted run
+      # pick up where it stopped rather than redo the whole table.
+      csrc=$(s "select count(*) from $t where id > $lo and id <= $hi")
+      cdst=$(d "select count(*) from $t where id > $lo and id <= $hi")
+      if [ -n "$csrc" ] && [ "$csrc" = "${cdst:-x}" ]; then
+        lo=$hi
+        continue
+      fi
+      # Partial range: clear just this slice so the copy cannot duplicate rows.
+      if [ "${cdst:-0}" != "0" ]; then
+        "$PGBIN/psql" -X -q -d "$DST" -c "delete from $t where id > $lo and id <= $hi" >/dev/null 2>&1
+      fi
+      ok=0
+      for try in $(seq 1 "$RETRIES"); do
+        # Streamed source -> target. No temp file, so a drop costs this chunk
+        # only and the retry re-reads just this range.
+        if "$PGBIN/psql" -X -q -d "$SRC" \
+             -c "\\copy (select * from $t where id > $lo and id <= $hi) to stdout" 2>/dev/null \
+           | "$PGBIN/psql" -X -q -d "$DST" -c "\\copy $t from stdin" >/dev/null 2>&1; then
+          ok=1; break
+        fi
+        printf '    chunk %s-%s failed (attempt %s/%s), retrying\n' "$lo" "$hi" "$try" "$RETRIES"
+        sleep 3
+      done
+      [ "$ok" = "0" ] && { echo "    GAVE UP on $t rows $lo-$hi"; FAILED=1; }
+      lo=$hi
+      printf '\r    %s / %s rows' "$( [ "$hi" -gt "$maxid" ] && echo "$maxid" || echo "$hi")" "$maxid"
+    done
+    echo
+  else
+    ok=0
+    for try in $(seq 1 "$RETRIES"); do
+      if "$PGBIN/psql" -X -q -d "$SRC" -c "\\copy $t to stdout" 2>/dev/null \
+         | "$PGBIN/psql" -X -q -d "$DST" -c "\\copy $t from stdin" >/dev/null 2>&1; then
+        ok=1; break
+      fi
+      printf '    failed (attempt %s/%s), retrying\n' "$try" "$RETRIES"
+      sleep 3
+    done
+    [ "$ok" = "0" ] && { echo "    GAVE UP on $t"; FAILED=1; }
+  fi
+  [ "${ok:-0}" = "1" ] && PROGRESS=1
+done
+
+  # Stop when everything is in, or when a whole pass moved nothing (a real
+  # failure rather than an ordering problem). The cap is a backstop against a
+  # circular dependency spinning forever.
+  [ "$FAILED" -eq 0 ] && break
+  [ "$PROGRESS" -eq 0 ] && { echo; echo "a full pass copied nothing further - stopping"; break; }
+  [ "$PASS" -ge 6 ] && { echo; echo "reached pass limit"; break; }
+done
+
+# ── 3. Sequences ───────────────────────────────────────────────────────────
+# Data loaded via COPY does not advance sequences. Left behind, the first insert
+# after cutover fails on a duplicate key and looks like an application bug.
+say "Restoring foreign keys"
+# Any failure here means a row references something that did not come across —
+# a real integrity problem worth stopping for, not a warning to skim.
+if "$PGBIN/psql" -X -q -v ON_ERROR_STOP=1 -d "$DST" -f fk_restore.sql >/tmp/fk_err.txt 2>&1; then
+  echo "all $(grep -c 'ADD CONSTRAINT' fk_restore.sql) constraints restored and revalidated"
+else
+  echo "FK RESTORE FAILED - data is referentially inconsistent:"
+  head -5 /tmp/fk_err.txt
+  FAILED=1
+fi
+
+say "Resetting sequences"
+"$PGBIN/psql" -X -q -d "$DST" -c "
+DO \$\$
+DECLARE r record; mx bigint;
+BEGIN
+  FOR r IN
+    SELECT c.relname AS tbl, a.attname AS col, pg_get_serial_sequence(c.relname, a.attname) AS seq
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0
+    WHERE n.nspname='public' AND c.relkind='r'
+      AND pg_get_serial_sequence(c.relname, a.attname) IS NOT NULL
+  LOOP
+    EXECUTE format('SELECT coalesce(max(%I),0) FROM %I', r.col, r.tbl) INTO mx;
+    PERFORM setval(r.seq, GREATEST(mx, 1));
+  END LOOP;
+END \$\$;" && echo "done"
+
+# ── 4. Verify ──────────────────────────────────────────────────────────────
+say "Row counts"
+printf '%-22s %12s %12s   %s\n' TABLE SUPABASE RENDER RESULT
+for t in $TABLES; do
+  a=$(s "select count(*) from $t"); b=$(d "select count(*) from $t")
+  # An unreadable count is a failure, not agreement. Treating empty=empty as a
+  # match is what let a run that copied nothing report VERIFIED.
+  if [ -z "$a" ] || [ -z "$b" ]; then r="NO COUNT"; FAILED=1
+  elif [ "$a" = "$b" ]; then r=ok
+  else r="MISMATCH"; FAILED=1; fi
+  printf '%-22s %12s %12s   %s\n' "$t" "${a:-?}" "${b:-?}" "$r"
+done
+
+echo
+if [ "$(echo "$TABLES" | wc -w)" -lt 2 ]; then
+  echo "=== ABORT: table list looks wrong ($(echo "$TABLES" | wc -w) entries) - refusing to claim success ==="
+  exit 1
+fi
+if [ "$FAILED" -eq 0 ]; then
+  echo "=== MIGRATION VERIFIED - safe to switch DATABASE_URL (use the INTERNAL string) ==="
+  exit 0
+else
+  echo "=== INCOMPLETE - re-run this script; finished tables are skipped ==="
+  exit 1
+fi
