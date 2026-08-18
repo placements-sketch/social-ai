@@ -579,14 +579,23 @@ export default function Customers() {
       {!isStale && syncStatus?.needs_full_refresh && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex gap-3 items-center">
           <Info size={16} className="text-gray-400 shrink-0" />
+          {/* Stated as a fact, not raised as a fault.
+              This used to open "Syncs are running, but ..." over a six-figure
+              count, which read as something being broken. Nothing is: the
+              nightly run is a delta keyed on Shopify's updated_at, so a customer
+              who has not changed is correct without being re-read. What ages is
+              the verification date, not the data.
+              A full pass now runs weekly, so this should normally be absent —
+              which is what lets it mean something when it does appear. */}
           <p className="text-xs text-gray-600">
-            Syncs are running, but{' '}
+            Last full verification against Shopify:{' '}
             <span className="font-semibold text-gray-900">
-              {formatKES(syncStatus.unrefreshed_count)} customer{syncStatus.unrefreshed_count === 1 ? '' : 's'}
+              over {syncStatus.full_refresh_threshold_days} days ago
             </span>{' '}
-            {syncStatus.unrefreshed_count === 1 ? "hasn't" : "haven't"} been re-checked against Shopify in over{' '}
-            {syncStatus.full_refresh_threshold_days} days — the nightly sync only fetches customers Shopify
-            marks as changed. "Sync Now" refreshes every record.
+            for {formatKES(syncStatus.unrefreshed_count)} customer{syncStatus.unrefreshed_count === 1 ? '' : 's'}.
+            Day-to-day changes still arrive nightly — Shopify only reports customers
+            that changed, so unchanged records are left as they are. A full pass runs
+            weekly, and "Sync Now" does one immediately.
           </p>
         </div>
       )}

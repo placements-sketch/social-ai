@@ -350,8 +350,22 @@ def cron_sync_customers():
 
         state = SyncState.query.filter_by(kind='customers').first()
         watermark = state.watermark if state else None
-        is_delta  = watermark is not None
+
+        # ?full=1 forces a complete re-read of every customer.
+        #
+        # The nightly run is a delta keyed on Shopify's updated_at, which keeps
+        # the data correct but never touches a customer who has not changed —
+        # so cached_at ages on ~162,000 rows until somebody clicks Sync Now by
+        # hand. Nothing on any schedule did that, which is why the staleness
+        # banner reached 100% about a week after every manual sync and stayed
+        # there. A weekly full pass makes "everything was verified recently"
+        # the normal state, so the banner means something when it does appear.
+        force_full = request.args.get('full') in ('1', 'true', 'yes')
+        is_delta  = watermark is not None and not force_full
         delta_filter = (watermark - timedelta(minutes=5)).isoformat() if is_delta else None
+        if force_full:
+            log_event("info", "cron.customers_full_refresh",
+                      "Full customer refresh requested — ignoring watermark")
 
         now = datetime.utcnow()
         added = updated = removed = 0
