@@ -119,8 +119,20 @@ function RfmPillar({ icon: Icon, label, score, caption, scaleLabel }) {
   )
 }
 
-export default function CustomerDetail() {
-  const { id } = useParams()
+/**
+ * The customer profile itself, with no opinion about how it is being shown.
+ *
+ * Rendered two ways: as the /customers/:id page, and inside the slide-over on
+ * the customer table. Extracted rather than duplicated because it is ~600 lines
+ * of RFM tiles, spend history and order pagination, and two copies would drift
+ * apart the first time either was touched.
+ *
+ * The route is deliberately kept alongside the sheet. A sheet cannot be
+ * bookmarked, shared in Slack, or survive a refresh — losing /customers/:id to
+ * gain a panel would be a straight downgrade for anyone who links to a customer.
+ */
+export function CustomerDetailView({ customerId, onClose }) {
+  const id = customerId
   const navigate = useNavigate()
 
   const [customer, setCustomer] = useState(null)
@@ -253,7 +265,7 @@ export default function CustomerDetail() {
   if (error || !customer) {
     return (
       <div className="space-y-4 w-full">
-        <button onClick={() => navigate('/customers')} className="btn-ghost flex items-center gap-2 text-xs">
+        <button onClick={onClose} className="btn-ghost flex items-center gap-2 text-xs">
           <ArrowLeft size={13} /> Back
         </button>
         <div className="card p-12 text-center">
@@ -306,8 +318,9 @@ export default function CustomerDetail() {
 
   return (
     <div className="space-y-6 w-full">
-      {/* Back */}
-      <button onClick={() => navigate('/customers')} className="btn-ghost flex items-center gap-2 text-xs">
+      {/* In the sheet this closes the panel; on the page it goes back to the
+          table. Same button, and the caller decides what "back" means. */}
+      <button onClick={onClose} className="btn-ghost flex items-center gap-2 text-xs">
         <ArrowLeft size={13} /> All Customers
       </button>
 
@@ -683,4 +696,14 @@ export default function CustomerDetail() {
       </div>
     </div>
   )
+}
+
+
+/**
+ * Route wrapper for /customers/:id — the shareable, refreshable URL.
+ */
+export default function CustomerDetail() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  return <CustomerDetailView customerId={id} onClose={() => navigate('/customers')} />
 }

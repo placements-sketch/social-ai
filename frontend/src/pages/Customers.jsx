@@ -26,6 +26,7 @@ import {
 } from '../api/customers'
 import CustomerAIChat from './CustomerAIChat'
 import CustomerTrends from './CustomerTrends'
+import { CustomerDetailView } from './CustomerDetail'
 
 // Definitions are the rules in customers.py::compute_segment(), stated in
 // words. They are listed here in the order that function TESTS them, which is
@@ -144,7 +145,7 @@ function BlockSkeleton({ className = 'h-72' }) {
 }
 
 // ─── Top spender/frequent card ─────────────────────────────────
-function TopList({ title, icon: TitleIcon, customers, mode, navigate }) {
+function TopList({ title, icon: TitleIcon, customers, mode, onSelect }) {
   if (customers.length === 0) {
     return (
       <div className="card p-5">
@@ -167,7 +168,7 @@ function TopList({ title, icon: TitleIcon, customers, mode, navigate }) {
           return (
             <button
               key={c.id}
-              onClick={() => navigate(`/customers/${c.id}`)}
+              onClick={() => onSelect(c.id)}
               className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition text-left"
             >
               <span className="text-xs font-bold text-gray-400 w-5 text-center shrink-0">{i + 1}</span>
@@ -316,6 +317,43 @@ export default function Customers() {
   // same search/segment/sort the table is using — so what you export is what
   // you were looking at. The mechanics live in utils/customerExport.js; see the
   // note there for why CSV and PDF stop at different row counts.
+  // Which customer the slide-over is showing, or null.
+  //
+  // A sheet rather than a route because this table is something you scan: your
+  // filters, sort, page and scroll position all survive opening a customer, and
+  // closing puts you back exactly where you were. Navigating to /customers/:id
+  // threw all of that away and made comparing three customers a chore.
+  //
+  // Mirrored into ?customer=<id> so the panel is still linkable and Back closes
+  // it — the two things a sheet normally costs you. The /customers/:id route is
+  // untouched and still works for anyone holding an old link.
+  const [sheetId, setSheetId] = useState(() => {
+    const p = new URLSearchParams(window.location.search)
+    return p.get('customer') || null
+  })
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (sheetId) url.searchParams.set('customer', sheetId)
+    else url.searchParams.delete('customer')
+    window.history.replaceState({}, '', url)
+  }, [sheetId])
+
+  // Escape closes it, like every other dismissible layer in the app.
+  useEffect(() => {
+    if (!sheetId) return
+    const onKey = (e) => { if (e.key === 'Escape') setSheetId(null) }
+    // The page behind must not scroll while the sheet is open, or dismissing it
+    // returns you somewhere other than where you were.
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [sheetId])
+
   const [exporting, setExporting] = useState(null)     // 'csv' | 'pdf' | null
   const [exportProgress, setExportProgress] = useState(null)
   const [exportOpen, setExportOpen] = useState(false)
@@ -1058,8 +1096,8 @@ export default function Customers() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {overview ? (
           <>
-            <TopList title="Top Spenders" icon={Award} customers={overview.top_spenders || []} mode="spent" navigate={navigate} />
-            <TopList title="Most Frequent Buyers" icon={Repeat} customers={overview.top_frequent || []} mode="orders" navigate={navigate} />
+            <TopList title="Top Spenders" icon={Award} customers={overview.top_spenders || []} mode="spent" onSelect={setSheetId} />
+            <TopList title="Most Frequent Buyers" icon={Repeat} customers={overview.top_frequent || []} mode="orders" onSelect={setSheetId} />
           </>
         ) : (
           <>
@@ -1068,6 +1106,43 @@ export default function Customers() {
           </>
         )}
       </div>
+
+      {/* ─── CUSTOMER SHEET ──────────────────────────────────
+          The profile, over the table rather than instead of it. Everything
+          behind stays exactly as you left it — filters, sort, page, scroll —
+          so checking four customers is four clicks, not four round trips.
+
+          Rendered only while open so its data fetch does not run for a panel
+          nobody asked for. */}
+      {sheetId && (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true"
+             aria-label="Customer details">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
+            onClick={() => setSheetId(null)}
+            aria-hidden="true"
+          />
+          {/* max-w so it never becomes a full-width page on a wide monitor —
+              the point is that the table stays visible beside it. */}
+          <aside className="relative h-full w-full sm:max-w-3xl bg-[var(--bg)] shadow-2xl
+                            overflow-y-auto overscroll-contain animate-[slideInRight_.22s_var(--ease-out)]">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-3
+                            bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)]">
+              <p className="text-xs font-semibold text-gray-500">Customer</p>
+              <button
+                onClick={() => setSheetId(null)}
+                className="btn-ghost text-xs flex items-center gap-1.5"
+                aria-label="Close customer details"
+              >
+                Close <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <div className="p-4 sm:p-6">
+              <CustomerDetailView customerId={sheetId} onClose={() => setSheetId(null)} />
+            </div>
+          </aside>
+        </div>
+      )}
 
       <CustomerAIChat />
 
@@ -1146,7 +1221,7 @@ export default function Customers() {
                     return (
                       <tr
                         key={c.id}
-                        onClick={() => navigate(`/customers/${c.id}`)}
+                        onClick={() => setSheetId(c.id)}
                         className="border-b border-gray-100 hover:bg-gray-50/60 cursor-pointer transition-colors"
                       >
                         <td className="px-3 py-3">
@@ -1186,7 +1261,7 @@ export default function Customers() {
                 return (
                   <div
                     key={c.id}
-                    onClick={() => navigate(`/customers/${c.id}`)}
+                    onClick={() => setSheetId(c.id)}
                     className="bg-white border border-gray-200 rounded-2xl p-3.5 cursor-pointer hover:border-gray-300 active:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between gap-2 mb-3">
