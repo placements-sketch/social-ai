@@ -546,6 +546,7 @@ function HandoffPanel({ settings, setSettings }) {
   const [bridging, setBridging] = useState(h.bridging_reply ?? '')
   const [unclaimedMins, setUnclaimedMins] = useState(h.unclaimed_alert_minutes ?? 15)
   const [agentWaitMins, setAgentWaitMins] = useState(h.agent_waiting_minutes ?? 10)
+  const [silentHours, setSilentHours] = useState(h.silent_alert_hours ?? 24)
   // Both of these were live behaviour with no way to see or change them: a
   // nightly job closes conversations idle past auto_resolve_days, and a reply
   // arriving within reopen_resolved_within_hours re-opens a resolved chat
@@ -570,6 +571,8 @@ function HandoffPanel({ settings, setSettings }) {
     const aw = parseInt(agentWaitMins, 10)
     if (!Number.isFinite(um) || um < 1 || um > 1440) return setMsg({ type: 'error', text: 'Unclaimed alert must be 1–1440 minutes.' })
     if (!Number.isFinite(aw) || aw < 1 || aw > 1440) return setMsg({ type: 'error', text: 'Agent wait flag must be 1–1440 minutes.' })
+    const sh = parseInt(silentHours, 10)
+    if (!Number.isFinite(sh) || sh < 1 || sh > 720) return setMsg({ type: 'error', text: 'No-reply alert must be 1–720 hours.' })
     const ar = parseInt(autoResolve, 10)
     const rh = parseInt(reopenHours, 10)
     if (!Number.isFinite(ar) || ar < 0 || ar > 365) return setMsg({ type: 'error', text: 'Auto-resolve must be 0–365 days (0 turns it off).' })
@@ -583,6 +586,7 @@ function HandoffPanel({ settings, setSettings }) {
         body: JSON.stringify({ handoff: {
           max_agent_load: ml, presence_window_seconds: pw, bridging_reply: bridging.trim(),
           unclaimed_alert_minutes: um, agent_waiting_minutes: aw, auto_resolve_days: ar,
+          silent_alert_hours: sh,
         }, conversations: { reopen_resolved_within_hours: rh } }),
       })
       const data = await res.json()
@@ -642,6 +646,23 @@ function HandoffPanel({ settings, setSettings }) {
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">minutes</span>
           </div>
           <p className="text-[12px] text-gray-400 mt-1.5">A customer waiting this long on an agent who owns the chat shows in that agent's Needs Attention panel.</p>
+        </div>
+        <div>
+          <label className={labelCls}>Alert if nobody replies within</label>
+          <div className="relative">
+            <input className={`${inputCls} pr-16`} type="number" min="1" max="720" value={silentHours} onChange={e => setSilentHours(e.target.value)} />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">hours</span>
+          </div>
+          {/* The backstop for conversations no part of the product is watching.
+              The unclaimed alert above only sees the queue an escalation lands
+              in; this one ignores status and assignee entirely and fires on any
+              thread where the customer spoke last. Set in hours, not minutes,
+              because it is a safety net rather than a working queue. */}
+          <p className="text-[12px] text-gray-400 mt-1.5">
+            Catches customers nobody answered at all — the AI didn't and no agent did.
+            Unlike the alert above, this one doesn't care what status the conversation
+            is in. Public comments are excluded.
+          </p>
         </div>
       </div>
 

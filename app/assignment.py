@@ -462,7 +462,7 @@ def find_silent_conversations(threshold_hours: int | None = None):
     from app.settings import get_section
 
     if threshold_hours is None:
-        threshold_hours = int(get_section("handoff").get("silent_alert_hours", 6))
+        threshold_hours = int(get_section("handoff").get("silent_alert_hours", 24))
 
     now = datetime.utcnow()
     cutoff = now - timedelta(hours=threshold_hours)

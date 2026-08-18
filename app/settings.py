@@ -28,6 +28,18 @@ DEFAULTS = {
         # How long a customer may wait on an agent who already owns the
         # conversation before it shows in that agent's "Needs Attention" panel.
         "agent_waiting_minutes": int(os.getenv("AGENT_WAITING_MINUTES", "10")),
+        # How long a customer may go WITHOUT ANY REPLY — from the AI or a human —
+        # before supervisors are told.
+        #
+        # Deliberately much coarser than unclaimed_alert_minutes, because it
+        # answers a different question. That one watches a queue people are
+        # actively working; this one is the backstop for conversations no part
+        # of the product is looking at, and it fires on every unanswered thread
+        # regardless of status. Starting at 24h: when this was added there was a
+        # backlog of messages 7-18 days old, and a 6-hour threshold would have
+        # alerted on all of them at once and taught everyone to ignore it.
+        # Tighten it once the backlog is clear.
+        "silent_alert_hours": int(os.getenv("SILENT_ALERT_HOURS", "24")),
         # Close a conversation after this many days of silence — but only when
         # WE spoke last. If the customer spoke last we still owe them a reply,
         # and auto-closing that would hide a dropped customer rather than
@@ -313,6 +325,7 @@ NUMERIC_BOUNDS = {
     ('handoff', 'presence_window_seconds'):    ('Presence window', 30, 3600, None),
     ('handoff', 'unclaimed_alert_minutes'):    ('Unclaimed alert', 1, 1440, None),
     ('handoff', 'agent_waiting_minutes'):      ('Agent wait flag', 1, 1440, None),
+    ('handoff', 'silent_alert_hours'):         ('No-reply alert', 1, 720, None),
     ('handoff', 'auto_resolve_days'):          ('Auto-resolve', 0, 365, 'disables auto-resolve'),
     ('conversations', 'reopen_resolved_within_hours'):
                                                ('Re-open window', 0, 720, 'always starts a new chat'),
