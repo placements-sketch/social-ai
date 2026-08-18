@@ -312,6 +312,15 @@ def cron_sync_customers():
     from app.customers import _truncate, _parse_dt
     from decimal import Decimal
 
+    # Read here, NOT inside do_sync.
+    #
+    # do_sync runs on a background thread with no request context, so touching
+    # `request` in there raises "Working outside of request context" and kills
+    # the job — which is exactly what it did to job 605, breaking every customer
+    # sync rather than only the full one. Capture the value while the request is
+    # still in scope and close over the result.
+    force_full = request.args.get('full') in ('1', 'true', 'yes')
+
     def do_sync(job):
         from app.models import SyncJob
         from app.integrations.shopify import iter_all_customers, ShopifyCursorInvalidError
@@ -360,7 +369,6 @@ def cron_sync_customers():
         # banner reached 100% about a week after every manual sync and stayed
         # there. A weekly full pass makes "everything was verified recently"
         # the normal state, so the banner means something when it does appear.
-        force_full = request.args.get('full') in ('1', 'true', 'yes')
         is_delta  = watermark is not None and not force_full
         delta_filter = (watermark - timedelta(minutes=5)).isoformat() if is_delta else None
         if force_full:
