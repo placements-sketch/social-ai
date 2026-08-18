@@ -360,7 +360,20 @@ class Message(db.Model):
         if self.direction == 'inbound':
             frm = 'user'
         else:
-            frm = self.sender if self.sender in ('ai', 'human') else 'ai'
+            # 'system' is an internal note — something the product did, not
+            # something anyone said to the customer. It has to stay
+            # distinguishable here, because the fallback below collapses every
+            # unrecognised sender to 'ai', and an internal note rendered as an
+            # AI message reads as the assistant announcing its own settings
+            # changes to a customer.
+            #
+            # These rows are never delivered: delivery only happens where a
+            # channel send is explicitly performed, and nothing walks the table
+            # looking for unsent outbound messages.
+            if self.sender == 'system':
+                frm = 'system'
+            else:
+                frm = self.sender if self.sender in ('ai', 'human') else 'ai'
 
         meta = None
         if self.intent or self.product_keyword or self.ai_response_time_ms:

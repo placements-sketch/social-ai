@@ -2004,6 +2004,23 @@ const handleSend = async (retryOf = null) => {
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
               )}
+              {/* System notes are things the PRODUCT did, not things anyone said
+                  to the customer — the AI being handed a conversation back, for
+                  instance. They are never delivered to the channel.
+
+                  Rendered as a centred line rather than a bubble on purpose: as
+                  a right-aligned bubble it is indistinguishable from a message
+                  the assistant sent the customer, which would read as the AI
+                  announcing its own settings changes to them. */}
+              {msg.from === 'system' ? (
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[11px] text-gray-400 text-center shrink-0 max-w-[70%]">
+                    {msg.text || msg.content}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              ) : (
               <div className={clsx('flex group', msg.from === 'user' ? 'justify-start' : 'justify-end')}>
                 <div className={clsx(
                   'max-w-[90%] sm:max-w-[75%] md:max-w-[70%] flex flex-col gap-1',
@@ -2219,6 +2236,7 @@ const handleSend = async (retryOf = null) => {
                   </div>
                 </div>
               </div>
+              )}
               </Fragment>
             ))}
             {(activeConv.messages || []).length === 0 && (

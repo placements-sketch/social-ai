@@ -666,6 +666,21 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
         _record_no_reply(gate_reason, channel, user_id,
                          conversation_id=(inbound_record.conversation_id
                                           if inbound_record else None))
+        # The master switch being off means this is human work now — so route
+        # it to humans instead of leaving it where nobody can see it.
+        #
+        # Without this, a message arriving while the switch is off keeps
+        # ai_enabled=true and status='active'. The AI will not answer it, the
+        # Unclaimed queue cannot see it (that needs status='human_override'),
+        # and no agent's inbox lists it (that needs an assignee). It is
+        # invisible to every part of the product at once, which is how 13 DMs
+        # went unanswered for up to 18 days.
+        #
+        # Only for the master switch. A disabled channel or a conversation a
+        # human already took over are deliberate states that already have an
+        # owner; re-routing those would undo somebody's decision.
+        if gate_reason == NO_REPLY_MASTER_SWITCH_OFF and inbound_record is not None:
+            _route_to_humans_switch_off(inbound_record.conversation_id)
         return AI_SUPPRESSED
 
     # ── Step 3: Detect ALL intents in the message ──────────────────────────
@@ -1491,6 +1506,50 @@ def _channel_allows_ai(channel: str) -> bool:
         log_event("error", "services.channel_lookup_failed", str(e),
                   payload={"channel": channel})
         return False
+
+
+def _route_to_humans_switch_off(conversation_id):
+    """
+    Hand a conversation to the human queue because the AI master switch is off.
+
+    Mirrors what settings.ai_handover(action='queue') does to the existing
+    backlog, so a conversation that arrives during a pause ends up in the same
+    place as one that was already open when the switch was flipped. Without
+    that symmetry the handover only ever rescues a snapshot and everything
+    arriving afterwards leaks.
+
+    ai_auto_paused_at is the reversibility marker: 'restore' hands back exactly
+    the set carrying it when the AI comes back on. Claiming or replying clears
+    it, so a thread a human has picked up is never taken back from them.
+
+    Best-effort. A customer's message must still be recorded and visible even
+    if this bookkeeping fails, so nothing here is allowed to raise.
+    """
+    if not conversation_id:
+        return
+    try:
+        from app import db
+        from app.models import Conversation
+        conv = Conversation.query.get(conversation_id)
+        if conv is None or conv.status == 'resolved':
+            return
+        # Already human-held? Leave it exactly as it is.
+        if conv.assigned_to is not None or conv.status == 'human_override':
+            return
+
+        now = datetime.utcnow()
+        conv.ai_enabled = False
+        conv.ai_auto_paused_at = now
+        if conv.ai_disabled_at is None:
+            conv.ai_disabled_at = now
+        conv.status = 'human_override'
+        db.session.commit()
+        log_event("info", "services.routed_to_humans_switch_off",
+                  f"AI master switch off — conversation {conv.id} queued for agents",
+                  conversation_id=conv.id)
+    except Exception as e:
+        db.session.rollback()
+        log_event("error", "services.route_to_humans_failed", str(e))
 
 
 def _ai_should_respond(channel: str, user_id: str, message: str | None = None):

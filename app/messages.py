@@ -660,6 +660,11 @@ def send_reply(conversation_id):
         if conv.ai_enabled:                          # only stamp the transition
             conv.ai_disabled_at = now
         conv.ai_enabled = False                      # human takes over → pause Claude
+        # Answering a customer is the strongest ownership signal there is, so
+        # clear the global-switch stamp. Without this a later "turn AI back on"
+        # would hand this thread back to the assistant mid-conversation, on top
+        # of a human who is actively talking to the customer.
+        conv.ai_auto_paused_at = None
         if conv.assigned_to is None:                 # and claim it, so it's not falsely "In queue"
             conv.assigned_to = current_user.id
             conv.assigned_at = now

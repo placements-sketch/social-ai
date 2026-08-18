@@ -267,27 +267,32 @@ function AIMasterSwitch({ settings, setSettings }) {
               : 'No conversations are currently with the AI.'}
           </p>
 
+          {/* One path, not a choice.
+              "Leave them for the AI to resume" promised something that never
+              happened: the AI does not catch up on messages received while it
+              was off, it only becomes eligible again for the NEXT one. Meanwhile
+              those conversations kept ai_enabled=true and status='active', which
+              means the Unclaimed queue could not see them (it needs
+              'human_override') and no agent's inbox listed them (that needs an
+              assignee) — invisible to every part of the product at once. That is
+              how 13 direct messages went unanswered for up to 18 days.
+
+              Messages arriving DURING the pause are now routed to agents
+              automatically at the gate, so this button only has to deal with the
+              backlog that already exists. */}
           {handover?.live_ai_conversations > 0 && (
-            <div className="mt-3 space-y-2">
+            <div className="mt-3">
               <button onClick={() => apply(false, 'queue')} disabled={saving}
                 className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                 <span className="block text-xs font-bold text-gray-900">
-                  Queue them for agents now
+                  Turn off and queue {handover.live_ai_conversations} conversation
+                  {handover.live_ai_conversations === 1 ? '' : 's'} for agents
                 </span>
                 <span className="block text-[12px] text-gray-500 mt-0.5">
-                  Moves them to Unclaimed so agents can pick them up. Already-assigned
-                  chats go back to whoever owns them. You can hand them back to the AI
-                  when you switch it on again.
-                </span>
-              </button>
-              <button onClick={() => apply(false)} disabled={saving}
-                className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50">
-                <span className="block text-xs font-bold text-gray-900">
-                  Leave them for the AI to resume
-                </span>
-                <span className="block text-[12px] text-gray-500 mt-0.5">
-                  Nothing moves. They will show as stalled in the inbox until you
-                  switch the AI back on. Best for a short pause.
+                  Moves them to Unclaimed so agents can pick them up, and anything
+                  that arrives while the AI is off goes there too. Already-assigned
+                  chats stay with whoever owns them. You can hand back the ones
+                  nobody touched when you switch the AI on again.
                 </span>
               </button>
             </div>
@@ -326,8 +331,15 @@ function AIMasterSwitch({ settings, setSettings }) {
                   {handover.restorable === 1 ? '' : 's'}
                 </span>
                 <span className="block text-[12px] text-gray-600 mt-0.5">
-                  Only the ones this switch paused. Chats an agent took over by hand
-                  are left with that agent.
+                  Only the ones nobody picked up. Claiming a chat or replying to it
+                  makes it that agent's, so a hand-back can no longer take a
+                  conversation off someone mid-thread.
+                  {handover.held_by_humans > 0 && (
+                    <> {handover.held_by_humans} conversation
+                      {handover.held_by_humans === 1 ? ' is' : 's are'} being handled
+                      by an agent and will be left alone.</>
+                  )}
+                  {' '}Each one handed back gets a note in the thread saying the AI resumed.
                 </span>
               </button>
               <button onClick={() => apply(true)} disabled={saving}

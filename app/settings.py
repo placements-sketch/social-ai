@@ -382,7 +382,18 @@ def update_settings():
     return jsonify({'settings': get_settings()}), 200
 
 def _ai_handover_counts():
-    """How many conversations the global switch is currently affecting."""
+    """
+    How many conversations the global switch is currently affecting.
+
+    `restorable` is the set a restore would hand back — those still carrying
+    ai_auto_paused_at. Claiming or replying clears the stamp, so anything a
+    human has actually engaged with drops out of this count by itself.
+
+    `held_by_humans` is the complement worth showing: paused by the switch, but
+    since picked up by an agent. A restore deliberately leaves these alone, and
+    saying so up front answers "am I about to take work off my team?" before
+    the admin clicks rather than after.
+    """
     from app.models import Conversation
     live = (Conversation.query
             .filter(Conversation.status != 'resolved',
@@ -392,7 +403,13 @@ def _ai_handover_counts():
                   .filter(Conversation.status != 'resolved',
                           Conversation.ai_auto_paused_at.isnot(None))
                   .count())
-    return live, restorable
+    held_by_humans = (Conversation.query
+                      .filter(Conversation.status != 'resolved',
+                              Conversation.ai_auto_paused_at.is_(None),
+                              Conversation.ai_enabled.is_(False),
+                              Conversation.assigned_to.isnot(None))
+                      .count())
+    return live, restorable, held_by_humans
 
 
 @settings_bp.route('/settings/ai/handover', methods=['GET'])
@@ -411,11 +428,12 @@ def ai_handover_status():
     """
     if not _require_admin():
         return jsonify({'error': 'Admin only'}), 403
-    live, restorable = _ai_handover_counts()
+    live, restorable, held_by_humans = _ai_handover_counts()
     return jsonify({
         'ai_enabled': bool(get_section('ai').get('enabled', True)),
         'live_ai_conversations': live,
         'restorable': restorable,
+        'held_by_humans': held_by_humans,
     }), 200
 
 
@@ -479,6 +497,7 @@ def ai_handover():
                 .filter(Conversation.status != 'resolved',
                         Conversation.ai_auto_paused_at.isnot(None))
                 .all())
+        from app.models import Message
         for c in rows:
             c.ai_enabled = True
             c.ai_auto_paused_at = None
@@ -487,6 +506,23 @@ def ai_handover():
             # plain AI-handled rather than looking half-escalated forever.
             if c.status == 'human_override':
                 c.status = 'active'
+            # Say so in the thread.
+            #
+            # Anyone reading this conversation later — the agent who was looking
+            # at it, a supervisor auditing it — should be able to see that the
+            # assistant resumed and when, rather than inferring it from a change
+            # of tone halfway down. Threads a human claimed or replied to never
+            # reach here (both actions clear the stamp), so this only ever
+            # annotates conversations nobody had picked up.
+            db.session.add(Message(
+                conversation_id=c.id,
+                user_id=c.user_id,
+                channel=c.channel,
+                direction='outbound',
+                sender='system',
+                content='Automated replies were switched back on — the AI has resumed this conversation.',
+                created_at=now,
+            ))
         db.session.commit()
         log_event("info", "settings.ai_restored_from_queue",
                   f"Global AI switch on — {len(rows)} conversations handed back to the AI")

@@ -144,6 +144,15 @@ def assign(conversation_id):
     conv.assigned_at = now
     conv.assigned_by = current_user.id
     conv.updated_at = now
+    # Taking a conversation is an act of ownership, so it stops being "whatever
+    # the global switch did to it".
+    #
+    # Only the per-conversation AI toggle used to clear this stamp, which meant
+    # an agent could claim an auto-paused chat out of Unclaimed, work it for
+    # days, and have a global "turn AI back on" take it away mid-thread —
+    # because they had never happened to touch that one toggle. Claiming it is
+    # the clearer signal and the one people actually perform.
+    conv.ai_auto_paused_at = None
 
     # Commit the assignment FIRST — notifications must never roll it back (#1).
     db.session.commit()
@@ -414,6 +423,130 @@ def alert_unclaimed(threshold_minutes: int | None = None) -> dict:
         log_event("error", "assignment.unclaimed_alert_fail", str(e))
 
     return {'stuck': len(stuck), 'alerted': alerted, 'already_alerted': skipped}
+
+
+# ─────────────────────────────────────────────
+# Silent-conversation watchdog
+# ─────────────────────────────────────────────
+#
+# find_unclaimed() only looks at status='human_override', which is the queue an
+# escalation lands in. That misses the worst case entirely: a conversation left
+# at status='active' with ai_enabled=true and nobody assigned. The AI is not
+# answering it (master switch off, a failed generation, a gate that declined),
+# it is in no agent's inbox, and it is not in Unclaimed either — so nothing
+# anywhere reports it.
+#
+# That is not hypothetical. When this was written, 13 direct messages had been
+# sitting in exactly that state for between 7 and 18 days on a live account.
+# DMs reply to everything by design, so silence there is never intentional.
+#
+# This check ignores status and ai_enabled entirely and asks the only question
+# that actually matters to a customer: did they speak last, and how long ago?
+
+def find_silent_conversations(threshold_hours: int | None = None):
+    """
+    Conversations where the customer spoke last and nobody has answered.
+
+    Returns [(conversation, hours_waiting), ...], longest wait first.
+
+    Deliberately does NOT filter on status, ai_enabled or assignee. Every one
+    of those filters is what let the 13 DMs hide — a conversation is either
+    answered or it is not, and the customer does not care which internal
+    bucket it sits in.
+
+    Public comments are excluded: the assistant declines praise and non-questions
+    on public posts on purpose, so "no reply" there is usually correct and
+    alerting on it would bury the real ones.
+    """
+    from app.models import Message
+    from app.settings import get_section
+
+    if threshold_hours is None:
+        threshold_hours = int(get_section("handoff").get("silent_alert_hours", 6))
+
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=threshold_hours)
+
+    rows = (Conversation.query
+            .filter(Conversation.status != 'resolved')
+            .filter(~Conversation.channel.like('%_comment'))
+            .all())
+
+    out = []
+    for conv in rows:
+        last = (Message.query
+                .filter(Message.conversation_id == conv.id)
+                .order_by(Message.created_at.desc())
+                .first())
+        if last is None or last.direction != 'inbound':
+            continue
+        if last.created_at > cutoff:
+            continue
+        out.append((conv, int((now - last.created_at).total_seconds() // 3600)))
+
+    out.sort(key=lambda pair: pair[1], reverse=True)
+    return out
+
+
+def alert_silent(threshold_hours: int | None = None) -> dict:
+    """
+    Log and notify for conversations nobody has answered.
+
+    Alerts once per silent spell, keyed on the last inbound message's time, so
+    a conversation that stays unanswered does not re-alert on every tick.
+    """
+    from app.models import Log, Message
+    from app.utils.logger import log_event
+
+    silent = find_silent_conversations(threshold_hours)
+    alerted, skipped = [], 0
+
+    for conv, hours in silent:
+        last = (Message.query
+                .filter(Message.conversation_id == conv.id)
+                .order_by(Message.created_at.desc())
+                .first())
+        since = last.created_at if last else conv.created_at
+
+        already = (Log.query
+                   .filter(Log.source == 'handoff.silent')
+                   .filter(Log.conversation_id == conv.id)
+                   .filter(Log.created_at >= since)
+                   .first())
+        if already:
+            skipped += 1
+            continue
+
+        handle = conv.user.handle if conv.user else f'conversation {conv.id}'
+        log_event("error", "handoff.silent",
+                  f"{handle} has waited {hours}h with no reply from anyone",
+                  payload={"hours_waiting": hours, "channel": conv.channel,
+                           "handle": handle, "status": conv.status,
+                           "ai_enabled": bool(conv.ai_enabled),
+                           "assigned": conv.assigned_to is not None},
+                  conversation_id=conv.id)
+
+        for boss in AuthUser.query.filter(
+            AuthUser.role.in_(['admin', 'supervisor']),
+            AuthUser.status == 'active',
+        ).all():
+            create_notification(
+                user_id=boss.id,
+                type_='unanswered',
+                title="Customer waiting with no reply",
+                body=f"{handle} has waited {hours}h and neither the AI nor an agent has answered",
+                severity='warning',
+                resource_type='conversation', resource_id=conv.id,
+            )
+        alerted.append({'conversation_id': conv.id, 'hours_waiting': hours})
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log_event("error", "assignment.silent_alert_fail", str(e))
+
+    return {'silent': len(silent), 'alerted': alerted, 'already_alerted': skipped}
 
 
 @assignment_bp.route('/conversations/unclaimed', methods=['GET'])

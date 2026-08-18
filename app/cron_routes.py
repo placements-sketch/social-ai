@@ -1191,14 +1191,29 @@ def cron_check_unclaimed():
     unassigned it by hand. Either way a customer is waiting and no one owns
     it. Alerts once per waiting spell, not once per tick.
     """
-    from app.assignment import alert_unclaimed
+    from app.assignment import alert_unclaimed, alert_silent
 
     result = alert_unclaimed()
     log_event("info", "cron.check_unclaimed",
               f"Unclaimed queue check: {result['stuck']} waiting, "
               f"{len(result['alerted'])} newly alerted",
               payload=result)
-    return jsonify({'ok': True, **result}), 200
+
+    # Second, broader sweep on the same tick.
+    #
+    # alert_unclaimed only looks at status='human_override', which is the queue
+    # an escalation lands in. It structurally cannot see a conversation left at
+    # status='active' with ai_enabled=true and no assignee — nobody answering,
+    # nobody able to find it. That blind spot hid 13 direct messages for up to
+    # 18 days. This one ignores every internal flag and asks only whether the
+    # customer spoke last and how long ago.
+    silent = alert_silent()
+    log_event("info", "cron.check_silent",
+              f"Silent conversation check: {silent['silent']} unanswered, "
+              f"{len(silent['alerted'])} newly alerted",
+              payload=silent)
+
+    return jsonify({'ok': True, **result, 'silent': silent}), 200
 
 
 @cron_bp.route('/auto-resolve', methods=['POST'])
