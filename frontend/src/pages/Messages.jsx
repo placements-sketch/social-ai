@@ -189,12 +189,34 @@ function ShopifyLinkCard({ conv }) {
     setOpen(false); setQ(''); setResults([])
   }, [conv.id, conv.linked_customer])
 
+  // A sequence number, not just a debounce.
+  //
+  // Clearing the timeout stops a request that has not been SENT yet; it does
+  // nothing about one already in flight. Searches are not equally fast — "pa"
+  // matches thousands of rows and sorts them by spend, "pat mbugua" matches six
+  // — so the broad early query regularly lands after the precise later one and
+  // overwrote it. Typing a full name and being shown three unrelated big
+  // spenders was this, not a bad matcher: the right customer had been found and
+  // was then replaced by a stale response.
+  const searchSeq = useRef(0)
+
   useEffect(() => {
     if (!open || q.trim().length < 2) { setResults([]); return }
+    const seq = ++searchSeq.current
     const t = setTimeout(() => {
       searchShopifyCustomers(q.trim())
-        .then(d => setResults(d.customers || []))
-        .catch(e => setError(e.message))
+        .then(d => {
+          // Only the newest search may write. Anything older is discarded even
+          // if it arrives last.
+          if (seq === searchSeq.current) setResults(d.customers || [])
+        })
+        .catch(e => {
+          if (seq !== searchSeq.current) return
+          // Clear on failure. Leaving the previous results up made a failed
+          // search look like a successful one for the new term.
+          setResults([])
+          setError(e.message)
+        })
     }, 250)
     return () => clearTimeout(t)
   }, [q, open])

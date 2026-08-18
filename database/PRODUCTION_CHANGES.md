@@ -3044,3 +3044,58 @@ found here because only the delivery side was confirmed.
 **Still unresolved from Step 42:** Kiserian, Kiambu, Thika, Kikuyu, Limuru,
 Kitengela and Athi River appear in no zone name, so they fall to "Other towns"
 at KES 500. Nobody has confirmed whether that is the real rate for them.
+
+---
+
+### Step 44 — Make customer search usable (4.2s → milliseconds)
+
+Linking a conversation to a Shopify customer runs `ILIKE '%term%'` across five
+columns of a 162,000-row table. No index can serve a leading-wildcard match, so
+every keystroke is a full sequential scan:
+
+```
+SELECT count(*) FROM customers_cache WHERE ... ILIKE '%pat mbugua%';
+Time: 4239.287 ms
+```
+
+**4.2 seconds, typed while a customer waits.** The visible symptom is worse than
+slowness: searching "pat mbugua" showed three unrelated high-spending customers,
+because the query for an earlier keystroke ("pa" — 4,266 matches, ordered by
+spend) returned *after* the one for the full name and overwrote it. The right
+customer had been found — "pat mbugua" matches exactly one row — and was then
+replaced by stale results.
+
+`pg_trgm` is already installed, so trigram indexes work immediately. They are the
+one index type that can serve `%term%`.
+
+```sql
+BEGIN;
+
+-- One index per searched column. Trigram GIN is what makes a leading-wildcard
+-- ILIKE indexable at all.
+CREATE INDEX IF NOT EXISTS ix_customers_first_name_trgm
+    ON customers_cache USING gin (lower(first_name) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_customers_last_name_trgm
+    ON customers_cache USING gin (lower(last_name) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_customers_email_trgm
+    ON customers_cache USING gin (lower(email) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_customers_phone_trgm
+    ON customers_cache USING gin (lower(phone) gin_trgm_ops);
+
+COMMIT;
+
+ANALYZE customers_cache;
+```
+
+`ANALYZE` runs outside the transaction. Without it the planner keeps its old
+statistics and may ignore the new indexes.
+
+**Cost:** roughly 40-60 MB of disk. The database is ~184 MB of Render's 1 GB, so
+this is affordable — but it is the single largest thing added since the move, and
+worth remembering if space gets tight. Step 41 dropped ~13 MB of indexes that
+earned nothing; these earn their space every time an agent links a customer.
+
+**Note the `lower()`.** The index is on `lower(column)` and the query must use
+`lower(column) LIKE lower(term)` to match it. A plain `ILIKE` will NOT use these
+indexes — it is a different expression as far as the planner is concerned, and
+the search would silently stay slow while the indexes sat unused.

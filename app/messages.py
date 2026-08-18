@@ -1256,6 +1256,21 @@ def _shopify_customer_brief(shopify_customer_id):
             # rather than returning None, which the panel would render as "not
             # linked" and invite someone to link it a second time.
             return {'shopify_customer_id': str(shopify_customer_id), 'stale': True}
+        return _brief_from_row(c)
+    except Exception as e:
+        log_event("warn", "messages.shopify_customer_brief_failed", str(e)[:160])
+        return None
+
+
+def _brief_from_row(c):
+    """
+    Same shape as _shopify_customer_brief, from a row the caller already has.
+
+    Search fetches 15 rows and then looked each one up again by
+    shopify_customer_id — 15 extra queries to re-read rows already in memory, on
+    the endpoint an agent types into.
+    """
+    try:
         name = ' '.join(p for p in (c.first_name, c.last_name) if p).strip()
         return {
             'shopify_customer_id': c.shopify_customer_id,
@@ -1296,23 +1311,37 @@ def search_shopify_customers():
 
     try:
         from app.models import CustomerCache
-        like = f'%{q}%'
+        from sqlalchemy import func
+
+        # lower(col) LIKE lower(term), NOT ilike.
+        #
+        # The trigram indexes from Step 44 are built on lower(col), and the
+        # planner only uses an expression index when the query names the same
+        # expression. ILIKE is a different expression, so it seq-scans 162,000
+        # rows and takes ~4 seconds while the indexes sit unused.
+        def matches(term):
+            like = f'%{term.lower()}%'
+            return db.or_(
+                func.lower(CustomerCache.email).like(like),
+                func.lower(CustomerCache.phone).like(like),
+                func.lower(CustomerCache.first_name).like(like),
+                func.lower(CustomerCache.last_name).like(like),
+            )
+
+        # Every word must match SOMETHING, but not necessarily the same field.
+        # The old query matched the whole string against each column, so
+        # "pat mbugua" only worked because a first_name+last_name concatenation
+        # happened to spell it — "mbugua pat" or "pat mbugua@gmail" found
+        # nothing. Per-word AND makes word order and field boundaries irrelevant.
+        words = [w for w in q.split() if w][:4]
         rows = (CustomerCache.query
-                .filter(db.or_(
-                    CustomerCache.email.ilike(like),
-                    CustomerCache.phone.ilike(like),
-                    CustomerCache.first_name.ilike(like),
-                    CustomerCache.last_name.ilike(like),
-                    (CustomerCache.first_name + ' ' + CustomerCache.last_name).ilike(like),
-                ))
+                .filter(db.and_(*[matches(w) for w in words]))
                 # Highest spenders first. With 162,186 records a plain match
                 # returns hundreds of namesakes, and the one an agent means is
                 # almost always the one who has actually bought something.
                 .order_by(CustomerCache.total_spent.desc().nullslast())
                 .limit(15).all())
-        return jsonify({'customers': [
-            _shopify_customer_brief(r.shopify_customer_id) for r in rows
-        ]}), 200
+        return jsonify({'customers': [_brief_from_row(r) for r in rows]}), 200
     except Exception as e:
         log_event("error", "messages.customer_search_failed", str(e)[:200])
         return jsonify({'error': 'Search failed'}), 500
