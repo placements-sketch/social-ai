@@ -119,6 +119,20 @@ DEFAULTS = {
         # Master switch. When False, NO automated reply is sent on any channel.
         # Inbound is still received, stored and displayed — agents reply by hand.
         "enabled": True,
+        # Shadow mode. The assistant runs completely normally — classifies,
+        # looks up products, writes a reply, saves it to the conversation — and
+        # the reply is simply never handed to the channel API.
+        #
+        # This is NOT the master switch with extra steps. With `enabled` False
+        # the AI never runs, so you learn nothing about what it would have said.
+        # With dry_run True it runs on real customer messages and you can read
+        # every answer it would have sent, which is the only way to judge it
+        # before pointing it at a live account.
+        #
+        # Applies to the ASSISTANT's replies only. A human clicking send is a
+        # deliberate act by someone who can see the thread, and blocking that
+        # would strand a customer the AI has just decided not to answer.
+        "dry_run": False,
     },
     "conversations": {
         # A customer replying soon after you resolved their chat almost always

@@ -160,10 +160,29 @@ export default function Settings({ embedded = false }) {
 
 function AIMasterSwitch({ settings, setSettings }) {
   const enabled = settings?.ai?.enabled !== false
+  const dryRun = settings?.ai?.dry_run === true
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)   // 'on' | 'off' | false
   const [handover, setHandover] = useState(null)        // counts from the server
   const [msg, setMsg] = useState(null)
+
+  const saveDryRun = async (next) => {
+    setMsg(null)
+    try {
+      const res = await fetch(`${API_BASE}/settings`, {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ ai: { dry_run: !!next } }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      setSettings(data.settings)
+      setMsg({ type: 'success', text: next
+        ? 'Shadow mode on — replies are written but not sent.'
+        : 'Shadow mode off — the assistant is sending to customers again.' })
+    } catch (err) {
+      setMsg({ type: 'error', text: err.message })
+    }
+  }
 
   // What flipping the switch would actually affect, so the prompt can state a
   // real number instead of a vague warning.
@@ -376,6 +395,33 @@ function AIMasterSwitch({ settings, setSettings }) {
           still applies — after that you can't reply until the customer writes again.
         </p>
       )}
+
+      {/* Shadow mode.
+          Sits under the master switch because people reach for that one when
+          what they actually want is this: to see what the assistant would say
+          without a customer receiving it. Switching the AI off teaches you
+          nothing, because the AI never runs. */}
+      <div className="mt-4 pt-4 border-t border-gray-100">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-gray-900">Shadow mode (test without sending)</p>
+            <p className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">
+              The assistant reads real customer messages and writes real replies, and
+              nothing is sent to Instagram. Every answer appears in the conversation
+              marked <span className="font-semibold">Not delivered</span>, so you can
+              judge it before real customers do. Agents replying by hand still send
+              normally.
+            </p>
+          </div>
+          <Toggle on={!!dryRun} onChange={saveDryRun} />
+        </div>
+        {dryRun && (
+          <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 mt-2.5">
+            Customers are receiving nothing from the assistant right now. Anything it
+            writes is being kept in the inbox for you to read.
+          </p>
+        )}
+      </div>
 
       {msg && (
         <p className={clsx('text-xs mt-2', msg.type === 'error' ? 'text-red-600' : 'text-green-700')}>

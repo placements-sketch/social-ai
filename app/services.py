@@ -1934,6 +1934,38 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | N
     if not reply:
         return None
 
+    # Shadow mode.
+    #
+    # Everything upstream has already happened — the message was classified,
+    # products were looked up, Claude wrote an answer, and the outbound row is
+    # saved. Only the handover to the channel API is skipped, so the reply is
+    # readable in the conversation exactly as the customer would have received
+    # it, and the customer receives nothing.
+    #
+    # Returning None is the same thing a failed send returns, which is
+    # deliberate: the caller leaves external_id NULL and the thread renders the
+    # existing "Not delivered" badge. A held reply that looked delivered would
+    # be worse than not having the mode at all.
+    #
+    # Only the assistant is held. A human pressing send has read the thread and
+    # decided to answer; silently swallowing that would strand the customer.
+    if not kwargs.get('human_agent'):
+        try:
+            from app.settings import get_section
+            if get_section("ai").get("dry_run", False):
+                log_event("info", "services.dispatch.dry_run",
+                          f"DRY RUN — reply withheld from {channel}, saved to the "
+                          f"conversation only",
+                          payload={"channel": channel, "recipient": user_id,
+                                   "text_preview": reply[:160]})
+                return None
+        except Exception as e:
+            # Unreadable settings must not silently start sending to real
+            # customers while someone believes shadow mode is on. Fail closed.
+            log_event("error", "services.dispatch.dry_run_unreadable",
+                      f"Could not read ai.dry_run, withholding send to be safe: {e}")
+            return None
+
     if channel == "instagram_dm":
         from app.integrations.meta import send_instagram_reply, send_instagram_card
         # Which of OUR accounts the customer messaged decides which credentials
