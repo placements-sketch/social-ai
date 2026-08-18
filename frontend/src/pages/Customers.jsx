@@ -26,6 +26,7 @@ import {
 } from '../api/customers'
 import CustomerAIChat from './CustomerAIChat'
 import CustomerTrends from './CustomerTrends'
+import { createPortal } from 'react-dom'
 import { CustomerDetailView } from './CustomerDetail'
 
 // Definitions are the rules in customers.py::compute_segment(), stated in
@@ -1108,14 +1109,23 @@ export default function Customers() {
       </div>
 
       {/* ─── CUSTOMER SHEET ──────────────────────────────────
+          Portalled to document.body.
+
+          Rendered in place it sat UNDER the top bar, because the header carries
+          backdrop-filter — which creates its own stacking context — and the
+          panel was nested inside <main>, itself inside a 100vh overflow-hidden
+          shell. position:fixed is only as absolute as its ancestors allow, and
+          raising z-index further just moves the argument. A portal takes the
+          panel out of that tree entirely, so no ancestor can clip it, and it
+          genuinely covers the viewport.
           The profile, over the table rather than instead of it. Everything
           behind stays exactly as you left it — filters, sort, page, scroll —
           so checking four customers is four clicks, not four round trips.
 
           Rendered only while open so its data fetch does not run for a panel
           nobody asked for. */}
-      {sheetId && (
-        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true"
+      {sheetId && createPortal((
+        <div className="fixed inset-0 z-[100] flex justify-end" role="dialog" aria-modal="true"
              aria-label="Customer details">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
@@ -1142,7 +1152,7 @@ export default function Customers() {
             </div>
           </aside>
         </div>
-      )}
+      ), document.body)}
 
       <CustomerAIChat />
 
