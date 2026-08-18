@@ -2922,3 +2922,80 @@ VACUUM FULL orders_cache;
 while it runs) and needs free space equal to the table's size to rebuild it.
 `orders_cache` is ~33 MB against ~144 MB free, so it fits — but run it in a
 quiet period, not while a sync is going.
+
+---
+
+### Step 42 — Correct the delivery fees the assistant quotes
+
+The zones stored in Step 36 came from the published policy page. The rates
+actually charged at checkout, read off recent orders, differ — and the assistant
+has been quoting the old ones.
+
+| Zone | Was quoting | Actually charged |
+|---|---|---|
+| Nairobi | KES 220 | **KES 250** |
+| Nairobi environs | KES 300 | **KES 350** |
+| Other towns | KES 500 | KES 500 |
+| Vivo store pickup | *not offered at all* | **KES 250** |
+
+Under-quoting is the part that matters. A customer told "delivery is 220" and
+then charged 250 at checkout either gets the difference absorbed or gets an
+argument — over 30 shillings, on an order someone already decided to place.
+
+**The town list changed more than the price did.** Only Ngong, Rongai and Juja
+appear in both versions. The old list named Kiserian, Kiambu, Thika, Kikuyu,
+Limuru, Kitengela and Athi River; the live rate names **Thindigua, KU, Kinoo,
+Utawala, Ruiru, Syokimau, Ruaka, Karen and Kitisuru** instead.
+
+Karen and Kitisuru are the expensive mistake: most people would describe both as
+Nairobi, so the assistant would quote 250 against a real rate of 350.
+
+**Vivo store pickup was missing entirely** — a whole fulfilment option customers
+could not be told about. It carries an instruction the others do not: the
+customer has to name the specific store in the address field. Step 32 already
+loaded the Vivo store addresses, so the assistant can name them when asked.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         COALESCE(data, '{}'::jsonb),
+         '{delivery,zones}',
+         '[
+           {"name": "Home delivery within Nairobi",
+            "fee": "KES 250", "eta": "1-3 business days"},
+           {"name": "Vivo store pickup (Nairobi orders only — the customer must name the specific Vivo store in the address section)",
+            "fee": "KES 250", "eta": "1-3 business days"},
+           {"name": "Nairobi environs (Ngong, Rongai, Thindigua, KU, Juja, Kinoo, Utawala, Ruiru, Syokimau, Ruaka, Karen, Kitisuru)",
+            "fee": "KES 350", "eta": "1-3 business days"},
+           {"name": "Other towns (outside Nairobi and its environs)",
+            "fee": "KES 500", "eta": "3-5 business days"},
+           {"name": "East Africa (outside Kenya)",
+            "fee": "Varies by country, passed on to the customer", "eta": "7-10 business days"},
+           {"name": "International",
+            "fee": "Varies by country, passed on to the customer", "eta": "10-14 business days"}
+         ]'::jsonb,
+         true)
+ WHERE id = 1;
+
+COMMIT;
+```
+
+Nairobi is listed first because it is the common case and the assistant reads
+these in order.
+
+**Two things this step does NOT decide, deliberately.**
+
+*East Africa and International are kept unchanged.* Neither appeared in the
+recent orders that produced this correction, but absence from a sample is not
+evidence a rate was withdrawn — and the returns policy in Step 36 explicitly
+covers Uganda, Rwanda and the rest of the world, so international orders plainly
+happen. Deleting them would have the assistant tell a Ugandan customer we do not
+ship there. **Worth confirming against the live Shopify shipping rates.**
+
+*The dropped towns are not re-homed.* Kiserian, Kiambu, Thika, Kikuyu, Limuru,
+Kitengela and Athi River no longer appear in any zone name. They are presumably
+covered by "Other towns" at KES 500, but that is an inference. If any of them
+should still be charged the 350 environs rate, add them to that list — the
+assistant can only match on the names written here.
