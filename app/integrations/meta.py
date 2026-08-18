@@ -527,7 +527,8 @@ def fetch_instagram_username(igsid: str, account_id: str | None = None) -> dict 
     return None
 
 def send_instagram_reply(recipient_id: str, text: str,
-                         account_id: str | None = None) -> dict | None:
+                         account_id: str | None = None,
+                         human_agent: bool = False) -> dict | None:
     """
     Send a DM reply on Instagram via Meta Graph API.
 
@@ -570,6 +571,25 @@ def send_instagram_reply(recipient_id: str, text: str,
         "recipient": {"id": recipient_id},
         "message":   {"text": safe_text},
     }
+
+    # Meta closes standard messaging 24 hours after the customer's last message.
+    # Past that every send returns 403 code 10 subcode 2534022, "This message is
+    # sent outside of allowed window" — which is what a human agent hits coming
+    # back to a conversation the next day.
+    #
+    # The HUMAN_AGENT tag extends that to 7 days. It is strictly for a PERSON
+    # answering a customer: tagging automated replies with it is a policy
+    # violation and risks the app's messaging access, so this is never set on
+    # the AI path.
+    #
+    # Only applied when the caller says the 24-hour window has already closed.
+    # Inside the window standard messaging works and is what Meta prefers, and
+    # if the human_agent permission has not been granted through App Review this
+    # payload is rejected — so restricting it to sends that are already failing
+    # means a missing permission cannot break replies that work today.
+    if human_agent:
+        payload["messaging_type"] = "MESSAGE_TAG"
+        payload["tag"] = "HUMAN_AGENT"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type":  "application/json",

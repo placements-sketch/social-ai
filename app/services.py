@@ -1942,8 +1942,13 @@ def _dispatch_reply(channel: str, user_id: str, reply: str, product_url: str | N
         account_id = _account_for(user_id, channel)
         # Text reply first (Claude's natural wording), then a product card
         # beneath it. Card is best-effort — no cached image → text-only.
+        # human_agent arrives from messages.send_reply when a PERSON is
+        # answering and the 24-hour standard window has already closed. The AI
+        # path never sets it — tagging automated messages as human agent replies
+        # is a policy violation.
         resp = send_instagram_reply(recipient_id=user_id, text=reply,
-                                    account_id=account_id)
+                                    account_id=account_id,
+                                    human_agent=bool(kwargs.get('human_agent')))
         msg_id = (resp or {}).get("message_id")
         card = _product_card_for_url(product_url)
         if card:

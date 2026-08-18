@@ -2999,3 +2999,48 @@ Kitengela and Athi River no longer appear in any zone name. They are presumably
 covered by "Other towns" at KES 500, but that is an inference. If any of them
 should still be charged the 350 environs rate, add them to that list — the
 assistant can only match on the names written here.
+
+---
+
+### Step 43 — Drop the East Africa and International delivery zones
+
+Step 42 kept these two rather than delete them on the strength of a sample.
+Confirmed since: they are not offered, so the assistant should stop quoting them.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         data,
+         '{delivery,zones}',
+         (SELECT jsonb_agg(z)
+            FROM jsonb_array_elements(data->'delivery'->'zones') z
+           WHERE z->>'name' NOT IN ('East Africa (outside Kenya)', 'International')),
+         true)
+ WHERE id = 1;
+
+COMMIT;
+```
+
+Filtering by exact name rather than by position: array indexes shift the moment
+anyone reorders the zones, and a positional delete would then silently remove
+the wrong one.
+
+**This leaves a contradiction the assistant can walk into.** The returns policy
+loaded in Step 36 opens with:
+
+> Eligibility (Kenya, Uganda, Rwanda and rest of world)
+
+So the assistant now believes returns are accepted from Uganda, Rwanda and the
+rest of the world, while having no delivery zone that reaches any of them. Asked
+"do you deliver to Kampala?" it should say no; asked "can I return this from
+Kampala?" it will say yes. Both answers come from configuration we wrote.
+
+Whichever is wrong should be corrected — either the policy text drops the
+international eligibility line, or international delivery goes back in. Left as
+found here because only the delivery side was confirmed.
+
+**Still unresolved from Step 42:** Kiserian, Kiambu, Thika, Kikuyu, Limuru,
+Kitengela and Athi River appear in no zone name, so they fall to "Other towns"
+at KES 500. Nobody has confirmed whether that is the real rate for them.

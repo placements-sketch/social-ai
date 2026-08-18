@@ -716,11 +716,27 @@ def send_reply(conversation_id):
                     if last_inbound:
                         comment_ext_id = last_inbound.external_id
 
+            # Past 24 hours since the customer last wrote, Meta refuses a
+            # normal send with 403 code 10 / subcode 2534022. A human agent may
+            # still answer for up to 7 days using the HUMAN_AGENT tag, so ask
+            # for it once the ordinary window has closed — and only for a person,
+            # never for the assistant.
+            outside_window = False
+            if sender == 'human':
+                newest_in = (Message.query
+                             .filter_by(conversation_id=conv.id, direction='inbound')
+                             .order_by(Message.created_at.desc())
+                             .first())
+                if newest_in and newest_in.created_at:
+                    age_h = (datetime.utcnow() - newest_in.created_at).total_seconds() / 3600
+                    outside_window = age_h > 24
+
             new_ext_id = _dispatch_reply(
                 channel=conv.channel,
                 user_id=customer.external_id,
                 reply=content,
                 comment_external_id=comment_ext_id,
+                human_agent=outside_window,
             )
             if new_ext_id:
                 reply.external_id = new_ext_id
