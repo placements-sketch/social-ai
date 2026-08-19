@@ -848,8 +848,18 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         if context_data.get("returns_asked"):
             returns_block = ""
             try:
-                from app.settings import format_returns_for_prompt
+                from app.settings import format_returns_for_prompt, format_terms_for_prompt
                 returns_block = format_returns_for_prompt()
+                # The T&C carries rules the returns policy does not: whole
+                # categories that can never go back (skincare, make-up,
+                # swimwear, fragrances, underwear), the refund and exchange
+                # timescales, and the Black November restriction. Without it the
+                # assistant would offer a 7-day return on a lipstick.
+                terms_block = format_terms_for_prompt()
+                if terms_block:
+                    returns_block = (returns_block + chr(10) + chr(10)
+                                     + "TRADING TERMS (from the terms and conditions):"
+                                     + chr(10) + terms_block).strip()
             except Exception as e:
                 log_event("warn", "ai.generator.returns_inject_failed", str(e))
             if returns_block:

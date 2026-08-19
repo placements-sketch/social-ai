@@ -3209,3 +3209,232 @@ $notes$::text),
 
 COMMIT;
 ```
+
+---
+
+### Step 47 — Tell the assistant what Shop Zetu actually is
+
+`business.about` has existed since it was added as "freeform knowledge the
+assistant should have" and has been an empty string ever since. It goes into the
+system prompt verbatim under "About the business", so an empty value means the
+assistant has been answering "what is Shop Zetu?", "do you sell menswear?" and
+"how do I get my brand on here?" from nothing but the product catalogue.
+
+Taken from the About Us page.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         COALESCE(data, '{}'::jsonb),
+         '{business,about}',
+         to_jsonb($about$
+Shop Zetu is a multi-brand, multi-vendor online fashion marketplace, founded in
+2020. It is online-only — there is no Shop Zetu shop to walk into. Vivo products
+are also stocked in Vivo's own physical stores, and a Nairobi order can be
+collected from a named Vivo store, but that is Vivo's premises, not ours.
+
+What we sell: affordable and trendy fashion, footwear, beauty and accessories,
+for WOMEN, MEN AND KIDS. Both global and African-owned brands, and we actively
+look for new ones.
+
+Because it is a marketplace, sizing and fit are set by each brand rather than by
+Shop Zetu. Two garments in the same size from different brands genuinely differ,
+which is why size answers must come from that brand's own chart.
+
+BRANDS WANTING TO JOIN: anyone asking how to sell on Shop Zetu, list their
+label, or partner with us should be sent to 0748 419357 or support@shopzetu.com.
+Do not attempt to onboard them or quote commission, terms or timelines — that is
+a conversation for the team, and a wrong number here costs a supplier.
+$about$::text),
+         true)
+ WHERE id = 1;
+
+COMMIT;
+```
+
+**Written to be read alongside the size-chart work.** "Sizing is set by each
+brand" is not decoration — it is the reason the assistant names a brand when it
+gives a size, and it now says so in the same voice the customer hears.
+
+**The vendor-recruitment route matters more than it looks.** A marketplace gets
+"how do I sell here?" as a routine inbound, and without this the assistant would
+either improvise terms or treat it as a product question. Both are worse than
+handing over a phone number.
+
+---
+
+### Step 48 — Correction to Step 47: restore the About text it overwrote
+
+Step 47 wrote `business.about` after checking that the DEFAULTS dict in
+`settings.py` had it as `""`. That was the wrong thing to check. DEFAULTS is
+only the fallback for a key the live row does not carry — and the live row
+carried a populated, hand-written value, which `jsonb_set` replaced outright.
+
+What was lost, recovered from the Supabase copy frozen at the 17 August cutover:
+
+```
+Shop Zetu is online-only — we have no walk-in shops of our own. All orders are
+placed online and delivered across Kenya.
+We manage products, stock and delivery for a number of fashion brands, Vivo
+among them. Vivo pieces can also be bought in person at Vivo's own stores.
+We sell to men and women of all ages.
+Only give out our phone numbers if the customer asks for them directly.
+```
+
+Most of it overlapped with the replacement, but the last line did not, and it is
+a behavioural rule rather than a fact: **do not volunteer phone numbers.** An
+assistant that starts handing out the support line unprompted changes how much
+phone traffic the business gets, and nothing in Step 47 would have restored that
+instruction.
+
+This step merges the two: the original wording is kept as written, with the
+About Us facts added around it.
+
+**The lesson, since it will happen again:** for `app_settings`, read the LIVE row
+before writing it. The Python defaults describe what a fresh install would have,
+not what production holds — and `jsonb_set` on a populated key is a silent
+overwrite with no diff and no warning.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         COALESCE(data, '{}'::jsonb),
+         '{business,about}',
+         to_jsonb($about$
+Shop Zetu is online-only — we have no walk-in shops of our own. All orders are
+placed online and delivered across Kenya, and internationally by DHL.
+We manage products, stock and delivery for a number of fashion brands, Vivo
+among them. Vivo pieces can also be bought in person at Vivo's own stores, and a
+Nairobi order can be collected from a named Vivo store.
+We sell to men and women of all ages, and to kids.
+Only give out our phone numbers if the customer asks for them directly.
+
+Shop Zetu is a multi-brand, multi-vendor online fashion marketplace, founded in
+2020. We carry affordable and trendy fashion, footwear, beauty and accessories,
+from both global and African-owned brands, and we actively look for new ones.
+
+Because it is a marketplace, sizing and fit are set by each brand rather than by
+Shop Zetu. Two garments in the same size from different brands genuinely differ,
+which is why a size answer must come from that brand's own chart.
+
+BRANDS WANTING TO JOIN: if someone asks how to sell on Shop Zetu, list their
+label or partner with us, give them 0748 419357 or support@shopzetu.com — that
+counts as asking for the number directly. Do not quote commission, terms or
+timelines; that is a conversation for the team.
+$about$::text),
+         true)
+ WHERE id = 1;
+
+COMMIT;
+```
+
+---
+
+### Step 49 — Terms and conditions the assistant did not have
+
+The T&C page carries several rules the assistant has never been told, and which
+change what it should say. Added as `business.terms`, a NEW key — the existing
+`delivery.returns_policy` from Step 36 is left untouched.
+
+**Read the conflicts below before trusting either document.**
+
+**What is genuinely new and unambiguous:**
+
+- **Whole categories cannot be returned at all** — skincare, make-up, swimwear,
+  fragrances and underwear. The stored returns policy does not mention this, so
+  the assistant would currently tell someone their lipstick can go back within
+  7 days. It cannot.
+- **Orders can be cancelled within 24 hours but never changed** — a change means
+  cancel, return, re-order.
+- **Refund SLA** 2-3 days from handover; **exchange SLA** 2-3 days in Nairobi,
+  3-7 days upcountry.
+- **Gift vouchers** expire 6 months from purchase, are non-refundable and cannot
+  be exchanged for cash.
+- **Customer care is Monday to Friday, 8am-5pm** — the assistant has been
+  promising a human without knowing when one exists.
+- **Shoppers must be 18+** with a card or registered M-Pesa account.
+- **Black November (1-30 Nov)** purchases are exchange or gift-card only.
+- Registered as Shop Zetu Limited, Baba Dogo Road, Spectrum Business Park,
+  Nairobi.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         COALESCE(data, '{}'::jsonb),
+         '{business,terms}',
+         to_jsonb($terms$
+ORDERS
+- An order can be CANCELLED within 24 hours. An order can never be CHANGED — to
+  change something the customer cancels, returns anything delivered, and reorders.
+- All orders are subject to availability and confirmation of price.
+- If we have listed a wrong price or description, support contacts the customer
+  to reconfirm at the right price or cancel. If it is spotted after purchase, the
+  customer is offered a credit note or gift voucher for the difference.
+- Shoppers must be 18 or over, with a card they are authorised to use or a
+  registered M-Pesa account.
+
+NEVER RETURNABLE, whatever the condition or timing:
+  skincare, make-up, swimwear, fragrances, underwear.
+Also refused: no Shop Zetu invoice, signs of washing, or hygiene issues
+(stains, sweat, dirt).
+
+REFUNDS AND EXCHANGES
+- Refunds are issued as M-Pesa or a Shop Zetu gift card.
+- M-Pesa refunds are NOT available on discounted items.
+- Black November purchases (1-30 November) are exchange or gift-card only.
+- The return must be completed before any refund starts. We never fund a refund
+  from another order's payment.
+- Refunds: 2-3 days from the item reaching us.
+- Exchanges: the item must reach the Shop Zetu warehouse before the replacement
+  is dispatched. 2-3 days within Nairobi, 3-7 days upcountry.
+
+GIFT VOUCHERS
+- Valid 6 months from purchase. Non-refundable, and never exchangeable for cash.
+- For a digital voucher the recipient's email must be correct — a voucher sent
+  to the wrong address and spent cannot be recovered.
+
+RETURNS ABUSE
+- Repeatedly returning worn items may lead to returns being refused. Do not
+  accuse a customer of this; refer them to customer care.
+
+PROMO CODES
+- Each code has its own terms, given when the code is issued. A personal code
+  shared with others may be cancelled. Do not invent or guess code conditions.
+
+CUSTOMER CARE HOURS
+- Monday to Friday, 8am to 5pm. Outside those hours say when the team is next
+  available rather than implying someone will reply immediately.
+- support@shopzetu.com, +254 748 419357. @shopzetu on Instagram, Facebook and
+  Twitter.
+
+COMPANY
+- Shop Zetu Limited, registered in Nairobi. Offices at Baba Dogo Road, Spectrum
+  Business Park.
+$terms$::text),
+         true)
+ WHERE id = 1;
+
+COMMIT;
+```
+
+**Two conflicts NOT resolved here, because guessing would be worse:**
+
+1. **The T&C contradicts itself on the return window.** Under "Policy" it says
+   *"up to 7 Days from the date of delivery"*; twelve lines later, under what is
+   not eligible, it says *"Orders which are past the return period (48hrs from
+   delivery date)"*. Seven days and 48 hours cannot both be right, and the stored
+   policy from Step 36 says 7 days. **The 7-day version is what remains in
+   force** because that is what was already configured — but somebody should fix
+   the page, and if 48 hours is the real rule the assistant is currently telling
+   customers they have five days they do not have.
+
+2. **Refund method.** Step 36 says refunds go to the original payment method, or
+   the customer may choose M-Pesa, card, or gift card. The T&C says M-Pesa or
+   gift card. This block follows the T&C; the Step 36 text still says otherwise.
+   Whichever is right, the other should be corrected.

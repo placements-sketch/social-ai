@@ -224,6 +224,22 @@ def format_returns_for_prompt() -> str:
         return ""
 
 
+def format_terms_for_prompt() -> str:
+    """
+    The trading terms for the prompt. Empty if unconfigured.
+
+    Separate from the returns policy rather than merged into it, because they
+    come from different documents that do not fully agree — the T&C names
+    categories that can never be returned and a different set of refund methods.
+    Merging them would have required choosing a winner silently; keeping them
+    apart means a wrong answer traces back to a source someone can go and fix.
+    """
+    try:
+        return (get_section("business").get("terms") or "").strip()
+    except Exception:
+        return ""
+
+
 def format_delivery_for_prompt() -> str:
     """Delivery zones + notes for the AI system prompt. Empty if unconfigured."""
     try:
