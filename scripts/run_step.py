@@ -73,6 +73,8 @@ def main():
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--run', action='store_true', help='actually execute (default is print only)')
     ap.add_argument('--local', action='store_true', help='use DATABASE_URL instead of the Render one')
+    ap.add_argument('--allow-locking', action='store_true',
+                    help='permit VACUUM FULL and friends, which lock the table')
     args = ap.parse_args()
 
     steps = load_steps()
@@ -119,11 +121,30 @@ def main():
         body = re.sub(r'COMMIT\s*;\s*$', '', body, flags=re.I).strip()
         if not body:
             continue
+
+        # VACUUM FULL rewrites the table under an ACCESS EXCLUSIVE lock: nothing
+        # can read or write it until it finishes. Fine at 3am, not during trading.
+        # Skipped unless explicitly asked for.
+        if 'vacuum full' in low and not args.allow_locking:
+            print(f'  block {i}: SKIPPED - takes an exclusive lock '
+                  f'(re-run with --allow-locking when the shop is quiet)')
+            continue
         try:
             conn.autocommit = needs_autocommit
             with conn.cursor() as cur:
-                cur.execute(body)
-                note = f"{cur.rowcount} row(s)" if cur.rowcount is not None and cur.rowcount >= 0 else "ok"
+                if needs_autocommit:
+                    # One statement per execute. Postgres treats a multi-statement
+                    # simple query as an IMPLICIT transaction block, so sending
+                    # "VACUUM a; VACUUM b;" together fails with "VACUUM cannot run
+                    # inside a transaction block" even though autocommit is on —
+                    # which reads as the autocommit not working, and is not that.
+                    parts = [p.strip() for p in body.split(';') if p.strip()]
+                    for part in parts:
+                        cur.execute(part)
+                    note = f"{len(parts)} statement(s)"
+                else:
+                    cur.execute(body)
+                    note = f"{cur.rowcount} row(s)" if cur.rowcount is not None and cur.rowcount >= 0 else "ok"
             if not needs_autocommit:
                 conn.commit()
             print(f"  block {i}: {note}" + ("  [autocommit]" if needs_autocommit else ""))

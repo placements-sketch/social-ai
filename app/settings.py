@@ -286,7 +286,10 @@ def size_chart_for_vendor(vendor: str | None):
         for name, rows in charts.items():
             if name.startswith("_"):
                 continue
-            if name.lower() == target and isinstance(rows, list) and rows:
+            # list = one table; dict = several, keyed by garment type.
+            # Requiring a list here silently dropped brands with per-garment
+            # charts to the house guide, which is the exact wrong answer.
+            if name.lower() == target and isinstance(rows, (list, dict)) and rows:
                 return rows, name, False
 
     house = charts.get("default")
@@ -308,19 +311,42 @@ def format_size_chart_for_prompt(vendor: str | None) -> str:
     if not rows:
         return ""
 
-    lines = [f"SIZE CHART ({chart_name}), measurements in inches:"]
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
-        def band(k):
-            v = r.get(k) or []
-            if isinstance(v, list) and len(v) == 2:
-                return f"{v[0]}-{v[1]}"
-            return "?"
-        lines.append(
-            f"  {r.get('size','?')}: bust {band('bust')}, waist {band('waist')}, "
-            f"hips {band('hips')} (UK {r.get('uk','?')}, US {r.get('us','?')})"
-        )
+    def band(r, k):
+        v = r.get(k) or []
+        if isinstance(v, list) and len(v) == 2:
+            return f"{v[0]}-{v[1]}" if v[0] != v[1] else f"{v[0]}"
+        return "?"
+
+    def render(rs, heading):
+        out = [heading]
+        for r in rs:
+            if not isinstance(r, dict):
+                continue
+            bits = [f"  {r.get('size','?')}: bust {band(r,'bust')}, waist {band(r,'waist')}"]
+            if r.get('hips'):
+                bits.append(f", hips {band(r,'hips')}")
+            if r.get('uk') or r.get('us'):
+                bits.append(f" (UK {r.get('uk','?')}, US {r.get('us','?')})")
+            out.append("".join(bits))
+        return out
+
+    # A vendor can size differently by garment type. Stylish Sisters cuts
+    # dresses and pantsuit sets to different measurements and also sells a
+    # free-size line — three tables under one brand, and picking the wrong one
+    # is a wrong size just as surely as picking the wrong brand. All of them are
+    # shown, labelled, and the model chooses by what the customer is asking
+    # about; it knows the product name and we do not want to guess for it.
+    lines = []
+    if isinstance(rows, dict):
+        lines.append(f"SIZE CHARTS ({chart_name}) - this brand sizes by garment type, "
+                     f"measurements in inches:")
+        for variant, vrows in rows.items():
+            if isinstance(vrows, list) and vrows:
+                lines += render(vrows, f"  [{variant}]")
+        lines.append("  Pick the table matching what they are asking about. If it is "
+                     "unclear which applies, ask before giving a size.")
+    else:
+        lines = render(rows, f"SIZE CHART ({chart_name}), measurements in inches:")
     if fallback:
         lines.append(
             "  NOTE: this is Shop Zetu's general guide, NOT this brand's own chart. "

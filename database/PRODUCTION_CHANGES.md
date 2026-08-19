@@ -2890,7 +2890,7 @@ part. Expect roughly **13 MB** back.
 **If a jsonb query on `variants_detail` is ever added** — searching products by
 variant size or colour inside the JSON, say — recreate it:
 
-```sql
+```sql-ref
 CREATE INDEX idx_products_cache_variants_detail
     ON products_cache USING gin (variants_detail);
 ```

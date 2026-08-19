@@ -197,10 +197,31 @@ def _vip_threshold():
 VAT_DIVISOR = 1.16
 
 
-def ex_vat(amount):
-    """Strip VAT from a stored (VAT-inclusive) money figure."""
+def ex_vat(amount, tax=None):
+    """
+    A VAT-inclusive figure with the tax taken off.
+
+    Pass `tax` whenever the real figure is available — Shopify reports it per
+    order and Step 37 captures it, so most callers can. The 1.16 divisor is only
+    a fallback for rows synced before that.
+
+    The divisor is wrong in two ways that the real number is not. It assumes
+    every order carries 16% VAT: across 133,149 orders the implied divisor is
+    actually 1.1483, and 2,927 of them carry NO tax at all — zero-rated or
+    exempt items, where dividing by 1.16 invents a 16% tax that was never
+    charged and then reports the result as revenue.
+    """
     try:
-        return float(amount or 0) / VAT_DIVISOR
+        gross = float(amount or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if tax is not None:
+        try:
+            return gross - float(tax)
+        except (TypeError, ValueError):
+            pass
+    try:
+        return gross / VAT_DIVISOR
     except (TypeError, ValueError):
         return 0.0
 
@@ -232,7 +253,17 @@ def _net_sales_estimate():
         ).scalar()
         if not paid:
             return None
-        return ex_vat(float(paid) - float(refunded or 0))
+        # Shopify's own tax, not a flat 16% guess (Step 37).
+        paid_tax = db.session.query(func.coalesce(func.sum(OrderCache.total_tax), 0)).filter(
+            OrderCache.currency == 'KES',
+            OrderCache.financial_status.in_(('paid', 'partially_paid')),
+        ).scalar()
+        refunded_tax = db.session.query(func.coalesce(func.sum(OrderCache.total_tax), 0)).filter(
+            OrderCache.currency == 'KES',
+            OrderCache.financial_status.in_(('refunded', 'partially_refunded')),
+        ).scalar()
+        net_tax = float(paid_tax or 0) - float(refunded_tax or 0)
+        return ex_vat(float(paid) - float(refunded or 0), tax=net_tax)
     except Exception as e:
         log_event("warn", "customers.net_sales_estimate_failed", str(e))
         return None
@@ -506,6 +537,16 @@ def customers_overview():
     gross_revenue = float(
         db.session.query(func.coalesce(func.sum(CustomerCache.total_spent), 0)).scalar() or 0
     )
+    # Still the divisor here, deliberately, even though real tax now exists.
+    #
+    # This sums CustomerCache.total_spent — Shopify's LIFETIME figure per
+    # customer, which has no tax breakdown. The tax we hold lives in
+    # orders_cache, and the two do not cover the same set: Shopify's lifetime
+    # total can include orders our mirror does not have. Subtracting a tax total
+    # from one source out of a gross from another produces a number that is
+    # wrong in a way nothing would reveal — worse than an approximation that is
+    # labelled as one. The per-order and per-month figures, which do come from
+    # orders_cache, use the real tax.
     total_revenue = ex_vat(gross_revenue)
     total_orders = int(
         db.session.query(func.coalesce(func.sum(CustomerCache.total_orders), 0)).scalar() or 0
@@ -596,7 +637,8 @@ def customers_overview():
         rows = db.session.execute(db.text(f"""
             SELECT date_trunc('{gran}', order_date) AS bucket,
                    COUNT(*)                        AS orders,
-                   COALESCE(SUM(total), 0)         AS revenue
+                   COALESCE(SUM(total), 0)         AS revenue,
+                   COALESCE(SUM(total_tax), 0)     AS tax
             FROM orders_cache
             WHERE order_date IS NOT NULL
               AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
@@ -605,7 +647,7 @@ def customers_overview():
         """)).fetchall()
         for r in rows:
             orders_n = int(r[1] or 0)
-            revenue = ex_vat(r[2])
+            revenue = ex_vat(r[2], tax=r[3])   # Shopify's tax, not a flat 16%
             bucket = r[0]
             label = bucket.strftime('%b %y') if gran == 'month' else bucket.strftime('%d %b %y')
             aov_by_month.append({
@@ -756,13 +798,16 @@ def customer_profile(customer_id):
         rows = db.session.execute(db.text("""
             SELECT to_char(date_trunc('month', order_date), 'YYYY-MM') AS ym,
                    COALESCE(SUM(total), 0) AS revenue,
-                   COUNT(*) AS orders
+                   COUNT(*) AS orders,
+                   COALESCE(SUM(total_tax), 0) AS tax
             FROM orders_cache
             WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
               AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
             GROUP BY 1 ORDER BY 1
         """), {'cid': cid}).fetchall()
-        spend_over_time = [{'month': r[0], 'revenue': ex_vat(r[1]), 'orders': int(r[2])} for r in rows]
+        # Shopify's tax per month, not a flat 16% assumption.
+        spend_over_time = [{'month': r[0], 'revenue': ex_vat(r[1], tax=r[3]), 'orders': int(r[2])}
+                           for r in rows]
     except Exception as e:
         log_event("warn", "customers.profile.spend_over_time_failed", str(e))
 
@@ -844,7 +889,8 @@ def customer_orders(customer_id):
         'id': r.shopify_order_id,
         'order_number': r.order_number,
         'date': r.order_date.isoformat() if r.order_date else None,
-        'total': ex_vat(r.total),
+        # The order row carries Shopify's own tax, so no estimate is needed.
+        'total': ex_vat(r.total, tax=r.total_tax),
         'currency': r.currency,
         'items': r.items_count,
         'products': r.products or [],
