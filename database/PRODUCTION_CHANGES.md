@@ -3099,3 +3099,45 @@ earned nothing; these earn their space every time an agent links a customer.
 `lower(column) LIKE lower(term)` to match it. A plain `ILIKE` will NOT use these
 indexes — it is a different expression as far as the planner is concerned, and
 the search would silently stay slow while the indexes sat unused.
+
+---
+
+### Step 45 — Capture the product vendor, so sizing can be brand-specific
+
+Every vendor sizes differently. Bust 43 inches is an **L** on Shop Zetu's house
+guide and a **1X** on Vivo's — a full size apart, on the same body.
+
+Shop Zetu's own chart says so in its header:
+
+> *"Some brands may vary from these measurements but the table can still be used
+> as a guide"*
+
+So a single chart cannot answer "what size am I?" for a multi-brand catalogue,
+and answering from the wrong one produces a return — which for a sale item is
+exchange-only under the returns policy in Step 36.
+
+To pick the right chart we need to know a product's brand. Shopify sends
+`vendor` on every product and we discard it, exactly as we discarded `total_tax`
+before Step 37. Tags are not a substitute: they carry brand-ish strings
+(`Vivo_2026_sync`, `Vivo_Sale`, `VIVO`, `Vivo_Shopzetu_SYNC`) mixed with sizes
+and campaign names, inconsistently cased, several per product.
+
+```sql
+BEGIN;
+
+ALTER TABLE products_cache
+  ADD COLUMN IF NOT EXISTS vendor VARCHAR(128);
+
+CREATE INDEX IF NOT EXISTS ix_products_cache_vendor ON products_cache (vendor);
+
+COMMIT;
+```
+
+Nullable with no default: a product synced before this step has an unknown
+vendor, which must stay distinguishable from one Shopify genuinely reports as
+blank. The sizing logic treats unknown as "no brand chart — use the house guide
+and say so", and that only works if the two cases can be told apart.
+
+**After deploying, run a products sync** to populate it. Products re-sync in full
+on their own schedule, so this fills in without a watermark reset.
+

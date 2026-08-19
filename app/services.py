@@ -1133,6 +1133,29 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
         if matches:
             context_data["products"] = matches              # full list for Claude
             context_data["product"]  = matches[0]           # single best (backwards compat)
+
+            # Attach the size chart for whoever makes this product.
+            #
+            # Not gated on a "sizing" intent, deliberately. The customer who
+            # prompted this typed "can they fit someone with a burst 43 in
+            # size?" — a keyword gate looking for "bust" misses it, and the
+            # classifier has no sizing intent to key on. The chart is seven
+            # short lines; attaching it whenever a product is identified costs
+            # very little and means a fit question is always answerable.
+            try:
+                from app.settings import format_size_chart_for_prompt
+                vendors = {(m or {}).get("vendor") for m in matches if (m or {}).get("vendor")}
+                primary_vendor = (matches[0] or {}).get("vendor")
+                chart = format_size_chart_for_prompt(primary_vendor)
+                if chart:
+                    context_data["size_chart"] = chart
+                    # Different brands size differently, so one chart cannot
+                    # cover a reply spanning several of them. Say which it
+                    # applies to rather than letting it read as universal.
+                    if len(vendors) > 1:
+                        context_data["size_chart_vendors"] = sorted(v for v in vendors if v)
+            except Exception as e:
+                log_event("warn", "services.size_chart_failed", str(e)[:160])
             # A SECOND ranked list that still contains sold-out products.
             #
             # `products` above deliberately excludes them so the AI can never

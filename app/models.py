@@ -491,6 +491,12 @@ class ProductCache(db.Model):
     variants_detail = db.Column(db.JSON, nullable=True)
     images      = db.Column(db.JSON, nullable=True)
     tags        = db.Column(db.JSON, nullable=True)
+    # Shopify's own brand field (Step 45). Sizing is per-vendor: bust 43 is an L
+    # on Shop Zetu's house guide and a 1X on Vivo's, so the chart to use depends
+    # on this. NULL means "synced before Step 45 / not reported" — kept distinct
+    # from an empty string so the assistant can say it does not know the brand
+    # rather than silently applying the house chart to a brand that sizes small.
+    vendor      = db.Column(db.String(128), nullable=True, index=True)
     stock_quantity    = db.Column(db.Integer, nullable=True)
     inventory_tracked = db.Column(db.Boolean, default=False, nullable=False)
     cached_at   = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

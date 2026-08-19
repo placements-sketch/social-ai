@@ -975,6 +975,19 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         # that rebuilds context_lines above. Building the note and never
         # attaching it would look like the feature worked while changing nothing.
         context_block += multi_note
+        # Size chart for the brand in question (Step 45/46). Included whenever a
+        # product was identified, because fit questions do not announce
+        # themselves - "can they fit someone with a burst 43" is one.
+        if context_data.get("size_chart"):
+            context_block += chr(10) + chr(10) + context_data["size_chart"]
+            _sv = context_data.get("size_chart_vendors")
+            if _sv:
+                context_block += (
+                    chr(10) + "  These items are from more than one brand ("
+                    + ", ".join(_sv) +
+                    "). The chart above is only for " + (_sv[0] if _sv else "") +
+                    " - do not apply it to the others; say sizing differs by brand."
+                )
         intents_str   = ", ".join(intents) if intents else "general inquiry"
 
         # ── Compose the system prompt from AISettings ────────────────────

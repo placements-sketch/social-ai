@@ -246,6 +246,96 @@ def format_delivery_for_prompt() -> str:
     parts = [p for p in (zone_block, (f"Notes: {notes}" if notes else "")) if p]
     return "\n".join(parts)
 
+def size_chart_for_vendor(vendor: str | None):
+    """
+    (rows, chart_name, is_house_fallback) for a product's brand.
+
+    Sizing is per-vendor and the difference is not academic: a 43-inch bust is
+    an L on Shop Zetu's house guide and a 1X on Vivo's. Answering from the wrong
+    chart is a wrong size, and a wrong size is a return — which for a sale item
+    is exchange-only under the returns policy.
+
+    So when there is no chart for the brand this returns the house guide with
+    is_house_fallback=True, and the caller is expected to SAY so. Shop Zetu's own
+    chart carries that caveat in its header: "Some brands may vary from these
+    measurements but the table can still be used as a guide."
+    """
+    try:
+        charts = (get_section("size_charts") or {})
+    except Exception:
+        return [], None, False
+    if not isinstance(charts, dict) or not charts:
+        return [], None, False
+
+    if vendor:
+        # Case-insensitive: Shopify's vendor casing is not guaranteed stable,
+        # and "vivo" silently missing "Vivo" would fall back to the house chart
+        # for a third of the catalogue without anyone noticing.
+        target = vendor.strip().lower()
+
+        # Sub-brands that size to a parent's chart — Zoya and Safari are both
+        # Vivo. Resolved by alias rather than duplicating the rows, so a
+        # correction to Vivo's chart cannot leave the sub-brands on old numbers.
+        aliases = charts.get("_aliases") or {}
+        if isinstance(aliases, dict):
+            for alias, parent in aliases.items():
+                if target == str(alias).lower() or target.startswith(str(alias).lower() + " "):
+                    target = str(parent).lower()
+                    break
+
+        for name, rows in charts.items():
+            if name.startswith("_"):
+                continue
+            if name.lower() == target and isinstance(rows, list) and rows:
+                return rows, name, False
+
+    house = charts.get("default")
+    if isinstance(house, list) and house:
+        return house, "Shop Zetu general guide", True
+    return [], None, False
+
+
+def format_size_chart_for_prompt(vendor: str | None) -> str:
+    """
+    The size chart as prompt text, or "" when there is none.
+
+    Includes every band rather than a computed answer: the model has the
+    customer's measurement and the table, and can also handle "between sizes"
+    and the overlaps that exist in the source data — Vivo's own L is 39-41 and
+    1X is 40-44, so a 40-inch bust is genuinely both.
+    """
+    rows, chart_name, fallback = size_chart_for_vendor(vendor)
+    if not rows:
+        return ""
+
+    lines = [f"SIZE CHART ({chart_name}), measurements in inches:"]
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        def band(k):
+            v = r.get(k) or []
+            if isinstance(v, list) and len(v) == 2:
+                return f"{v[0]}-{v[1]}"
+            return "?"
+        lines.append(
+            f"  {r.get('size','?')}: bust {band('bust')}, waist {band('waist')}, "
+            f"hips {band('hips')} (UK {r.get('uk','?')}, US {r.get('us','?')})"
+        )
+    if fallback:
+        lines.append(
+            "  NOTE: this is Shop Zetu's general guide, NOT this brand's own chart. "
+            "Say so — tell the customer sizing varies by brand and offer to check "
+            "with the team before they order."
+        )
+    else:
+        lines.append(
+            f"  Use these {chart_name} measurements and name the brand in your answer. "
+            "If a measurement falls in two bands, say both and ask how they like the fit. "
+            "If they are between sizes, the larger size is the safer choice."
+        )
+    return chr(10).join(lines)
+
+
 def discord_config() -> dict:
     """Resolved Discord config: URL (settings → env fallback), enabled, min severity."""
     n = {}

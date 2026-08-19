@@ -126,6 +126,7 @@ def cron_sync_products():
                     else:
                         row.name = (snap.get('name') or '')[:512]
                         row.handle = (snap.get('handle') or '')[:256] or None
+                        row.vendor = (snap.get('vendor') or '')[:128] or None
                         row.description = snap.get('description') or ''
                         row.price = Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None
                         row.variants = snap.get('variants') or []
@@ -153,6 +154,7 @@ def cron_sync_products():
                             shopify_product_id=spid,
                             name=(snap.get('name') or '')[:512],
                             handle=(snap.get('handle') or '')[:256] or None,
+                            vendor=(snap.get('vendor') or '')[:128] or None,
                             description=snap.get('description') or '',
                             price=Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None,
                             variants=snap.get('variants') or [],
@@ -172,6 +174,7 @@ def cron_sync_products():
                     if row is not None:
                         row.name = (snap.get('name') or '')[:512]
                         row.handle = (snap.get('handle') or '')[:256] or None
+                        row.vendor = (snap.get('vendor') or '')[:128] or None
                         row.description = snap.get('description') or ''
                         row.price = Decimal(str(snap.get('price', '').replace('KES', '').replace(',', '').strip() or 0)) if snap.get('price') else None
                         row.variants = snap.get('variants') or []
