@@ -865,13 +865,25 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                       payload={"images": len(recovered)},
                       conversation_id=inbound_record.conversation_id)
 
+    # Every product the customer photographed, not just the first.
+    #
+    # A real conversation on 18 August: four product screenshots back-to-back,
+    # then "Hello are these available?". Vision used to read two images and
+    # return one description, so the reply covered one item and said nothing
+    # about the other three — which reads as a complete answer and is not one.
+    vision_items = []
     if image_urls:
-        from app.ai.generator import describe_product_in_image
-        vision_attrs = describe_product_in_image(image_urls) or {}
+        from app.ai.generator import describe_products_in_images, MAX_VISION_IMAGES
+        vision_items = describe_products_in_images(image_urls)
+        vision_attrs = vision_items[0] if vision_items else {}
         vision_desc = vision_attrs.get("phrase")
         if vision_desc:
             product_keyword = vision_desc
             keyword_source = "image"
+        # Say so when we could not look at everything, rather than answering
+        # about a subset as though it were the whole.
+        if len(image_urls) > MAX_VISION_IMAGES:
+            context_data["images_not_examined"] = len(image_urls) - MAX_VISION_IMAGES
 
     # OUR OWN CAPTION beats guessing from a photo. When the customer references
     # a post we wrote, the caption usually names the garment outright ("Vivo
@@ -1090,6 +1102,33 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
                 detail=(f"best guess was '{(matches[0] or {}).get('name')}' — "
                         f"{'handed to an agent' if _bridge else 'already with an agent'}"))
             return _bridge or AI_SUPPRESSED
+
+        # More than one garment in the photos → look each one up and answer about
+        # all of them. `products` is already the list Claude reads, so the reply
+        # side needs nothing new; what was missing was ever putting more than one
+        # product's matches into it.
+        if len(vision_items) > 1:
+            extra, seen_ids = [], {(m or {}).get("id") for m in (matches or [])}
+            for item in vision_items[1:]:
+                phrase = item.get("phrase")
+                if not phrase:
+                    continue
+                try:
+                    found = search_products(phrase, limit=2) or []
+                except Exception as e:
+                    log_event("warn", "services.multi_product_lookup_failed", str(e)[:160])
+                    continue
+                for m in found:
+                    if m and m.get("id") not in seen_ids:
+                        seen_ids.add(m.get("id"))
+                        extra.append(m)
+            if extra:
+                matches = (matches or []) + extra
+                context_data["multi_product"] = len(vision_items)
+                log_event("info", "services.multi_product",
+                          f"Customer sent {len(vision_items)} products — answering about "
+                          f"{len(matches)} matched items",
+                          payload={"asked": [i.get("phrase") for i in vision_items]})
 
         if matches:
             context_data["products"] = matches              # full list for Claude

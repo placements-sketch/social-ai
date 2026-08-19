@@ -361,33 +361,43 @@ def _fetch_image_b64(url: str):
         return None, None
 
 
-def describe_product_in_image(image_urls: list) -> dict | None:
+# How many of a customer's photos vision will actually look at.
+#
+# Each one is downloaded, base64-encoded and sent to the model, so this is
+# the most expensive step in the pipeline. Five covers the realistic
+# screenshot-shopping burst (four was a real case) without letting someone
+# who dumps twenty photos run up a bill or stall the reply.
+MAX_VISION_IMAGES = 5
+
+
+def describe_products_in_images(image_urls: list) -> list:
     """
-    Stage 2 vision: look at the customer's photo and return the product's
-    attributes for the catalogue lookup.
+    Every distinct product across the customer's photos, not just the first.
 
-    Returns a dict — {name, type, colour, details, phrase} — or None on any
-    failure, in which case the pipeline continues text-only.
+    Returns a list of {name, type, colour, details, phrase} — one per garment —
+    or [] on any failure, in which case the pipeline continues text-only.
 
-    Returns the parts SEPARATELY, not just a phrase, and that is the point.
-    A description flattened into words has to be matched by ranking every one
-    of 7,000+ products by keyword overlap, and a phrase like "colourful dress
-    with fringe" ranks badly against titles written by a merchandiser. Garment
-    TYPE and COLOUR can instead be used to filter — throwing away everything
-    that is not even the right kind of item before any ranking happens.
+    Why this exists: customers shop by screenshotting. A real conversation on
+    18 August had four product screenshots sent back-to-back and then "Hello are
+    these available?". The old path looked at image_urls[:2] and returned ONE
+    description, so the reply covered a single item and said nothing about the
+    other three — which reads as a complete answer and is not one. Under-
+    answering silently is worse than failing, because the customer has no way to
+    tell it happened.
 
-    Returned rather than stashed on the function: webhooks are handled on a
-    thread pool, so shared mutable state here would let two customers' photos
-    overwrite each other's attributes.
+    Capped at MAX_VISION_IMAGES: each image is downloaded, base64'd and sent to
+    the model, so this is the expensive step in the pipeline. Anything beyond
+    the cap is reported to the caller so the reply can admit what it did not
+    look at rather than quietly ignoring it.
     """
     if not image_urls:
-        return None
+        return []
     try:
         import anthropic
         from flask import current_app
 
         blocks = []
-        for u in image_urls[:2]:
+        for u in image_urls[:MAX_VISION_IMAGES]:
             b64, media_type = _fetch_image_b64(u)
             if b64:
                 blocks.append({
@@ -395,28 +405,32 @@ def describe_product_in_image(image_urls: list) -> dict | None:
                     "source": {"type": "base64", "media_type": media_type, "data": b64},
                 })
         if not blocks:
-            return None
+            return []
+
         blocks.append({
             "type": "text",
             "text": (
-                "Identify the main fashion or beauty product in this image.\n\n"
-                "FIRST: if the image contains readable text naming the product — a "
-                "screenshot of a product page, a post with the title written on it, a "
-                "price tag, a label — copy those exact words. A real product name beats "
+                f"You are looking at {len(blocks)} image(s) from one customer.\n\n"
+                "Identify the main fashion or beauty product in EACH image.\n\n"
+                "FIRST: if an image contains readable text naming the product - a \n"
+                "screenshot of a product page, a post with the title written on it, a \n"
+                "price tag, a label - copy those exact words. A real product name beats \n"
                 "any description you could write, because it can be looked up directly.\n\n"
-                "Reply on ONE line in exactly this format:\n"
+                "Output ONE LINE PER IMAGE, in image order, in exactly this format:\n"
                 "  NAME | TYPE | COLOUR | DETAILS\n\n"
                 "  NAME    - the product name if it is written in the image, else -\n"
-                "  TYPE    - the single garment noun: dress, top, trousers, skirt, "
+                "  TYPE    - the single garment noun: dress, top, trousers, skirt, \n"
                 "jacket, shoes, bag, set, kaftan. One word. Never blank.\n"
-                "  COLOUR  - the one or two dominant colours, or 'multicolour' for a "
+                "  COLOUR  - the one or two dominant colours, or multicolour for a \n"
                 "print with no single dominant colour\n"
                 "  DETAILS - 2-4 further words: pattern, cut, fabric, trim\n\n"
-                "TYPE and COLOUR are used to narrow a catalogue of thousands, so be "
-                "literal and conventional with them — the word a shop would use.\n\n"
+                "If two images show the SAME product, still output one line each - the \n"
+                "caller removes duplicates.\n"
+                "No preamble, no numbering, nothing but the lines.\n\n"
+                "TYPE and COLOUR narrow a catalogue of thousands, so be literal and \n"
+                "conventional with them - the word a shop would use.\n\n"
                 "Example: Vivo Lani Maxi Dress | dress | black white | satin print maxi\n"
-                "Example: - | mules | tan | leather pointed flat\n"
-                "Example: - | dress | multicolour | tie dye fringe midi"
+                "Example: - | mules | tan | leather pointed flat"
             ),
         })
 
@@ -424,42 +438,62 @@ def describe_product_in_image(image_urls: list) -> dict | None:
         model = current_app.config.get("CLASSIFIER_MODEL") or current_app.config.get("CLAUDE_MODEL", "claude-haiku-4-5")
         resp = client.messages.create(
             model=model,
-            # Room for a product name plus descriptors — 30 tokens truncated
-            # mid-name once the prompt started asking for on-image text.
-            max_tokens=80,
+            # Room for one line per image rather than one line total.
+            max_tokens=80 * max(1, len(blocks)),
             messages=[{"role": "user", "content": blocks}],
         )
-        text = first_text(resp).strip().replace("\n", " ")[:220].strip()
+        raw = first_text(resp).strip()
 
-        # Parsed into parts as well as returned whole. Callers that just want a
-        # search phrase keep working; the caller that can narrow the catalogue
-        # by garment type and colour now has them separately, which is the
-        # difference between ranking 7,000 products by fuzzy keyword and
-        # filtering to the few dozen that are even the right kind of thing.
-        parts = [p.strip() for p in text.split("|")]
-        while len(parts) < 4:
-            parts.append("")
-        name, gtype, colour, details = parts[0], parts[1], parts[2], parts[3]
-        if name.strip() in ("-", "—", ""):
-            name = ""
-
-        attrs = {
-            "name": name,
-            "type": gtype.lower(),
-            "colour": colour.lower(),
-            "details": details.lower(),
-            # What the old callers expect: one space-separated search phrase.
-            "phrase": " ".join(p for p in (name, gtype, colour, details) if p).strip(),
-        }
+        out, seen = [], set()
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or "|" not in line:
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            while len(parts) < 4:
+                parts.append("")
+            name, gtype, colour, details = parts[0], parts[1], parts[2], parts[3]
+            if name.strip() in ("-", '—', ""):
+                name = ""
+            attrs = {
+                "name": name,
+                "type": gtype.lower(),
+                "colour": colour.lower(),
+                "details": details.lower(),
+                "phrase": " ".join(p for p in (name, gtype, colour, details) if p).strip(),
+            }
+            if not attrs["phrase"]:
+                continue
+            # The same garment photographed twice is one product to answer about.
+            key = (attrs["name"] or "").lower() or f'{attrs["type"]}|{attrs["colour"]}'
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(attrs)
 
         log_event("info", "ai.vision.describe",
-                  f"Vision product attributes: {attrs['phrase']!r} "
-                  f"(type={attrs['type']!r} colour={attrs['colour']!r})",
-                  payload={"raw": text, **attrs})
-        return attrs
+                  f"Vision identified {len(out)} product(s) across {len(blocks)} image(s): "
+                  + "; ".join(a["phrase"] for a in out[:4]),
+                  payload={"raw": raw[:400], "count": len(out), "images": len(blocks)})
+        return out
     except Exception as e:
         log_event("warn", "ai.vision.describe_failed", str(e)[:200])
-        return None
+        return []
+
+
+def describe_product_in_image(image_urls: list) -> dict | None:
+    """
+    The single best product across the customer's photos, or None.
+
+    Kept as a thin wrapper over describe_products_in_images so existing callers
+    that only ever wanted one product keep working unchanged. New code that has
+    to answer about everything the customer sent should call the plural version
+    directly — this one silently discards the rest, which is the behaviour that
+    left three of four items unanswered.
+    """
+    items = describe_products_in_images(image_urls)
+    return items[0] if items else None
+
 
 def verify_product_match(customer_image_urls: list, candidates: list) -> dict | None:
     """
@@ -679,6 +713,27 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
         products = context_data.get("products") or (
             [context_data["product"]] if "product" in context_data else []
         )
+
+        # The customer photographed several different items. Without being told
+        # so, the model reads a list of products as candidates for ONE question
+        # and answers about the best match — which is exactly the silent
+        # under-answer this was built to stop.
+        multi_note = ""
+        if context_data.get("multi_product"):
+            multi_note = (
+                "\n\nTHE CUSTOMER SENT " + str(context_data["multi_product"]) +
+                " DIFFERENT ITEMS. These products are not competing guesses at one "
+                "question - they are the separate things they asked about. Answer for "
+                "EACH item they sent, briefly, one short line each. If you have no "
+                "match for one of them, say that item specifically could not be found "
+                "rather than leaving it out."
+            )
+        if context_data.get("images_not_examined"):
+            multi_note += (
+                "\n\nYou could not see " + str(context_data["images_not_examined"]) +
+                " of the photos they sent. Say so plainly and ask them to resend those, "
+                "rather than answering as if you had seen everything."
+            )
 
         def _fmt_price(raw):
             s = str(raw) if raw is not None else ''
@@ -916,6 +971,10 @@ def _claude_reply(message: str, intents: list[str], context_data: dict, channel:
             )
 
         context_block = "\n".join(context_lines) if context_lines else "No specific product data available."
+        # Appended after context_block is assembled so it survives every branch
+        # that rebuilds context_lines above. Building the note and never
+        # attaching it would look like the feature worked while changing nothing.
+        context_block += multi_note
         intents_str   = ", ".join(intents) if intents else "general inquiry"
 
         # ── Compose the system prompt from AISettings ────────────────────
