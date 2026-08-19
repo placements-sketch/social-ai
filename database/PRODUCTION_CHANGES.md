@@ -3141,3 +3141,71 @@ and say so", and that only works if the two cases can be told apart.
 **After deploying, run a products sync** to populate it. Products re-sync in full
 on their own schedule, so this fills in without a watermark reset.
 
+
+---
+
+### Step 46 — International delivery via DHL, and when delivery is free
+
+Two corrections to the delivery data.
+
+**International shipping exists.** Step 43 removed the East Africa and
+International zones on the strength of them not appearing in recent orders. They
+do not appear because Shopify quotes DHL at checkout rather than as a fixed
+rate — not because the service was withdrawn. That deletion also left the
+assistant contradicting itself: the returns policy from Step 36 accepts returns
+from "Kenya, Uganda, Rwanda and rest of world" while no delivery zone reached
+any of them, so it would refuse to deliver to Kampala and accept a return from
+there in the same conversation.
+
+Restored as one DHL zone with no fixed price, because there isn't one.
+
+**Free delivery has three specific triggers**, and none of them is "ask nicely":
+
+- a customer's **first exchange**
+- orders **riding along with a stock delivery to a Vivo store**
+- occasionally as part of a **promotion**
+
+These go in `delivery.notes`, which `format_delivery_for_prompt()` already
+appends, rather than being invented as zones — they are conditions on a price,
+not places.
+
+The promotional case is written defensively on purpose. "Sometimes free with
+discounts" is exactly the sort of thing an assistant turns into "yes, delivery is
+free" — a promise the business then has to honour on an order that was never
+part of a promotion.
+
+```sql
+BEGIN;
+
+UPDATE app_settings
+   SET data = jsonb_set(
+         jsonb_set(
+           COALESCE(data, '{}'::jsonb),
+           '{delivery,zones}',
+           -- Array concatenation, not a UNION: jsonb || jsonb appends, and it
+           -- keeps the existing zones in order with the new one at the end.
+           COALESCE(data->'delivery'->'zones', '[]'::jsonb) || '[
+             {"name": "International (DHL) — anywhere outside Kenya, including Uganda, Rwanda and the rest of the world",
+              "fee": "Quoted by DHL at checkout — depends on destination and weight, so it cannot be stated in advance",
+              "eta": "Varies by destination"}
+           ]'::jsonb,
+           true),
+         '{delivery,notes}',
+         to_jsonb($notes$
+DELIVERY IS FREE IN THESE CASES ONLY:
+- The customer's FIRST exchange. Later exchanges are charged normally.
+- When the order travels with a stock delivery to a Vivo store. Support arranges
+  this; the customer cannot request it, and it depends on a delivery already
+  being scheduled to that store.
+- Occasionally as part of a promotion.
+
+NEVER tell a customer delivery will be free because a discount is involved.
+Promotional free delivery is applied by the business, not implied by a discount
+code, and promising it commits Shop Zetu to honour it. If a customer says they
+were offered free delivery, do not confirm or deny it — pass them to a human.
+$notes$::text),
+         true)
+ WHERE id = 1;
+
+COMMIT;
+```
