@@ -676,7 +676,8 @@ export default function Customers() {
                 : '—'}
               sub={overview.kpis.net_sales == null
                 ? (overview.kpis.net_sales_note || 'Unavailable')
-                : overview.kpis.net_sales_source === 'shopify'
+                : (overview.kpis.net_sales_source === 'api'
+                   || overview.kpis.net_sales_source === 'shopify')
                   /* The old wording — "net of discounts, refunds and returns" —
                      was wrong in a way that mattered: taxes and shipping are
                      ADded to reach Total sales, so describing it as a "net"
@@ -687,7 +688,7 @@ export default function Customers() {
                      open something is provenance nobody reads, and quoting our
                      own arithmetic as Shopify's is the exact failure this page
                      exists to prevent. */
-                  : 'Our estimate — not read from Shopify Analytics'}
+                  : 'Order data still syncing — figure incomplete'}
               tone={overview.kpis.net_sales_source === 'shopify'
                 ? 'bg-emerald-50 text-emerald-600'
                 : 'bg-amber-50 text-amber-600'}
@@ -754,7 +755,7 @@ export default function Customers() {
         <div className="card rounded-2xl p-5">
           <div className="flex items-baseline justify-between gap-3 mb-3">
             <p className="text-sm font-semibold text-gray-900">How Total sales is calculated</p>
-            <span className="text-[11px] text-gray-400">Shopify Analytics · all time</span>
+            <span className="text-[11px] text-gray-400">Computed from Shopify order data · all time</span>
           </div>
           <div className="divide-y divide-gray-100">
             {overview.kpis.net_sales_breakdown.map(({ key, label, amount, op }) => {
@@ -795,10 +796,26 @@ export default function Customers() {
           </p>
           <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
             Taxes and shipping are <span className="font-semibold text-gray-700">added</span>, not
-            deducted — Total sales is not an ex-VAT figure. The gap against
-            Revenue is driven by <span className="font-semibold text-gray-700">returns</span>,
-            which Revenue does not subtract because the customer did pay it.
+            deducted — Total sales is not an ex-VAT figure.
           </p>
+          {/* Two numbers on this page are both called "Gross sales" and they
+              are not the same, which is exactly the sort of thing that gets a
+              page distrusted. Say why, here, next to both of them. */}
+          {overview.kpis.gross_sales_paid != null && (
+            <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
+              The <span className="font-semibold text-gray-700">Gross sales</span> card above reads{' '}
+              KES {formatKES(overview.kpis.gross_sales_paid)} — lower than the{' '}
+              KES {formatKES((overview.kpis.net_sales_breakdown || [])
+                    .find(c => c.key === 'gross_sales')?.amount || 0)}{' '}
+              on the first line here. The card counts{' '}
+              <span className="font-semibold text-gray-700">paid orders only</span>
+              {overview.kpis.paid_orders != null ? ` (${formatKES(overview.kpis.paid_orders)})` : ''},
+              matching how the company's analytics platform reports it. This
+              calculation starts from every sellable order — paid, pending and
+              part-paid alike — because a sale that has not settled yet is still
+              a sale. Cancelled and test orders are excluded from both.
+            </p>
+          )}
         </div>
       )}
 
