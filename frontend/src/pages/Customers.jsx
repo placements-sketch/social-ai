@@ -613,7 +613,7 @@ export default function Customers() {
           757.6M lifetime), and the two must not share a row of cards without
           saying which is which. */}
       {/* Five cards now, so 4-up left a lone tile stranded on its own row. */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
         {overview ? (
           <>
             {/* Four cards, four separate facts.
@@ -627,48 +627,25 @@ export default function Customers() {
                 125,055 have never ordered. Leading with the bigger number
                 makes every rate on the page look worse than it is, so the
                 headline is buyers and the record count is the context. */}
-            {/* Paid -> Returns -> Kept.
-
-                "How much has the company made?" is the question people arrive
-                with, and neither Gross sales nor Shopify's Total sales answers
-                it — both sit ABOVE what the business actually keeps, and
-                neither shows returns at all. On a store returning 31% of the
-                value it sells, leading with 638M and never mentioning 201M of
-                returns is the single most misleading thing this page could do.
-
-                These three subtract into each other, so the strip reads across:
-                customers paid X, we gave back Y, we kept Z. Gross sales and
-                Total sales are still available in the breakdown below for
-                anyone reconciling against Shopify or the analytics platform. */}
             <KpiCard
               icon={ShoppingBag}
-              label="Customers paid"
-              value={overview.kpis.paid_charged != null
-                ? `KES ${formatKES(overview.kpis.paid_charged)}` : '—'}
+              label="Gross sales"
+              value={overview.kpis.gross_sales_paid != null
+                ? `KES ${formatKES(overview.kpis.gross_sales_paid)}` : '—'}
               sub={overview.kpis.paid_orders != null
-                ? `${formatKES(overview.kpis.paid_orders)} paid orders · includes tax and delivery`
-                : 'Paid orders, including tax and delivery'}
+                ? `${formatKES(overview.kpis.paid_orders)} paid orders · before discounts, returns and tax`
+                : 'Paid orders, before discounts, returns and tax'}
               tone="bg-blue-50 text-blue-600"
             />
             <KpiCard
-              icon={Repeat}
-              label="Returns"
-              value={overview.kpis.returns_value != null
-                ? `KES ${formatKES(overview.kpis.returns_value)}` : '—'}
-              sub={overview.kpis.return_rate != null
-                ? `${(overview.kpis.return_rate * 100).toFixed(1)}% of what customers paid`
-                  + (overview.kpis.refund_count != null
-                     ? ` · ${formatKES(overview.kpis.refund_count)} refunds` : '')
-                : 'Refunded to customers'}
-              tone="bg-[#cf5f2c]/10 text-[#cf5f2c]"
-            />
-            <KpiCard
               icon={TrendingUp}
-              label="Kept"
-              value={overview.kpis.kept != null
-                ? `KES ${formatKES(overview.kpis.kept)}` : '—'}
-              sub="What customers paid, less returns · before VAT and costs"
-              tone="bg-[#00a37f]/10 text-[#00a37f]"
+              label="Total sales"
+              value={overview.kpis.net_sales != null
+                ? `KES ${formatKES(overview.kpis.net_sales)}` : '—'}
+              sub={overview.kpis.net_sales == null
+                ? (overview.kpis.net_sales_note || 'Unavailable')
+                : 'Gross sales − discounts − returns + shipping + taxes'}
+              tone="bg-emerald-50 text-emerald-600"
             />
             <KpiCard
               icon={Users}
@@ -775,83 +752,13 @@ export default function Customers() {
             Taxes and shipping are <span className="font-semibold text-gray-700">added</span>, not
             deducted — Total sales is not an ex-VAT figure.
           </p>
-          {/* The strip above answers "how much did we make?"; this card
-              answers "how does that reconcile with Shopify?". Both grosses live
-              here now, side by side, rather than one being a headline and the
-              other a line item with the same name. */}
-          {overview.kpis.gross_sales_paid != null && (
-            <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
-              Two gross figures exist and they are not the same.{' '}
-              <span className="font-semibold text-gray-700">
-                KES {formatKES((overview.kpis.net_sales_breakdown || [])
-                      .find(c => c.key === 'gross_sales')?.amount || 0)}
-              </span>{' '}
-              on the first line above counts every sellable order — paid, pending
-              and part-paid — because a sale that has not settled is still a sale.{' '}
-              <span className="font-semibold text-gray-700">
-                KES {formatKES(overview.kpis.gross_sales_paid)}
-              </span>{' '}
-              counts paid orders only
-              {overview.kpis.paid_orders != null
-                ? ` (${formatKES(overview.kpis.paid_orders)})` : ''}, which is how
-              the company's analytics platform reports it. Cancelled and test
-              orders are excluded from both, and from returns.
-            </p>
-          )}
         </div>
       )}
 
       {/* Two Shopify numbers that look like they should match and never will.
           Stating both here saves the next person the afternoon it took to work
           out that "Total spent" and "Total sales" are different metrics. */}
-      {overview?.kpis?.net_sales != null && (
-        <details className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 group">
-          <summary className="text-[12px] text-gray-500 cursor-pointer list-none flex items-center gap-1.5">
-            <Info size={12} className="text-gray-400 shrink-0" />
-            <span>
-              {/* "roughly" is a claim about accuracy, so it is only made when
-                  the number is ours. When Shopify supplies it there is nothing
-                  approximate about it and hedging would be false modesty —
-                  worse, it would invite someone to go and "check" an
-                  authoritative figure against a spreadsheet. */}
-              Shopify Analytics shows a smaller figure —
-              {overview.kpis.net_sales_source === 'estimate' ? ' roughly' : ''}
-              <span className="font-semibold text-gray-700"> KES {formatKES(overview.kpis.net_sales)}</span>.
-              Why?
-            </span>
-          </summary>
-          <div className="mt-2.5 pt-2.5 border-t border-gray-200 text-[12px] text-gray-500 leading-relaxed space-y-1.5">
-            <p>
-              Both are Shopify's own numbers; they answer different questions.
-            </p>
-            {/* Provenance, stated where the number is. Someone defending this
-                page needs to know whether they are quoting Shopify or quoting
-                us, and that cannot live in a code comment. */}
-            {overview.kpis.net_sales_source === 'estimate' && overview.kpis.net_sales_note && (
-              <p className="text-amber-700">
-                <span className="font-semibold">Note:</span> {overview.kpis.net_sales_note}
-              </p>
-            )}
-            {overview.kpis.net_sales_source === 'api' && (
-              <p className="text-emerald-700">
-                Calculated from Shopify's order data, not from Shopify Analytics.
-                The Analytics layer has been found to omit orders, so every figure
-                here is derived from the orders themselves.
-              </p>
-            )}
-            <p>
-              <span className="font-semibold text-gray-700">Total sales</span> is Shopify
-              Analytics' figure for a period: gross sales less discounts and returns, plus
-              shipping and taxes.
-            </p>
-            <p>
-              They are close because both net out refunds. They are not identical because
-              Total sales is measured per order over a window, while Revenue is measured
-              per customer over all time — and orders that belong to no customer record
-              (guest checkouts, deleted customers) appear in one and not the other.
-            </p>
-          </div>
-        </details>
+
       )}
           </div>
         </details>

@@ -361,6 +361,7 @@ def _computed_sales_breakdown():
               FROM orders_cache
               WHERE NOT COALESCE(is_test, false)
                 AND cancelled_at IS NULL
+                AND financial_status = 'paid'
             ),
             -- Refunds must be filtered the SAME way the orders are.
             --
@@ -381,6 +382,7 @@ def _computed_sales_breakdown():
               JOIN orders_cache oc ON oc.shopify_order_id = rc.shopify_order_id
               WHERE oc.cancelled_at IS NULL
                 AND NOT COALESCE(oc.is_test, false)
+                AND oc.financial_status = 'paid'
             ),
             -- Gross on PAID orders only, which is the definition Shop Zetu's
             -- own analytics platform uses for "Total gross sales". Reproduced
