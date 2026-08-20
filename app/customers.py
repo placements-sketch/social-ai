@@ -303,10 +303,13 @@ def _sales_series_for(granularity):
               GROUP BY 1
             ),
             r AS (
-              SELECT date_trunc('{grain}', refund_date) AS period,
-                     SUM(COALESCE(goods_subtotal,0)) AS returns
-              FROM refunds_cache
-              WHERE refund_date IS NOT NULL
+              SELECT date_trunc('{grain}', rc.refund_date) AS period,
+                     SUM(COALESCE(rc.goods_subtotal,0)) AS returns
+              FROM refunds_cache rc
+              JOIN orders_cache oc ON oc.shopify_order_id = rc.shopify_order_id
+              WHERE rc.refund_date IS NOT NULL
+                AND oc.cancelled_at IS NULL
+                AND NOT COALESCE(oc.is_test, false)
               GROUP BY 1
             )
             SELECT to_char(COALESCE(o.period, r.period), 'YYYY-MM-DD') AS period,
@@ -359,9 +362,25 @@ def _computed_sales_breakdown():
               WHERE NOT COALESCE(is_test, false)
                 AND cancelled_at IS NULL
             ),
+            -- Refunds must be filtered the SAME way the orders are.
+            --
+            -- This counted every refund row, including refunds against
+            -- cancelled and test orders, while the orders side excluded them.
+            -- Two halves of one subtraction drawn from different populations:
+            -- it overstated returns by 56M (233M against a true 177M) and
+            -- understated what the business kept by the same amount.
+            --
+            -- A refund on a cancelled order is not a return of sold goods; it
+            -- is an order that never happened.
             r AS (
-              SELECT COALESCE(SUM(goods_subtotal), 0) AS returns
-              FROM refunds_cache
+              SELECT COALESCE(SUM(rc.goods_subtotal), 0) AS returns,
+                     COALESCE(SUM(rc.goods_subtotal + COALESCE(rc.goods_tax, 0)), 0)
+                                                        AS returns_with_tax,
+                     COUNT(*)                            AS refund_count
+              FROM refunds_cache rc
+              JOIN orders_cache oc ON oc.shopify_order_id = rc.shopify_order_id
+              WHERE oc.cancelled_at IS NULL
+                AND NOT COALESCE(oc.is_test, false)
             ),
             -- Gross on PAID orders only, which is the definition Shop Zetu's
             -- own analytics platform uses for "Total gross sales". Reproduced
@@ -371,19 +390,28 @@ def _computed_sales_breakdown():
             -- between the two reads.
             p AS (
               SELECT COALESCE(SUM(gross_sales), 0) AS gross_paid,
+                     -- What customers actually handed over: the order total,
+                     -- tax and delivery included. This is the top of the
+                     -- "paid -> returns -> kept" line the page leads with.
+                     COALESCE(SUM(total), 0)       AS paid_charged,
                      COUNT(*)                      AS paid_orders
               FROM orders_cache
               WHERE financial_status = 'paid'
+                AND cancelled_at IS NULL
+                AND NOT COALESCE(is_test, false)
             )
             SELECT o.gross, o.discounts, r.returns, o.shipping, o.taxes, o.orders,
-                   p.gross_paid, p.paid_orders
+                   p.gross_paid, p.paid_orders,
+                   r.returns_with_tax, r.refund_count, p.paid_charged
             FROM o, r, p
         """)).first()
         if not row:
             return None
         (gross, discounts, returns, shipping, taxes,
-         orders, gross_paid, paid_orders) = [float(x or 0) for x in row]
+         orders, gross_paid, paid_orders,
+         returns_with_tax, refund_count, paid_charged) = [float(x or 0) for x in row]
         orders, paid_orders = int(orders), int(paid_orders)
+        refund_count = int(refund_count)
         total = gross - discounts - returns + shipping + taxes
 
         # Same shape the page already renders, so nothing downstream changes.
@@ -411,6 +439,15 @@ def _computed_sales_breakdown():
             # gross by ALL orders, which mixes a 108,529-order numerator with a
             # 133,124-order denominator and understates AOV by about 18%.
             'aov_paid': (gross_paid / paid_orders) if paid_orders else 0.0,
+            # The three figures the page leads with, because "how much did we
+            # make?" is the question people actually arrive with and none of
+            # gross / total sales answers it. These subtract into each other, so
+            # the strip can be read straight across.
+            'paid_charged': paid_charged,
+            'returns_value': returns_with_tax,
+            'kept': paid_charged - returns_with_tax,
+            'refund_count': refund_count,
+            'return_rate': (returns_with_tax / paid_charged) if paid_charged else 0.0,
         }
     except Exception as e:
         log_event("error", "customers.computed_sales_failed", str(e)[:200])
@@ -462,6 +499,11 @@ def _total_sales_block():
                 'gross_sales_paid': breakdown.get('gross_sales_paid'),
                 'paid_orders': breakdown.get('paid_orders'),
                 'aov_paid': breakdown.get('aov_paid'),
+                'paid_charged': breakdown.get('paid_charged'),
+                'returns_value': breakdown.get('returns_value'),
+                'kept': breakdown.get('kept'),
+                'refund_count': breakdown.get('refund_count'),
+                'return_rate': breakdown.get('return_rate'),
             }
 
     estimate = _net_sales_estimate()

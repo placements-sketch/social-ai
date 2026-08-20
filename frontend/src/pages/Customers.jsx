@@ -613,7 +613,7 @@ export default function Customers() {
           757.6M lifetime), and the two must not share a row of cards without
           saying which is which. */}
       {/* Five cards now, so 4-up left a lone tile stranded on its own row. */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         {overview ? (
           <>
             {/* Four cards, four separate facts.
@@ -627,71 +627,48 @@ export default function Customers() {
                 125,055 have never ordered. Leading with the bigger number
                 makes every rate on the page look worse than it is, so the
                 headline is buyers and the record count is the context. */}
-            {/* The "Revenue" card is gone.
+            {/* Paid -> Returns -> Kept.
 
-                It summed CustomerCache.total_spent — Shopify's LIFETIME figure
-                per customer — which is a third money number from a third
-                source, and it could never reconcile with the other two because
-                it comes from the customer records rather than the orders. On
-                one strip it read 565M beside Gross 638M and Total 592M, three
-                numbers within 70M of each other, none of them agreeing, none
-                explicable from the others.
+                "How much has the company made?" is the question people arrive
+                with, and neither Gross sales nor Shopify's Total sales answers
+                it — both sit ABOVE what the business actually keeps, and
+                neither shows returns at all. On a store returning 31% of the
+                value it sells, leading with 638M and never mentioning 201M of
+                returns is the single most misleading thing this page could do.
 
-                Its only real virtue was tying to the customer table below it
-                (sum that Total Spent column and you get it). That is a property
-                of the table, not a headline, and the page is better for having
-                two money figures that reconcile than three that do not.
-
-                What replaces it is Gross sales on the SAME basis as the
-                analytics platform the business already uses — paid orders, line
-                item price — so the two tools agree to the shilling instead of
-                being argued over in a meeting. */}
+                These three subtract into each other, so the strip reads across:
+                customers paid X, we gave back Y, we kept Z. Gross sales and
+                Total sales are still available in the breakdown below for
+                anyone reconciling against Shopify or the analytics platform. */}
             <KpiCard
-              icon={TrendingUp}
-              label="Gross sales"
-              value={overview.kpis.gross_sales_paid != null
-                ? `KES ${formatKES(overview.kpis.gross_sales_paid)}`
-                : '—'}
+              icon={ShoppingBag}
+              label="Customers paid"
+              value={overview.kpis.paid_charged != null
+                ? `KES ${formatKES(overview.kpis.paid_charged)}` : '—'}
               sub={overview.kpis.paid_orders != null
-                ? `${formatKES(overview.kpis.paid_orders)} paid orders · before discounts, returns and tax`
-                : 'Paid orders, before discounts, returns and tax'}
+                ? `${formatKES(overview.kpis.paid_orders)} paid orders · includes tax and delivery`
+                : 'Paid orders, including tax and delivery'}
               tone="bg-blue-50 text-blue-600"
             />
-            {/* Shopify's "Total sales", as a KPI rather than a footnote.
-                It lived in a collapsible explaining why the two figures differ,
-                which treated the difference as trivia. It isn't — this is the
-                number the business is measured on, and the requirement is that
-                this platform shows what Shopify shows. A figure you have to
-                expand a panel to find is not being shown.
-
-                Both are Shopify's own. Revenue is lifetime spend across
-                customer records, gross and tax-inclusive; Total sales is net
-                of discounts, refunds and returns. Same store, two questions,
-                and the sub-line says which is which so nobody has to guess. */}
+            <KpiCard
+              icon={Repeat}
+              label="Returns"
+              value={overview.kpis.returns_value != null
+                ? `KES ${formatKES(overview.kpis.returns_value)}` : '—'}
+              sub={overview.kpis.return_rate != null
+                ? `${(overview.kpis.return_rate * 100).toFixed(1)}% of what customers paid`
+                  + (overview.kpis.refund_count != null
+                     ? ` · ${formatKES(overview.kpis.refund_count)} refunds` : '')
+                : 'Refunded to customers'}
+              tone="bg-[#cf5f2c]/10 text-[#cf5f2c]"
+            />
             <KpiCard
               icon={TrendingUp}
-              label="Total sales"
-              value={overview.kpis.net_sales != null
-                ? `KES ${formatKES(overview.kpis.net_sales)}`
-                : '—'}
-              sub={overview.kpis.net_sales == null
-                ? (overview.kpis.net_sales_note || 'Unavailable')
-                : (overview.kpis.net_sales_source === 'api'
-                   || overview.kpis.net_sales_source === 'shopify')
-                  /* The old wording — "net of discounts, refunds and returns" —
-                     was wrong in a way that mattered: taxes and shipping are
-                     ADded to reach Total sales, so describing it as a "net"
-                     figure invited everyone to read it as ex-VAT. It is not.
-                     The formula is shorter than the description was. */
-                  ? 'Gross sales − discounts − returns + shipping + taxes'
-                  /* Says so on the card. Provenance that only appears when you
-                     open something is provenance nobody reads, and quoting our
-                     own arithmetic as Shopify's is the exact failure this page
-                     exists to prevent. */
-                  : 'Order data still syncing — figure incomplete'}
-              tone={overview.kpis.net_sales_source === 'shopify'
-                ? 'bg-emerald-50 text-emerald-600'
-                : 'bg-amber-50 text-amber-600'}
+              label="Kept"
+              value={overview.kpis.kept != null
+                ? `KES ${formatKES(overview.kpis.kept)}` : '—'}
+              sub="What customers paid, less returns · before VAT and costs"
+              tone="bg-[#00a37f]/10 text-[#00a37f]"
             />
             <KpiCard
               icon={Users}
@@ -798,22 +775,27 @@ export default function Customers() {
             Taxes and shipping are <span className="font-semibold text-gray-700">added</span>, not
             deducted — Total sales is not an ex-VAT figure.
           </p>
-          {/* Two numbers on this page are both called "Gross sales" and they
-              are not the same, which is exactly the sort of thing that gets a
-              page distrusted. Say why, here, next to both of them. */}
+          {/* The strip above answers "how much did we make?"; this card
+              answers "how does that reconcile with Shopify?". Both grosses live
+              here now, side by side, rather than one being a headline and the
+              other a line item with the same name. */}
           {overview.kpis.gross_sales_paid != null && (
             <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
-              The <span className="font-semibold text-gray-700">Gross sales</span> card above reads{' '}
-              KES {formatKES(overview.kpis.gross_sales_paid)} — lower than the{' '}
-              KES {formatKES((overview.kpis.net_sales_breakdown || [])
-                    .find(c => c.key === 'gross_sales')?.amount || 0)}{' '}
-              on the first line here. The card counts{' '}
-              <span className="font-semibold text-gray-700">paid orders only</span>
-              {overview.kpis.paid_orders != null ? ` (${formatKES(overview.kpis.paid_orders)})` : ''},
-              matching how the company's analytics platform reports it. This
-              calculation starts from every sellable order — paid, pending and
-              part-paid alike — because a sale that has not settled yet is still
-              a sale. Cancelled and test orders are excluded from both.
+              Two gross figures exist and they are not the same.{' '}
+              <span className="font-semibold text-gray-700">
+                KES {formatKES((overview.kpis.net_sales_breakdown || [])
+                      .find(c => c.key === 'gross_sales')?.amount || 0)}
+              </span>{' '}
+              on the first line above counts every sellable order — paid, pending
+              and part-paid — because a sale that has not settled is still a sale.{' '}
+              <span className="font-semibold text-gray-700">
+                KES {formatKES(overview.kpis.gross_sales_paid)}
+              </span>{' '}
+              counts paid orders only
+              {overview.kpis.paid_orders != null
+                ? ` (${formatKES(overview.kpis.paid_orders)})` : ''}, which is how
+              the company's analytics platform reports it. Cancelled and test
+              orders are excluded from both, and from returns.
             </p>
           )}
         </div>
@@ -850,17 +832,13 @@ export default function Customers() {
                 <span className="font-semibold">Note:</span> {overview.kpis.net_sales_note}
               </p>
             )}
-            {overview.kpis.net_sales_source === 'shopify' && (
+            {overview.kpis.net_sales_source === 'api' && (
               <p className="text-emerald-700">
-                Read directly from Shopify Analytics — not recalculated here.
+                Calculated from Shopify's order data, not from Shopify Analytics.
+                The Analytics layer has been found to omit orders, so every figure
+                here is derived from the orders themselves.
               </p>
             )}
-            <p>
-              <span className="font-semibold text-gray-700">Revenue above</span> is the sum of
-              every customer's <em>Total spent</em> in Shopify — what each person has
-              actually paid across their lifetime, including VAT and shipping, and net of
-              anything refunded. It is the figure on their customer record.
-            </p>
             <p>
               <span className="font-semibold text-gray-700">Total sales</span> is Shopify
               Analytics' figure for a period: gross sales less discounts and returns, plus
