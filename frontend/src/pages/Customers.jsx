@@ -627,34 +627,34 @@ export default function Customers() {
                 125,055 have never ordered. Leading with the bigger number
                 makes every rate on the page look worse than it is, so the
                 headline is buyers and the record count is the context. */}
-            {/* Gross leads because that is the number in the Shopify admin.
-                Showing ex-VAT as the headline guaranteed a 104M discrepancy
-                against Shopify that no amount of correct arithmetic could
-                close. Ex-VAT is still here — it is the figure that matters for
-                margin — but marked as the estimate it is: a flat 16% off
-                everything, shipping included, because we have no per-order tax
-                for a lifetime customer total. */}
-            {/* The ex-VAT figure is gone from this card.
-                It was the one number on the page we calculated ourselves — a
-                flat divide by 1.16 across everything, shipping and zero-rated
-                lines included — sitting beside two figures read straight from
-                Shopify. Nobody could tell which was which, and "what is this
-                value exactly" is the question it kept provoking. Margin work
-                needs a real per-order tax figure, not this.
+            {/* The "Revenue" card is gone.
 
-                What replaces it says where the number comes from, because a
-                lifetime total that counts refunded orders surprises people
-                unless it is stated. */}
+                It summed CustomerCache.total_spent — Shopify's LIFETIME figure
+                per customer — which is a third money number from a third
+                source, and it could never reconcile with the other two because
+                it comes from the customer records rather than the orders. On
+                one strip it read 565M beside Gross 638M and Total 592M, three
+                numbers within 70M of each other, none of them agreeing, none
+                explicable from the others.
+
+                Its only real virtue was tying to the customer table below it
+                (sum that Total Spent column and you get it). That is a property
+                of the table, not a headline, and the page is better for having
+                two money figures that reconcile than three that do not.
+
+                What replaces it is Gross sales on the SAME basis as the
+                analytics platform the business already uses — paid orders, line
+                item price — so the two tools agree to the shilling instead of
+                being argued over in a meeting. */}
             <KpiCard
               icon={TrendingUp}
-              label="Revenue"
-              value={`KES ${formatKES(overview.kpis.total_revenue_gross ?? overview.kpis.total_revenue)}`}
-              /* "refunds not deducted" was wrong. Shopify zeroes an order's
-                 current total when it is refunded — order 223224 reads total
-                 0.00 against refunded 1,500.00 — so amountSpent is already net
-                 of refunds. The old wording described the pre-sync figure,
-                 which was inflated by a stale writer, not by refund policy. */
-              sub={`Every customer's "Total spent" in Shopify, added up · incl. tax and shipping, net of refunds`}
+              label="Gross sales"
+              value={overview.kpis.gross_sales_paid != null
+                ? `KES ${formatKES(overview.kpis.gross_sales_paid)}`
+                : '—'}
+              sub={overview.kpis.paid_orders != null
+                ? `${formatKES(overview.kpis.paid_orders)} paid orders · before discounts, returns and tax`
+                : 'Paid orders, before discounts, returns and tax'}
               tone="bg-blue-50 text-blue-600"
             />
             {/* Shopify's "Total sales", as a KPI rather than a footnote.

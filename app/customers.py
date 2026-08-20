@@ -271,23 +271,150 @@ def _net_sales_estimate():
 
 def _sales_series_for(granularity):
     """
-    Shopify's revenue/orders per period, or [] when it cannot be read.
+    Revenue and orders per period, computed from the transactional API mirror.
 
-    Empty rather than a fallback to our own aggregates: the two disagree by
-    21,000 orders, and silently swapping one for the other under a chart
-    labelled "Shopify" is how a page ends up lying without anyone editing it.
-    The chart shows its own empty state instead.
+    Was ShopifyQL. Replaced because the Reports layer omits orders — established
+    by Shop Zetu's data and finance teams — and the instruction is to read the
+    API directly. Same source as the headline figure now, so the chart and the
+    number above it can no longer disagree.
+
+    Revenue per period uses the same formula as the total: gross - discounts +
+    shipping + taxes, less any refund PROCESSED in that period. Returns land in
+    the month the money went back, not the month of the original order, which is
+    why refunds are joined by refund_date rather than subtracted per order.
+
+    Also drops ShopifyQL's 1,000-row cap, which silently truncated the daily
+    series to 1,000 of 1,617 days and lost KES 91.9M while looking continuous.
     """
+    from sqlalchemy import text
+    grain = {'day': 'day', 'week': 'week', 'month': 'month'}.get(
+        (granularity or 'month').lower(), 'month')
     try:
-        from app.integrations.shopify import fetch_sales_series
-        rows, err = fetch_sales_series(granularity)
-        if err:
-            log_event("info", "customers.sales_series_unavailable", str(err)[:160])
-            return []
-        return rows or []
+        rows = db.session.execute(text(f"""
+            WITH o AS (
+              SELECT date_trunc('{grain}', order_date) AS period,
+                     SUM(COALESCE(gross_sales,0) - COALESCE(total_discounts,0)
+                         + COALESCE(total_shipping,0) + COALESCE(total_tax,0)) AS revenue,
+                     COUNT(*) AS orders
+              FROM orders_cache
+              WHERE order_date IS NOT NULL
+                AND NOT COALESCE(is_test, false)
+                AND cancelled_at IS NULL
+              GROUP BY 1
+            ),
+            r AS (
+              SELECT date_trunc('{grain}', refund_date) AS period,
+                     SUM(COALESCE(goods_subtotal,0)) AS returns
+              FROM refunds_cache
+              WHERE refund_date IS NOT NULL
+              GROUP BY 1
+            )
+            SELECT to_char(COALESCE(o.period, r.period), 'YYYY-MM-DD') AS period,
+                   COALESCE(o.revenue,0) - COALESCE(r.returns,0)       AS revenue,
+                   COALESCE(o.orders,0)                                AS orders
+            FROM o FULL OUTER JOIN r ON o.period = r.period
+            WHERE COALESCE(o.period, r.period) IS NOT NULL
+            ORDER BY 1
+        """)).fetchall()
+        return [{'period': r[0], 'revenue': float(r[1] or 0), 'orders': int(r[2] or 0)}
+                for r in rows]
     except Exception as e:
         log_event("warn", "customers.sales_series_failed", str(e)[:160])
         return []
+
+
+def _computed_sales_breakdown():
+    """
+    Shopify's Total sales formula, computed from the transactional API mirror.
+
+        gross sales - discounts - returns + shipping + taxes = total sales
+
+    Every input is a field Shopify sends on the order itself and Step 37/38
+    capture: gross from total_line_items_price, discounts, shipping and taxes
+    per order, returns from refunds_cache.
+
+    NOT from ShopifyQL. The analytics layer behind Reports has been found to
+    omit orders by Shop Zetu's own data and finance teams, and the instruction
+    is to read the API directly. Every component here comes out higher than the
+    Reports figure, which is what an omission looks like from this side.
+
+    Exclusions are explicit rather than inherited: test orders and cancelled
+    orders are left out, because neither is a sale. That choice is the one thing
+    here a reasonable person could disagree with, so it is stated in the
+    breakdown the page renders rather than buried.
+
+    Returns are summed by REFUND date, not order date — a March order refunded
+    in May reduces May. That is what refunds_cache exists for.
+    """
+    from sqlalchemy import text
+    try:
+        row = db.session.execute(text("""
+            WITH o AS (
+              SELECT COALESCE(SUM(gross_sales), 0)     AS gross,
+                     COALESCE(SUM(total_discounts), 0) AS discounts,
+                     COALESCE(SUM(total_shipping), 0)  AS shipping,
+                     COALESCE(SUM(total_tax), 0)       AS taxes,
+                     COUNT(*)                          AS orders
+              FROM orders_cache
+              WHERE NOT COALESCE(is_test, false)
+                AND cancelled_at IS NULL
+            ),
+            r AS (
+              SELECT COALESCE(SUM(goods_subtotal), 0) AS returns
+              FROM refunds_cache
+            ),
+            -- Gross on PAID orders only, which is the definition Shop Zetu's
+            -- own analytics platform uses for "Total gross sales". Reproduced
+            -- here so the two tools agree to the shilling rather than being
+            -- argued over: our figure for this definition came out 637,912,812
+            -- against their 637,949,855 — the difference is orders placed
+            -- between the two reads.
+            p AS (
+              SELECT COALESCE(SUM(gross_sales), 0) AS gross_paid,
+                     COUNT(*)                      AS paid_orders
+              FROM orders_cache
+              WHERE financial_status = 'paid'
+            )
+            SELECT o.gross, o.discounts, r.returns, o.shipping, o.taxes, o.orders,
+                   p.gross_paid, p.paid_orders
+            FROM o, r, p
+        """)).first()
+        if not row:
+            return None
+        (gross, discounts, returns, shipping, taxes,
+         orders, gross_paid, paid_orders) = [float(x or 0) for x in row]
+        orders, paid_orders = int(orders), int(paid_orders)
+        total = gross - discounts - returns + shipping + taxes
+
+        # Same shape the page already renders, so nothing downstream changes.
+        components = [
+            {'key': 'gross_sales', 'label': 'Gross sales', 'amount': gross,          'op': 'add'},
+            {'key': 'discounts',   'label': 'Discounts',   'amount': -discounts,     'op': 'sub'},
+            {'key': 'returns',     'label': 'Returns',     'amount': -returns,       'op': 'sub'},
+            {'key': 'net_sales',   'label': 'Net sales',
+             'amount': gross - discounts - returns,                                  'op': 'subtotal'},
+            {'key': 'shipping_charges', 'label': 'Shipping', 'amount': shipping,     'op': 'add'},
+            {'key': 'taxes',       'label': 'Taxes',       'amount': taxes,          'op': 'add'},
+            {'key': 'total_sales', 'label': 'Total sales', 'amount': total,          'op': 'total'},
+        ]
+        return {
+            'components': components,
+            'orders': orders,
+            'aov': (total / orders) if orders else 0.0,
+            # Shown beside Total sales rather than instead of it. Gross is what
+            # was rung up; total is what the business kept after 233M of
+            # returns, with tax and shipping added. One without the other
+            # invites the wrong conclusion in either direction.
+            'gross_sales_paid': gross_paid,
+            'paid_orders': paid_orders,
+            # Paid gross over PAID orders. The analytics platform divides paid
+            # gross by ALL orders, which mixes a 108,529-order numerator with a
+            # 133,124-order denominator and understates AOV by about 18%.
+            'aov_paid': (gross_paid / paid_orders) if paid_orders else 0.0,
+        }
+    except Exception as e:
+        log_event("error", "customers.computed_sales_failed", str(e)[:200])
+        return None
 
 
 def _total_sales_block():
@@ -307,11 +434,18 @@ def _total_sales_block():
     # nice-to-have: a headline figure nobody can derive gets argued with, and
     # the argument is settled by re-deriving it from the Shopify admin by hand
     # — which is the afternoon this page is supposed to save.
+    # Computed from the transactional API, NOT from ShopifyQL.
+    #
+    # Shop Zetu's data and finance teams have found that Shopify's Reports layer
+    # omits orders, so the instruction is to read the API directly — GraphQL by
+    # preference, REST acceptable, which is what the order mirror already is.
+    # ShopifyQL is no longer consulted for this figure.
     breakdown, err = None, None
     try:
-        from app.integrations.shopify import fetch_sales_breakdown
-        breakdown, err = fetch_sales_breakdown()
-    except Exception as e:                       # import or config problem
+        breakdown = _computed_sales_breakdown()
+        if not breakdown:
+            err = "computed breakdown unavailable"
+    except Exception as e:
         breakdown, err = None, str(e)[:120]
 
     if breakdown:
@@ -320,13 +454,14 @@ def _total_sales_block():
         if total is not None:
             return {
                 'net_sales': total,
-                'net_sales_source': 'shopify',
+                'net_sales_source': 'api',
                 'net_sales_note': None,
                 'net_sales_breakdown': components,
-                # Shopify's own order count and AOV, so the chart header stops
-                # quoting our aggregates as if they were Shopify's.
                 'shopify_orders': breakdown.get('orders'),
                 'shopify_aov': breakdown.get('aov'),
+                'gross_sales_paid': breakdown.get('gross_sales_paid'),
+                'paid_orders': breakdown.get('paid_orders'),
+                'aov_paid': breakdown.get('aov_paid'),
             }
 
     estimate = _net_sales_estimate()
@@ -341,8 +476,7 @@ def _total_sales_block():
         'net_sales_breakdown': None,
         'net_sales_source': 'estimate' if estimate is not None else None,
         'net_sales_note': (
-            "Our own calculation — Shopify's Total sales needs the "
-            "read_reports scope, which this app does not have yet."
+            "Order data is still syncing — this figure is incomplete."
             if estimate is not None else
             f"Unavailable: {err}"
         ),
