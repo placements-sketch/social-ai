@@ -162,13 +162,25 @@ export default function CustomerAIChat() {
 
             {messages.map((m, i) => (
               <div key={i} className={clsx('flex gap-2.5', m.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
+                {/* neutral-700, not gray-900.
+                    Two problems, one cause. gray-900 is #111827 against a panel
+                    of #141414 — a contrast ratio of 1.04:1, so in dark mode the
+                    bubble was not dim, it was invisible: white text floating on
+                    the panel with no shape behind it. neutral-700 is #404040,
+                    1.78:1, and needs no dark override to get there.
+
+                    It is also the right colour by the convention this product
+                    already has. Messages paints msg.from === 'ai' gray-900 and
+                    msg.from === 'human' neutral-700. The person typing here IS
+                    the human agent, so gray-900 was the contradiction — navy
+                    means AI everywhere else and it was being worn by the human. */}
                 <span className={clsx('w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
-                  m.role === 'user' ? 'bg-gray-900' : 'bg-brand-100')}>
+                  m.role === 'user' ? 'bg-neutral-700' : 'bg-brand-100')}>
                   {m.role === 'user' ? <User size={14} className="text-white" /> : <Bot size={14} className="text-brand-600" />}
                 </span>
                 <div className={clsx('min-w-0 max-w-[85%]', m.role === 'user' && 'flex flex-col items-end')}>
                   <div className={clsx('rounded-2xl px-3.5 py-2 text-sm',
-                    m.role === 'user' ? 'bg-gray-900 text-white' : m.isError ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-800')}>
+                    m.role === 'user' ? 'bg-neutral-700 text-white' : m.isError ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-800')}>
                     <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
                   </div>
                   {m.role === 'assistant' && m.rows?.length > 0 && <DataTable rows={m.rows} />}
