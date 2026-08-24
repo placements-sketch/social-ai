@@ -970,21 +970,58 @@ def customer_profile(customer_id):
 
     cid = c.shopify_customer_id
 
-    # Spend & orders over time (by month) — from OrderCache.
+    # Spend over time (by month) — from OrderCache.
+    #
+    # Two things were wrong here, and they compounded.
+    #
+    # 1. Nothing consumed this. CustomerDetail built its OWN monthly rollup in
+    #    the browser from the raw order list, and that one summed EVERY order:
+    #    141 voided (KES 1.72M that never changed hands), 3 pending, and 40
+    #    fully refunded. So the chart disagreed with the lifetime-spend KPI
+    #    directly above it, and the inflated version is the one people saw.
+    # 2. This one applied ex_vat(), while Order History below the chart shows
+    #    the gross figure Shopify shows. Same customer, same month, two totals.
+    #
+    # Now: one server-side series, paid-only, gross — so the chart, the KPI and
+    # the order rows below it are all quoting the same money.
+    #
+    # 'refunded' is excluded but 'partially_refunded' is kept: the former is an
+    # order that came back in full, the latter is one they mostly kept.
     spend_over_time = []
     try:
         rows = db.session.execute(db.text("""
-            SELECT to_char(date_trunc('month', order_date), 'YYYY-MM') AS ym,
-                   COALESCE(SUM(total), 0) AS revenue,
-                   COUNT(*) AS orders,
-                   COALESCE(SUM(total_tax), 0) AS tax
-            FROM orders_cache
-            WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
-              AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
-            GROUP BY 1 ORDER BY 1
+            WITH bounds AS (
+                SELECT date_trunc('month', min(order_date)) AS lo,
+                       date_trunc('month', max(order_date)) AS hi
+                FROM orders_cache
+                WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
+            ),
+            months AS (
+                SELECT generate_series(lo, hi, interval '1 month') AS m FROM bounds
+            ),
+            spend AS (
+                SELECT date_trunc('month', order_date) AS m,
+                       SUM(total) AS revenue, COUNT(*) AS orders
+                FROM orders_cache
+                WHERE shopify_customer_id = :cid AND order_date IS NOT NULL
+                  AND cancelled_at IS NULL
+                  AND financial_status IN ('paid', 'partially_paid', 'partially_refunded')
+                GROUP BY 1
+            )
+            SELECT to_char(months.m, 'YYYY-MM') AS ym,
+                   to_char(months.m, 'Mon') || chr(32) || chr(39) || to_char(months.m, 'YY') AS label,
+                   COALESCE(spend.revenue, 0) AS revenue,
+                   COALESCE(spend.orders, 0)  AS orders
+            FROM months LEFT JOIN spend ON spend.m = months.m
+            ORDER BY months.m
         """), {'cid': cid}).fetchall()
-        # Shopify's tax per month, not a flat 16% assumption.
-        spend_over_time = [{'month': r[0], 'revenue': ex_vat(r[1], tax=r[3]), 'orders': int(r[2])}
+        # LEFT JOIN over generate_series, not GROUP BY alone: a month with no
+        # orders used to be absent from the result entirely, so the line jumped
+        # straight from one buying month to the next and a customer who went
+        # quiet for a season read as continuously active. A gap has to be drawn
+        # as a gap.
+        spend_over_time = [{'ym': r[0], 'month': r[1],
+                            'spent': float(r[2] or 0), 'orders': int(r[3])}
                            for r in rows]
     except Exception as e:
         log_event("warn", "customers.profile.spend_over_time_failed", str(e))
