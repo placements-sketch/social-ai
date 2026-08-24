@@ -253,14 +253,15 @@ function OrderDetail({ order: o }) {
   )
 }
 
-// A score of 5 does not mean "top 20%" when a tie group is bigger than a fifth
-// of the base — 54% of buyers have exactly one order and all of them score 1.
-// The stored percentile is the only honest way to caption a pillar.
-function pctCaption(pct, verb) {
+// A percentile may never round up into a claim of being top: 99.55 stored as
+// 100 had this captioning "ahead of every other buyer" for someone with 168
+// buyers above them. Storage now floors, and 100 is stated as what it is —
+// the highest recorded — rather than as a comparison against "all of them".
+function pctCaption(pct, phrase) {
   if (pct == null) return 'Not scored yet'
-  if (pct >= 100) return `Ahead of every other buyer — ${verb} all of them`
-  if (pct <= 0) return `At the bottom of the base — nobody ${verb} less`
-  return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${pct}% of buyers`
+  if (pct >= 100) return 'Highest of any buyer'
+  if (pct <= 0) return 'Lowest of any buyer'
+  return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)} ${pct}% of buyers`
 }
 
 // Klaviyo list memberships are real but they are not about the customer — they
@@ -595,6 +596,17 @@ export function CustomerDetailView({ customerId, onClose }) {
             Total <span className="font-bold text-gray-900">{rfmTotal}</span><span className="text-gray-400">/15</span>
           </span>
         </div>
+        {/* Without this line the page contradicts itself in plain sight: a
+            customer badged Churned scoring 4/5 on Recency. Both are true and
+            they measure different things — 73% of buyers last ordered even
+            longer ago, because 74% of the whole buyer base has been inactive
+            over a year. The badge reads a calendar; these tiles read a
+            leaderboard. Anyone would ask, so it is answered here. */}
+        <p className="text-[11px] text-gray-400 mb-3 -mt-1">
+          A rank against other buyers, not a measure of activity. A high Recency
+          score means fewer buyers ordered more recently — not that this
+          customer is active. The segment badge is the one that reads a calendar.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* The captions restated the two KPI cards an inch above — "529
               lifetime orders" under Total Orders 529, "Last purchase 3 days
@@ -607,15 +619,15 @@ export function CustomerDetailView({ customerId, onClose }) {
               = 5" is wrong wherever a tie group is bigger than a fifth of the
               base, and 54% of buyers are tied at one order. */}
           <RfmPillar icon={Clock} label="Recency" score={recScore}
-                     caption={pctCaption(customer.rfm_r_pct, 'bought more recently than')}
+                     caption={pctCaption(customer.rfm_r_pct, 'more recent than')}
                      scaleLabel={customer.last_order_date
                        ? 'Ranked against every buyer'
                        : 'No purchase history'} />
           <RfmPillar icon={Repeat} label="Frequency" score={freqScore}
-                     caption={pctCaption(customer.rfm_f_pct, 'has more orders than')}
+                     caption={pctCaption(customer.rfm_f_pct, 'more orders than')}
                      scaleLabel="Ranked against every buyer" />
           <RfmPillar icon={TrendingUp} label="Monetary" score={monScore}
-                     caption={pctCaption(customer.rfm_m_pct, 'has spent more than')}
+                     caption={pctCaption(customer.rfm_m_pct, 'higher spend than')}
                      scaleLabel="Ranked against every buyer" />
         </div>
       </div>

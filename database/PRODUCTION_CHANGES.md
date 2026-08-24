@@ -3556,3 +3556,34 @@ UPDATE customers_cache
  WHERE (total_orders = 0 OR last_order_date IS NULL)
    AND rfm_r IS NOT NULL;
 ```
+
+---
+
+### Step 52 — Correction to Step 50: percentiles must not round up
+
+Step 50 stored the RFM percentile as `ROUND(percent_rank * 100)`. For a
+customer in the 99.55th percentile that rounds to **100**, and the tile reads
+100 as "ahead of every other buyer".
+
+`accounts@shopzetu.com` was captioned *"has more orders than all of them"* with
+**168 buyers above them**, and *"has spent more than all of them"* with **12
+buyers above them**. Both false, and confidently so.
+
+`FLOOR` cannot round up, so 100 now means what the tile claims it means.
+
+```sql
+WITH pr AS (
+    SELECT id,
+           PERCENT_RANK() OVER (ORDER BY last_order_date ASC) AS r_pr,
+           PERCENT_RANK() OVER (ORDER BY total_orders  ASC)   AS f_pr,
+           PERCENT_RANK() OVER (ORDER BY total_spent   ASC)   AS m_pr
+      FROM customers_cache
+     WHERE total_orders > 0 AND last_order_date IS NOT NULL
+)
+UPDATE customers_cache c
+   SET rfm_r_pct = FLOOR(pr.r_pr * 100)::smallint,
+       rfm_f_pct = FLOOR(pr.f_pr * 100)::smallint,
+       rfm_m_pct = FLOOR(pr.m_pr * 100)::smallint
+  FROM pr
+ WHERE c.id = pr.id;
+```

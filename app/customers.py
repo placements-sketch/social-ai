@@ -1676,9 +1676,13 @@ def recompute_rfm():
                 LEAST(5, GREATEST(1, FLOOR(r_pr * 5)::int + 1)) AS r,
                 LEAST(5, GREATEST(1, FLOOR(f_pr * 5)::int + 1)) AS f,
                 LEAST(5, GREATEST(1, FLOOR(m_pr * 5)::int + 1)) AS m,
-                ROUND(r_pr * 100)::smallint AS r_pct,
-                ROUND(f_pr * 100)::smallint AS f_pct,
-                ROUND(m_pr * 100)::smallint AS m_pct
+                -- FLOOR, not ROUND. ROUND turned a 99.55th percentile into
+                -- 100, and the tile read that as "ahead of every other buyer"
+                -- for a customer with 168 buyers above them. A percentile may
+                -- never round UP into a claim of being top.
+                FLOOR(r_pr * 100)::smallint AS r_pct,
+                FLOOR(f_pr * 100)::smallint AS f_pct,
+                FLOOR(m_pr * 100)::smallint AS m_pct
             FROM pr
         )
         UPDATE customers_cache c
