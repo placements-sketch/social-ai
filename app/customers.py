@@ -328,9 +328,29 @@ def _sales_series_for(granularity):
 
 def _computed_sales_breakdown():
     """
-    Shopify's Total sales formula, computed from the transactional API mirror.
+    Shopify's Total sales formula, computed from the transactional API mirror
+    and adjusted for the one thing the published formula assumes and this store
+    does not do: tax-exclusive pricing.
 
-        gross sales - discounts - returns + shipping + taxes = total sales
+        gross sales - discounts - returns + shipping = total sales
+
+    Shopify publishes "gross - discounts - returns + shipping + taxes", which is
+    correct where tax is added at checkout. Shop Zetu prices VAT-inclusive, so
+    the VAT is already inside gross_sales (total_line_items_price) and adding it
+    again counted the same 81.4M twice. Three independent checks on production:
+
+      - gross - discounts + shipping = total on 133,360 of 133,360 orders,
+        while adding taxes as a fourth term matches 2.3%
+      - total_tax averages 13.89% of (gross - discounts); 16/116 is 13.79%,
+        which is what a VAT-inclusive price yields. Tax-exclusive would be 16%.
+      - on the 26,105 paid orders with no discount and no delivery,
+        total == gross on 26,102 of them, and total == gross + tax on 5.2%
+
+    Returns are subtracted on the SAME basis. They were being taken off at
+    goods_subtotal, which is ex-VAT, against a VAT-inclusive gross — so a
+    returned item gave back less than it took, understating returns by 14.1M.
+
+    Together the two errors overstated Total sales by KES 95,483,070 (18.0%).
 
     Every input is a field Shopify sends on the order itself and Step 37/38
     capture: gross from total_line_items_price, discounts, shipping and taxes
@@ -414,26 +434,32 @@ def _computed_sales_breakdown():
          returns_with_tax, refund_count, paid_charged) = [float(x or 0) for x in row]
         orders, paid_orders = int(orders), int(paid_orders)
         refund_count = int(refund_count)
-        total = gross - discounts - returns + shipping + taxes
+        # returns_with_tax, not returns: gross is VAT-inclusive, so what comes
+        # off for a returned item has to be VAT-inclusive too. And no + taxes —
+        # the VAT is already inside gross. See the docstring for the evidence.
+        total = gross - discounts - returns_with_tax + shipping
 
         # Same shape the page already renders, so nothing downstream changes.
         components = [
             {'key': 'gross_sales', 'label': 'Gross sales', 'amount': gross,          'op': 'add'},
             {'key': 'discounts',   'label': 'Discounts',   'amount': -discounts,     'op': 'sub'},
-            {'key': 'returns',     'label': 'Returns',     'amount': -returns,       'op': 'sub'},
+            {'key': 'returns',     'label': 'Returns',     'amount': -returns_with_tax, 'op': 'sub'},
             {'key': 'net_sales',   'label': 'Net sales',
-             'amount': gross - discounts - returns,                                  'op': 'subtotal'},
+             'amount': gross - discounts - returns_with_tax,                         'op': 'subtotal'},
             {'key': 'shipping_charges', 'label': 'Shipping', 'amount': shipping,     'op': 'add'},
-            {'key': 'taxes',       'label': 'Taxes',       'amount': taxes,          'op': 'add'},
             {'key': 'total_sales', 'label': 'Total sales', 'amount': total,          'op': 'total'},
+            # VAT is reported, not applied. It was an 'add' line, which is what
+            # made it double-count: the reader could follow the arithmetic to
+            # the headline and the arithmetic itself was wrong.
+            {'key': 'taxes',       'label': 'of which VAT', 'amount': taxes,         'op': 'note'},
         ]
         return {
             'components': components,
             'orders': orders,
             'aov': (total / orders) if orders else 0.0,
             # Shown beside Total sales rather than instead of it. Gross is what
-            # was rung up; total is what the business kept after 233M of
-            # returns, with tax and shipping added. One without the other
+            # was rung up; total is what is left after returns, with delivery
+            # added. (Not tax — that is already inside gross.) One without the other
             # invites the wrong conclusion in either direction.
             'gross_sales_paid': gross_paid,
             'paid_orders': paid_orders,

@@ -714,16 +714,21 @@ export default function Customers() {
           <div className="divide-y divide-gray-100">
             {overview.kpis.net_sales_breakdown.map(({ key, label, amount, op }) => {
               const isResult = op === 'total' || op === 'subtotal'
+              // A 'note' is reported, not applied. VAT used to be an '+' line
+              // here and that is exactly what double-counted it: the arithmetic
+              // was followable and wrong. It gets no operator and no divider.
+              const isNote = op === 'note'
               return (
                 <div
                   key={key}
                   className={clsx(
                     'flex items-center justify-between py-2 gap-4',
                     isResult && 'font-semibold text-gray-900',
+                    isNote && 'text-gray-400',
                     op === 'total' && 'border-t-2 border-gray-200 mt-1 pt-2.5'
                   )}
                 >
-                  <span className={clsx('text-[13px]', !isResult && 'text-gray-600')}>
+                  <span className={clsx('text-[13px]', !isResult && !isNote && 'text-gray-600')}>
                     {/* The operator, not just the label. "Taxes 68,226,500"
                         reads as something removed unless the sign is stated. */}
                     {op === 'add' && <span className="text-gray-400 mr-1.5">+</span>}
@@ -732,7 +737,8 @@ export default function Customers() {
                   </span>
                   <span className={clsx(
                     'text-[13px] tabular-nums',
-                    op === 'sub' ? 'text-red-600' : isResult ? 'text-gray-900' : 'text-gray-700'
+                    op === 'sub' ? 'text-red-600' : isNote ? 'text-gray-400'
+                      : isResult ? 'text-gray-900' : 'text-gray-700'
                   )}>
                     KES {formatKES(Math.abs(amount))}
                   </span>
@@ -746,11 +752,21 @@ export default function Customers() {
                 product value only, before anything is added or taken away. */}
             <span className="font-semibold text-gray-700">Gross sales</span> is the value of the
             products themselves — unit price × quantity, before any discount,
-            return, tax or shipping. It is not money received.
+            return or delivery. It is not money received.
           </p>
           <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
-            Taxes and shipping are <span className="font-semibold text-gray-700">added</span>, not
-            deducted — Total sales is not an ex-VAT figure.
+            {/* This paragraph used to say taxes were added. They are not, and
+                the figure above them was 81.4M too high because the code
+                agreed with the paragraph. */}
+            VAT is <span className="font-semibold text-gray-700">already inside</span> these
+            figures — Shop Zetu prices VAT-inclusive, so it is shown for
+            reference rather than added. Total sales is not an ex-VAT number.
+            Delivery is added.
+          </p>
+          <p className="text-[12px] text-gray-500 mt-2 leading-relaxed">
+            Shopify publishes this formula with taxes added, which is right for
+            stores that add VAT at checkout. Applying it here counted the same
+            VAT twice.
           </p>
         </div>
       )}
