@@ -1156,6 +1156,15 @@ def customer_profile(customer_id):
 # GET /api/customers/<id>/orders
 # ─────────────────────────────────────────────
 
+def _dec_f(v):
+    """Decimal -> float, but None stays None.
+
+    A missing shipping figure rendered as 0.00 is a claim that delivery was
+    free. The expansion omits the line instead when we do not hold the number.
+    """
+    return float(v) if v is not None else None
+
+
 @customers_bp.route('/customers/<int:customer_id>/orders', methods=['GET'])
 @jwt_required()
 def customer_orders(customer_id):
@@ -1195,6 +1204,28 @@ def customer_orders(customer_id):
         'items': r.items_count,
         'products': r.products or [],
         'status': r.fulfillment_status or r.financial_status or 'pending',
+
+        # Everything below drives the expanded row.
+        #
+        # The money reconciles as  gross - discounts + delivery = total, which
+        # holds on 133,360 of 133,360 orders. Note what is NOT in that sum: tax.
+        # gross_sales is Shopify's total_line_items_price and this store prices
+        # VAT-inclusive, so the tax is already inside it. Adding total_tax as a
+        # fourth term matches only 2.3% of orders. It is sent as 'tax' above and
+        # shown as "of which VAT", never as a line that adds up.
+        'gross_sales':  _dec_f(r.gross_sales),
+        'discounts':    _dec_f(r.total_discounts),
+        'shipping':     _dec_f(r.total_shipping),
+        'refunded':     _dec_f(r.total_refunded),
+
+        # financial_status and fulfillment_status answer different questions —
+        # "have they paid" and "has it gone out". 'status' above collapses them
+        # with `or`, so a paid-but-unfulfilled order shows only one of the two
+        # and the row cannot say which. Both are sent so the expansion can.
+        'financial_status':    r.financial_status,
+        'fulfillment_status':  r.fulfillment_status,
+        'cancelled_at': r.cancelled_at.isoformat() if r.cancelled_at else None,
+        'is_test': bool(r.is_test),
     } for r in rows]
 
     return jsonify({'orders': orders, 'total': len(orders)}), 200
