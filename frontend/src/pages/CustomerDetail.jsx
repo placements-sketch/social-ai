@@ -167,7 +167,7 @@ function OrderDetail({ order: o }) {
   const reconciles = Math.abs(sum - (o.total || 0)) <= 1
 
   return (
-    <div className="bg-gray-50 px-2 pb-5 pt-1">
+    <div className="bg-[var(--surface-2)] px-2 pb-5 pt-1">
       <div className="pl-[21px] pr-1">
         {(o.cancelled_at || o.is_test) && (
           <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2">
@@ -575,7 +575,13 @@ export function CustomerDetailView({ customerId, onClose }) {
                       aria-expanded={open}
                       className={clsx(
                         'w-full text-left px-2 py-3 transition-colors',
-                        open ? 'bg-gray-50' : 'hover:bg-gray-50/70'
+                        // Not bg-gray-50/70. index.css darkens .bg-gray-50 and
+                        // .hover\:bg-gray-50:hover, but an opacity modifier compiles
+                        // to .hover\:bg-gray-50\/70:hover, which those selectors do
+                        // not match - so it fell through to raw Tailwind #f9fafb and
+                        // flashed near-white on a black row. The variable is correct
+                        // in both themes and needs no override to exist.
+                        open ? 'bg-[var(--surface-2)]' : 'hover:bg-[var(--surface-2)]'
                       )}
                     >
                       <div className="flex items-baseline gap-2">

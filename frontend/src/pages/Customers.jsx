@@ -1140,8 +1140,11 @@ export default function Customers() {
           </div>
         ) : (
           <div className="relative">
+            {/* bg-white/60 stayed white in dark mode for the same reason:
+                .dark .bg-white is overridden, .bg-white/60 is a different
+                generated class and matches nothing. */}
             {loadingList && (
-              <div className="absolute inset-0 bg-white/60 flex items-center justify-center z-10 rounded-lg backdrop-blur-sm">
+              <div className="absolute inset-0 bg-[var(--surface)]/70 flex items-center justify-center z-10 rounded-lg backdrop-blur-sm">
                 <Loader2 size={18} className="animate-spin text-gray-400" />
               </div>
             )}
@@ -1166,7 +1169,7 @@ export default function Customers() {
                       <tr
                         key={c.id}
                         onClick={() => setSheetId(c.id)}
-                        className="border-b border-gray-100 hover:bg-gray-50/60 cursor-pointer transition-colors"
+                        className="border-b border-gray-100 hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
                       >
                         <td className="px-3 py-3">
                           <div className="min-w-0">
