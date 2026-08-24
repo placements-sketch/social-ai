@@ -1045,10 +1045,17 @@ export default function Customers() {
           />
           {/* max-w so it never becomes a full-width page on a wide monitor —
               the point is that the table stays visible beside it. */}
-          <aside className="relative h-full w-full sm:max-w-3xl bg-[var(--bg)] shadow-2xl
+          {/* --surface-2, not --bg.
+              The panel was set to --bg, which is the SAME value as the page it
+              floats over (#0a0a0a in dark), so a 2xl shadow was the only thing
+              separating them and it drowned. --surface-2 is a step lighter than
+              the page in both themes, and the left border gives it a hard edge
+              rather than relying on the shadow alone. */}
+          <aside className="relative h-full w-full sm:max-w-3xl bg-[var(--surface-2)]
+                            border-l border-[var(--border)] shadow-2xl
                             overflow-y-auto overscroll-contain animate-[slideInRight_.22s_var(--ease-out)]">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-3
-                            bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)]">
+                            bg-[var(--surface-2)]/95 backdrop-blur border-b border-[var(--border)]">
               <p className="text-xs font-semibold text-gray-500">Customer</p>
               <button
                 onClick={() => setSheetId(null)}
