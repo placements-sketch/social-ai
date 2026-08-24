@@ -6,9 +6,6 @@ import {
   Loader2, AlertCircle, Package, ChevronLeft, ChevronRight,
   Activity, Clock, Award, Target, Zap, ExternalLink, Hash, CheckCircle2,
 } from 'lucide-react'
-import {
-  AreaChart, Area, ResponsiveContainer, Tooltip, CartesianGrid, XAxis, YAxis,
-} from 'recharts'
 import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatDateAgo, formatTimeAgo, parseBackendTime } from '../utils/time'
@@ -147,24 +144,10 @@ export function CustomerDetailView({ customerId, onClose }) {
     return () => { cancelled = true }
   }, [id])
 
-  // Spending trend: aggregate orders by month
-  const trend = useMemo(() => {
-    if (!orders.length) return []
-    const monthly = {}
-    orders.forEach(o => {
-      if (!o.date) return
-      const d = new Date(o.date)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-      if (!monthly[key]) monthly[key] = { month: label, spent: 0, count: 0 }
-      monthly[key].spent += o.total
-      monthly[key].count += 1
-    })
-    return Object.entries(monthly)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-12)
-      .map(([, v]) => v)
-  }, [orders])
+  // The monthly rollup that used to live here is gone. It summed every order
+  // in the list, voided and pending included, so it disagreed with the KPI
+  // above it. The series now comes from /profile as spend_over_time, computed
+  // over paid orders only and gap-filled, and is drawn by CustomerProfileExtras.
 
 
   // Pagination
@@ -245,11 +228,9 @@ export function CustomerDetailView({ customerId, onClose }) {
 
   return (
     <div className="space-y-6 w-full">
-      {/* In the sheet this closes the panel; on the page it goes back to the
-          table. Same button, and the caller decides what "back" means. */}
-      <button onClick={onClose} className="btn-ghost flex items-center gap-2 text-xs">
-        <ArrowLeft size={13} /> All Customers
-      </button>
+      {/* The "All Customers" back button is gone. The detail opens as a
+          slide-over with the table still visible behind it and its own close
+          control in the header, so a second way out was one control too many. */}
 
       {/* ─── HERO BANNER ────────────────────────────────────── */}
       <div className="relative card overflow-hidden">
@@ -406,55 +387,9 @@ export function CustomerDetailView({ customerId, onClose }) {
       {/* ─── SUGGESTED ACTION · SPEND BY BRAND · TOP ITEMS ──── */}
       <CustomerProfileExtras customerId={id} />
 
-      {/* ─── SPEND TREND ─────────────────────────────────────── */}
-      {/* Full width now. This was a 3-column grid with the trend at col-span-2
-          and the Lifetime Value card beside it; with that card removed a grid
-          would leave a third of the row empty. */}
-        <div className="card p-5">
-          <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Activity size={14} className="text-brand-500" /> Spending Trend
-          </h2>
-          {trend.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#99e600" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#99e600" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
-                       tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-                <Tooltip
-                  formatter={(value, name) => name === 'spent'
-                    ? [`KES ${formatKES(value)}`, 'Spent']
-                    : [value, name]}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                />
-                <Area type="monotone" dataKey="spent" stroke="#99e600" strokeWidth={2.5}
-                      fill="url(#spendGrad)" dot={{ r: 3, fill: '#99e600' }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="text-center py-14">
-              <Activity size={28} className="text-gray-300 mx-auto mb-2" />
-              <p className="text-xs text-gray-400">No order history yet</p>
-            </div>
-          )}
-        </div>
-
-        {/* The Lifetime Value card is gone.
-
-            "Spent so far" restated the KPI card at the top of the page, and
-            the projection beneath it — "KES 243,726 - 452,634 / year" —
-            extrapolated a spend rate over 1,544 days into a forward range.
-            Its own caption admitted it "assumes nothing about whether they
-            come back", which is the entire question a lifetime-value number
-            is asked to answer. A range that wide, presented in the brand
-            colour next to real figures, reads as a forecast and is not one.
-            Nobody could act on it, and it invited being quoted. */}
+      {/* The Spending Trend chart moved into CustomerProfileExtras, which is
+          where the corrected server-side series is already fetched. Keeping it
+          here meant a second component re-deriving the same numbers by hand. */}
 
       {/* ─── ORDER HISTORY ──────────────────────────────────── */}
       <div className="card p-5">
