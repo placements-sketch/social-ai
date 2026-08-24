@@ -361,12 +361,12 @@ export function CustomerDetailView({ customerId, onClose }) {
       </div>
 
       {/* ─── KPI CARDS ──────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* The average order value used to appear here AND as its own card two
-            along. Same number, twice, on a four-card row. */}
-        <KpiCard icon={TrendingUp} label="Lifetime Spend" value={`KES ${formatKES(customer.total_spent)}`}
-                 sub={'Gross, as Shopify reports it'}
-                 accent="from-brand-400 to-brand-600" />
+      {/* Three cards, not four. Lifetime Spend is gone: the Monetary pillar in
+          the RFM breakdown immediately below already states the same figure
+          ("KES 4,752,031 lifetime spend"), and the header carries the segment
+          badge that the number determines. Twice on one screen, two inches
+          apart. */}
+      <div className="grid grid-cols-3 gap-3">
         <KpiCard icon={ShoppingBag} label="Total Orders" value={customer.total_orders || 0}
                  sub={customer.first_order_date ? `First ${formatFullDate(customer.first_order_date)}` : 'No orders yet'}
                  accent="from-blue-400 to-blue-600" />

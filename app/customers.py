@@ -989,10 +989,26 @@ def customer_profile(customer_id):
     except Exception as e:
         log_event("warn", "customers.profile.spend_over_time_failed", str(e))
 
-    # Top items purchased — unnest the products JSON array of this customer's orders.
+    # Top items purchased — real merchandise only.
+    #
+    # This counted every line on every order, so the top item for most customers
+    # was "Shop Zetu Credit Note" (7,757 lines across the store) followed by
+    # gift cards. Those are payment instruments, not things anyone bought, and a
+    # panel headed "Top Items Purchased" that leads with a credit note tells an
+    # agent nothing about what this customer likes.
+    #
+    # Note the filters are on 'gift card', NOT 'card'. Cardigan contains "card",
+    # and this store sells a lot of cardigans — a looser pattern would quietly
+    # delete real products from the list.
+    NON_MERCHANDISE = (
+        "     title NOT ILIKE '%gift card%'"
+        " AND title NOT ILIKE '%credit note%'"
+        " AND title NOT ILIKE '%gift bag%'"
+        " AND title NOT ILIKE '%gift voucher%'"
+    )
     top_items = []
     try:
-        rows = db.session.execute(db.text("""
+        rows = db.session.execute(db.text(f"""
             SELECT title, COUNT(*) AS qty
             FROM (
               SELECT jsonb_array_elements_text(products::jsonb) AS title
@@ -1000,27 +1016,59 @@ def customer_profile(customer_id):
               WHERE shopify_customer_id = :cid
             ) t
             WHERE title IS NOT NULL AND title <> ''
+              AND {NON_MERCHANDISE}
             GROUP BY title ORDER BY qty DESC LIMIT 8
         """), {'cid': cid}).fetchall()
         top_items = [{'name': r[0], 'count': int(r[1])} for r in rows]
     except Exception as e:
         log_event("warn", "customers.profile.top_items_failed", str(e))
 
-    # Spend by brand — derive brand from the first token of each product title.
-    # (Shop Zetu product titles start with the brand, e.g. "Vivo …", "Safari …".)
+    # Items by brand — matched against Shopify's real vendor list.
+    #
+    # Three attempts, and the first two are instructive:
+    #
+    # 1. split_part(title,' ',1) — the first word. "The Fashion Frenzy One Button
+    #    Cardigan" became "The", "Elsie Glamour Coffee Bay kimono" became
+    #    "Elsie". The chart filled with articles and first names.
+    #
+    # 2. LEFT JOIN products_cache ON name = title. Correct where it matched, but
+    #    products_cache holds only CURRENT products, so 86% of a long-standing
+    #    customer's history landed in "Other" — discontinued and renamed lines.
+    #
+    # 3. This: longest-prefix match against the distinct vendor list. Product
+    #    titles begin with the brand, so "The Fashion Frenzy One Button Cardigan"
+    #    resolves correctly, and it works for items no longer in the catalogue.
+    #
+    # Done in Python, not SQL. `title ILIKE vendor || '%'` across ~200 vendors is
+    # a correlated scan no index can serve — it ran for over two minutes for one
+    # customer. In memory it is a few hundred thousand string comparisons.
     spend_by_brand = []
     try:
-        rows = db.session.execute(db.text("""
-            SELECT split_part(title, ' ', 1) AS brand, COUNT(*) AS items
-            FROM (
+        vendors = [v for (v,) in db.session.execute(db.text(
+            "SELECT DISTINCT vendor FROM products_cache "
+            "WHERE vendor IS NOT NULL AND vendor <> ''"
+        )).fetchall()]
+        # Longest first, so "Safari by Vivo" wins over "Safari" and
+        # "Vivo Basic" is not swallowed by "Vivo".
+        vendors.sort(key=len, reverse=True)
+        vendors_lc = [(v, v.lower()) for v in vendors]
+
+        titles = [t for (t,) in db.session.execute(db.text(f"""
+            SELECT title FROM (
               SELECT jsonb_array_elements_text(products::jsonb) AS title
-              FROM orders_cache
-              WHERE shopify_customer_id = :cid
+              FROM orders_cache WHERE shopify_customer_id = :cid
             ) t
             WHERE title IS NOT NULL AND title <> ''
-            GROUP BY 1 ORDER BY items DESC LIMIT 6
-        """), {'cid': cid}).fetchall()
-        spend_by_brand = [{'brand': r[0], 'items': int(r[1])} for r in rows]
+              AND {NON_MERCHANDISE}
+        """), {'cid': cid}).fetchall()]
+
+        counts = {}
+        for t in titles:
+            tl = t.lower()
+            brand = next((v for v, vl in vendors_lc if tl.startswith(vl)), 'Other')
+            counts[brand] = counts.get(brand, 0) + 1
+        spend_by_brand = [{'brand': b, 'items': n} for b, n in
+                          sorted(counts.items(), key=lambda kv: -kv[1])[:6]]
     except Exception as e:
         log_event("warn", "customers.profile.spend_by_brand_failed", str(e))
 
