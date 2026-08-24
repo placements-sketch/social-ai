@@ -782,10 +782,20 @@ def cron_sync_orders():
             # first/last order date stay here because Shopify's customer
             # payload carries last_order but not the first, and dates are not
             # money — no netting rule applies to them.
+            # paid_orders rides along here because it is the denominator AOV
+            # needs and it moves with exactly this data. Counting only paid,
+            # non-cancelled, non-test orders makes it match total_spent, which
+            # Shopify reports on the same population. total_orders cannot: it
+            # counts voided orders too. Step 50.
             agg_q = db.session.query(
                 OrderCache.shopify_customer_id,
                 sqla_func.max(OrderCache.order_date),
                 sqla_func.min(OrderCache.order_date),
+                sqla_func.count(1).filter(
+                    (OrderCache.financial_status == 'paid')
+                    & (OrderCache.cancelled_at.is_(None))
+                    & (sqla_func.coalesce(OrderCache.is_test, False).is_(False))
+                ),
             ).filter(OrderCache.shopify_customer_id.isnot(None))
 
             cust_q = CustomerCache.query
@@ -794,8 +804,8 @@ def cron_sync_orders():
                 cust_q = cust_q.filter(CustomerCache.shopify_customer_id.in_(affected_customer_ids))
 
             customer_aggs = dict(
-                (cid, (last_date, first_date))
-                for cid, last_date, first_date in
+                (cid, (last_date, first_date, paid_n))
+                for cid, last_date, first_date, paid_n in
                 agg_q.group_by(OrderCache.shopify_customer_id).all()
             )
 
@@ -808,9 +818,10 @@ def cron_sync_orders():
                 for customer in batch:
                     agg = customer_aggs.get(customer.shopify_customer_id)
                     if agg:
-                        last_date, first_date = agg
+                        last_date, first_date, paid_n = agg
                         customer.last_order_date  = last_date
                         customer.first_order_date = first_date
+                        customer.paid_orders      = int(paid_n or 0)
                     else:
                         # No orders in our cache. That is NOT a statement that
                         # the customer has never ordered — our cache can lag or

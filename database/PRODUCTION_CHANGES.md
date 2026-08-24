@@ -3438,3 +3438,121 @@ COMMIT;
    the customer may choose M-Pesa, card, or gift card. The T&C says M-Pesa or
    gift card. This block follows the T&C; the Step 36 text still says otherwise.
    Whichever is right, the other should be corrected.
+
+---
+
+### Step 50 — Honest AOV and honest RFM scores
+
+Two figures on the customer detail page were wrong in ways nobody could see.
+
+**1. Average Order Value was understated by 63%.**
+
+It was `total_spent / total_orders`. Those two Shopify fields count different
+populations: `total_spent` is net of refunds over PAID orders, `total_orders`
+counts every order ever placed, voided ones included. For Pauline Kathuri that
+is KES 4,752,031 divided by 529 orders — but only 336 of those 529 were paid.
+
+    shown        KES  8,983   ("Across 529 orders")
+    correct      KES 14,664
+
+Adds `paid_orders` so the denominator matches the numerator. It is maintained
+by the orders sync alongside `last_order_date`; this step backfills it.
+
+**2. RFM scores were assigned by coin flip for 76% of customers.**
+
+`NTILE(5)` splits tied values across buckets arbitrarily — 19,972 customers
+with exactly one order were scored 1, 2 or 3 depending on nothing but row
+order. Two identical customers, different scores, and the tile caption claimed
+"Quintile across all buyers".
+
+The code fix (in `recompute_rfm`) moves to `PERCENT_RANK`, where a tie group
+takes its lowest position: one order now always scores 1. Monetary lands almost
+perfectly even (7,455 / 7,448 / 7,451 / 7,451 / 7,452); Frequency leaves bucket
+2 empty, which is the honest answer when 54% of buyers are tied at one order.
+
+This step only adds the percentile columns the tiles need to caption a score
+truthfully. Computing them live costs 5.5 seconds — they come free inside the
+window function that already runs.
+
+Safe to re-run. Adding columns takes a brief ACCESS EXCLUSIVE lock but writes
+no data (Postgres 11+ does not rewrite the table for a nullable ADD COLUMN);
+the backfill is the slow part and touches only `customers_cache`.
+
+```sql
+BEGIN;
+
+ALTER TABLE customers_cache ADD COLUMN IF NOT EXISTS paid_orders integer;
+ALTER TABLE customers_cache ADD COLUMN IF NOT EXISTS rfm_r_pct smallint;
+ALTER TABLE customers_cache ADD COLUMN IF NOT EXISTS rfm_f_pct smallint;
+ALTER TABLE customers_cache ADD COLUMN IF NOT EXISTS rfm_m_pct smallint;
+
+-- Paid, non-cancelled, non-test: the same population total_spent covers.
+UPDATE customers_cache c
+   SET paid_orders = x.n
+  FROM (SELECT shopify_customer_id, count(*) AS n
+          FROM orders_cache
+         WHERE financial_status = 'paid'
+           AND cancelled_at IS NULL
+           AND NOT COALESCE(is_test, false)
+           AND shopify_customer_id IS NOT NULL
+         GROUP BY shopify_customer_id) x
+ WHERE x.shopify_customer_id = c.shopify_customer_id
+   AND c.paid_orders IS DISTINCT FROM x.n;
+
+-- NULL means "no paid orders found in our cache", which is not the same as
+-- "we did not look". Customers with no cached orders keep NULL and the page
+-- falls back to the old denominator with the subtitle saying which it used.
+UPDATE customers_cache c
+   SET paid_orders = 0
+ WHERE c.paid_orders IS NULL
+   AND EXISTS (SELECT 1 FROM orders_cache o
+                WHERE o.shopify_customer_id = c.shopify_customer_id);
+
+COMMIT;
+```
+
+Then re-score, which fills the percentile columns (the app does this after
+every orders sync; run it once now so the page is correct before the next one):
+
+```sql
+WITH scored AS (
+    SELECT id,
+           LEAST(5, GREATEST(1, FLOOR(PERCENT_RANK() OVER (ORDER BY last_order_date ASC) * 5)::int + 1)) AS r,
+           ROUND(PERCENT_RANK() OVER (ORDER BY last_order_date ASC) * 100)::smallint AS r_pct,
+           LEAST(5, GREATEST(1, FLOOR(PERCENT_RANK() OVER (ORDER BY total_orders  ASC) * 5)::int + 1)) AS f,
+           ROUND(PERCENT_RANK() OVER (ORDER BY total_orders  ASC) * 100)::smallint AS f_pct,
+           LEAST(5, GREATEST(1, FLOOR(PERCENT_RANK() OVER (ORDER BY total_spent   ASC) * 5)::int + 1)) AS m,
+           ROUND(PERCENT_RANK() OVER (ORDER BY total_spent   ASC) * 100)::smallint AS m_pct
+      FROM customers_cache
+     WHERE total_orders > 0 AND last_order_date IS NOT NULL
+)
+UPDATE customers_cache c
+   SET rfm_r = s.r, rfm_f = s.f, rfm_m = s.m,
+       rfm_r_pct = s.r_pct, rfm_f_pct = s.f_pct, rfm_m_pct = s.m_pct
+  FROM scored s
+ WHERE c.id = s.id;
+```
+
+---
+
+### Step 51 — Correction to Step 50: clear RFM on customers who no longer have orders
+
+Step 50 re-scored everyone with orders but did not clear anyone WITHOUT them.
+`recompute_rfm()` in the app does this in a second statement; the SQL in Step 50
+only carried the first, so 18 customers whose order count has since fallen to 0
+kept the scores they were given when they still had orders.
+
+They are visible as a contradiction: grouping by `rfm_f` shows buckets running
+`0-1`, `0-0` and `0-2` orders — a customer with zero orders sitting in a
+frequency quintile, and one tie group still split across two buckets because of
+it.
+
+Small, safe, and idempotent.
+
+```sql
+UPDATE customers_cache
+   SET rfm_r = NULL, rfm_f = NULL, rfm_m = NULL,
+       rfm_r_pct = NULL, rfm_f_pct = NULL, rfm_m_pct = NULL
+ WHERE (total_orders = 0 OR last_order_date IS NULL)
+   AND rfm_r IS NOT NULL;
+```

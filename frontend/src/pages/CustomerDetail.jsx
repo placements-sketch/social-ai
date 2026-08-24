@@ -4,7 +4,7 @@ import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
   Repeat, Tag, Heart, Crown, Sparkles,
   Loader2, AlertCircle, Package, ChevronLeft, ChevronRight,
-  Activity, Clock, Award, Target, Zap, ExternalLink, CheckCircle2,
+  Activity, Clock, Award, Target, Zap, ExternalLink, CheckCircle2, XCircle,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
@@ -253,6 +253,65 @@ function OrderDetail({ order: o }) {
   )
 }
 
+// A score of 5 does not mean "top 20%" when a tie group is bigger than a fifth
+// of the base — 54% of buyers have exactly one order and all of them score 1.
+// The stored percentile is the only honest way to caption a pillar.
+function pctCaption(pct, verb) {
+  if (pct == null) return 'Not scored yet'
+  if (pct >= 100) return `Ahead of every other buyer — ${verb} all of them`
+  if (pct <= 0) return `At the bottom of the base — nobody ${verb} less`
+  return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${pct}% of buyers`
+}
+
+// Klaviyo list memberships are real but they are not about the customer — they
+// are about which email segment the marketing tool put them in. Kept, ranked
+// last, and folded behind a count so the tags that describe the person are the
+// ones on screen.
+function TagRow({ tags }) {
+  const [showLists, setShowLists] = useState(false)
+  const isList = t => /^klaviyo_list/i.test(t)
+  const signal = tags.filter(t => !isList(t))
+  const lists = tags.filter(isList)
+  const shown = showLists ? [...signal, ...lists] : signal.slice(0, 12)
+  const hiddenSignal = showLists ? 0 : Math.max(0, signal.length - 12)
+
+  return (
+    <div className="mt-5 pt-4 border-t border-gray-100">
+      <div className="flex items-start gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mt-1 shrink-0">Tags</span>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {shown.map((t, i) => (
+            <span key={i} className={clsx(
+              'inline-flex items-center text-[12px] px-2 py-0.5 rounded-md',
+              isList(t) ? 'bg-gray-500/10 text-gray-500' : 'bg-gray-100 text-gray-700'
+            )}>
+              {t}
+            </span>
+          ))}
+          {hiddenSignal > 0 && (
+            <span className="text-[12px] text-gray-500 font-semibold px-1">+{hiddenSignal} more</span>
+          )}
+          {lists.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowLists(v => !v)}
+              className="text-[12px] text-gray-500 hover:text-gray-900 underline underline-offset-2 px-1"
+            >
+              {showLists
+                ? 'Hide email list memberships'
+                : `${lists.length} email list membership${lists.length === 1 ? '' : 's'}`}
+            </button>
+          )}
+          {signal.length === 0 && !showLists && (
+            <span className="text-[12px] text-gray-400">No descriptive tags</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export function CustomerDetailView({ customerId, onClose }) {
   const id = customerId
   const navigate = useNavigate()
@@ -347,26 +406,35 @@ export function CustomerDetailView({ customerId, onClose }) {
   // shows a different colour beside it is worse than an uncoloured one.
   const toneFor = (seg) => `${SEGMENT_META[seg].color} ${SEGMENT_META[seg].bg}`
 
+  // Only where there is a distance to measure.
+  //
+  // Every branch below used to produce something, and four of them were a fixed
+  // sentence per segment: VIP got "VIP — protect this relationship", at_risk got
+  // "Win-back campaign needed". That is a lookup on one field, rendered as
+  // advice, two inches under a badge showing the same field. It cannot be wrong
+  // and so it cannot be useful — the same reason Suggested Action was removed.
+  //
+  // What survives computes how far the customer is from the next threshold,
+  // which is a fact about this person and is not shown anywhere else.
   let nextMilestone = null
+  const LOYAL_ORDERS = 5
   if (customer.segment === 'never_bought') {
-    nextMilestone = { label: 'Convert with first purchase', icon: Sparkles, tone: toneFor('new') }
-  } else if (customer.segment === 'new') {
-    const more = Math.max(0, 5 - customer.total_orders)
-    nextMilestone = { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`, icon: Heart, tone: toneFor('loyal') }
-  } else if (customer.segment === 'regular') {
-    const more = Math.max(0, 5 - customer.total_orders)
-    nextMilestone = more > 0
-      ? { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`, icon: Heart, tone: toneFor('loyal') }
-      : { label: 'Re-engage to qualify for Loyal', icon: Activity, tone: toneFor('loyal') }
-  } else if (customer.segment === 'loyal') {
-    nextMilestone = { label: 'Top spenders reach VIP — keep them engaged', icon: Crown, tone: toneFor('vip') }
-  } else if (customer.segment === 'vip') {
-    nextMilestone = { label: 'VIP — protect this relationship', icon: Award, tone: toneFor('vip') }
-  } else if (customer.segment === 'at_risk') {
-    nextMilestone = { label: 'Win-back campaign needed', icon: Zap, tone: toneFor('at_risk') }
-  } else if (customer.segment === 'churned') {
-    nextMilestone = { label: 'Long inactive — try a re-acquisition offer', icon: Target, tone: toneFor('churned') }
+    nextMilestone = { label: 'No orders yet — first purchase moves them to New',
+                      icon: Sparkles, tone: toneFor('new') }
+  } else if (customer.segment === 'new' || customer.segment === 'regular') {
+    const more = LOYAL_ORDERS - (customer.total_orders || 0)
+    if (more > 0) {
+      nextMilestone = { label: `${more} more order${more === 1 ? '' : 's'} to reach Loyal`,
+                        icon: Heart, tone: toneFor('loyal') }
+    }
+  } else if (customer.segment === 'loyal' && customer.vip_threshold > 0) {
+    const gap = customer.vip_threshold - (customer.total_spent || 0)
+    if (gap > 0) {
+      nextMilestone = { label: `KES ${formatKES(gap)} more spend to reach VIP`,
+                        icon: Crown, tone: toneFor('vip') }
+    }
   }
+
 
   return (
     <div className="space-y-6 w-full">
@@ -405,12 +473,28 @@ export function CustomerDetailView({ customerId, onClose }) {
                   <SegIcon size={10} />
                   {meta.label}
                 </span>
-                {customer.accepts_marketing && (
-                  <span className="inline-flex items-center gap-1 text-[12px] font-medium px-2 py-0.5 rounded-md bg-green-50 text-green-700 border border-green-100">
-                    <CheckCircle2 size={10} />
-                    Marketing opt-in
-                  </span>
-                )}
+                {/* "Marketing opt-in" said neither what was opted into nor by
+                    whom. It reads as blanket permission to contact this person,
+                    and it is not: it mirrors Shopify's
+                    email_marketing_consent.state, so it covers EMAIL only.
+                    Nothing here implies consent to message them on Instagram or
+                    WhatsApp, which is what this product actually does.
+
+                    It also only rendered when true, so "not subscribed" and
+                    "never synced" looked identical — an absent badge on 40% of
+                    customers meaning either. Both states now show. */}
+                <span
+                  title="From Shopify's email marketing consent. Covers email only — not Instagram or WhatsApp."
+                  className={clsx(
+                    'inline-flex items-center gap-1 text-[12px] font-medium px-2 py-0.5 rounded-md border',
+                    customer.accepts_marketing
+                      ? 'bg-green-500/10 text-green-600 border-green-500/20'
+                      : 'bg-gray-500/10 text-gray-500 border-gray-500/20'
+                  )}
+                >
+                  {customer.accepts_marketing ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
+                  Email marketing: {customer.accepts_marketing ? 'subscribed' : 'not subscribed'}
+                </span>
               </div>
 
               {/* Contact line */}
@@ -460,25 +544,15 @@ export function CustomerDetailView({ customerId, onClose }) {
             </div>
           </div>
 
-          {/* Tags row */}
+          {/* Tags.
+              slice(0, 12) took whatever order Shopify sent. 43% of all tag
+              values store-wide are klaviyo_list_* memberships — plumbing from
+              the email tool — and "klaviyo_list_sz profiles" alone sits on 54%
+              of every customer. On this customer they filled four of the seven
+              visible slots and pushed "2 refunds" and "Gold VIP" out of view.
+              Nothing is hidden; the list memberships just stop going first. */}
           {customer.tags?.length > 0 && (
-            <div className="mt-5 pt-4 border-t border-gray-100">
-              <div className="flex items-start gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mt-1 shrink-0">Tags</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {customer.tags.slice(0, 12).map((t, i) => (
-                    <span key={i} className="inline-flex items-center text-[12px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md">
-                      {t}
-                    </span>
-                  ))}
-                  {customer.tags.length > 12 && (
-                    <span className="text-[12px] text-gray-500 font-semibold px-1">
-                      +{customer.tags.length - 12} more
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+            <TagRow tags={customer.tags} />
           )}
         </div>
       </div>
@@ -493,11 +567,21 @@ export function CustomerDetailView({ customerId, onClose }) {
         <KpiCard icon={ShoppingBag} label="Total Orders" value={customer.total_orders || 0}
                  sub={customer.first_order_date ? `First ${formatFullDate(customer.first_order_date)}` : 'No orders yet'}
                  accent="from-blue-400 to-blue-600" />
+        {/* The subtitle used to read "Across 529 orders" while the figure was
+            total_spent (net of refunds, paid orders only) divided by 529. Only
+            336 of those were paid, so the card asserted a denominator that was
+            not the one used and came out 58% low. aov_basis says which
+            denominator the server could actually use. */}
         <KpiCard icon={Repeat} label="Average Order Value" value={`KES ${formatKES(customer.aov)}`}
-                 sub={customer.total_orders > 0 ? `Across ${customer.total_orders} orders` : '—'}
+                 sub={customer.aov_basis === 'paid'
+                        ? `Across ${formatCount(customer.aov_orders)} paid orders`
+                        : customer.aov_basis === 'all'
+                          ? `Across all ${formatCount(customer.aov_orders)} orders — paid count not yet synced`
+                          : '—'}
                  accent="from-violet-400 to-violet-600" />
+        {/* Was "3d ago" over "3 days ago". */}
         <KpiCard icon={Clock} label="Last Order" value={customer.last_order_date ? formatDateAgo(customer.last_order_date) : 'Never'}
-                 sub={customer.days_since_last_order != null ? `${customer.days_since_last_order} days ago` : 'Yet to convert'}
+                 sub={customer.last_order_date ? formatFullDate(customer.last_order_date) : 'Yet to convert'}
                  accent="from-amber-400 to-amber-600" />
       </div>
 
@@ -512,17 +596,27 @@ export function CustomerDetailView({ customerId, onClose }) {
           </span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* The captions restated the two KPI cards an inch above — "529
+              lifetime orders" under Total Orders 529, "Last purchase 3 days
+              ago" under Last Order 3d ago. Three lines of screen saying a
+              number twice.
+
+              They now show the percentile, which is what the score actually
+              encodes and appears nowhere else. It also replaces a scaleLabel
+              that was repeated verbatim three times and was not true: "top 20%
+              = 5" is wrong wherever a tie group is bigger than a fifth of the
+              base, and 54% of buyers are tied at one order. */}
           <RfmPillar icon={Clock} label="Recency" score={recScore}
-                     caption={customer.days_since_last_order != null
-                       ? `Last purchase ${customer.days_since_last_order} days ago`
-                       : 'No purchase history'}
-                     scaleLabel="Quintile across all buyers · top 20% = 5" />
+                     caption={pctCaption(customer.rfm_r_pct, 'bought more recently than')}
+                     scaleLabel={customer.last_order_date
+                       ? 'Ranked against every buyer'
+                       : 'No purchase history'} />
           <RfmPillar icon={Repeat} label="Frequency" score={freqScore}
-                     caption={`${customer.total_orders || 0} lifetime order${customer.total_orders === 1 ? '' : 's'}`}
-                     scaleLabel="Quintile across all buyers · top 20% = 5" />
+                     caption={pctCaption(customer.rfm_f_pct, 'has more orders than')}
+                     scaleLabel="Ranked against every buyer" />
           <RfmPillar icon={TrendingUp} label="Monetary" score={monScore}
-                     caption={`KES ${formatKES(customer.total_spent)} lifetime spend`}
-                     scaleLabel="Quintile across all buyers · top 20% = 5" />
+                     caption={pctCaption(customer.rfm_m_pct, 'has spent more than')}
+                     scaleLabel="Ranked against every buyer" />
         </div>
       </div>
 

@@ -553,6 +553,23 @@ def _total_sales_block():
     }
 
 
+def _aov_fields(c):
+    """AOV over the population that produced total_spent, when we know it."""
+    paid = c.paid_orders
+    if paid is not None and paid > 0:
+        n, basis = paid, 'paid'
+    elif (c.total_orders or 0) > 0:
+        n, basis = c.total_orders, 'all'
+    else:
+        return {'aov': 0, 'aov_ex_vat': 0, 'aov_basis': 'none', 'aov_orders': 0}
+    return {
+        'aov': float(c.total_spent or 0) / n,
+        'aov_ex_vat': ex_vat(c.total_spent) / n,
+        'aov_basis': basis,
+        'aov_orders': n,
+    }
+
+
 def _serialize_customer(c, vip_threshold):
     last_order = c.last_order_date
     if last_order:
@@ -580,8 +597,18 @@ def _serialize_customer(c, vip_threshold):
         # still available as its own field for anywhere margin is the question.
         'total_spent': float(c.total_spent or 0),
         'total_spent_ex_vat': ex_vat(c.total_spent),
-        'aov': (float(c.total_spent or 0) / c.total_orders) if (c.total_orders or 0) > 0 else 0,
-        'aov_ex_vat': (ex_vat(c.total_spent) / c.total_orders) if (c.total_orders or 0) > 0 else 0,
+        # AOV divides two Shopify fields that count DIFFERENT populations:
+        # total_spent is net of refunds over paid orders, total_orders counts
+        # every order ever placed. Pauline Kathuri: 4,752,031 / 529 = KES 8,983,
+        # captioned "Across 529 orders" — but only 336 of those 529 were paid.
+        # Against the paid count it is KES 14,143. A 58% understatement, on a
+        # card whose own subtitle asserted the wrong denominator.
+        #
+        # paid_orders is NULL until Step 50 is applied and the next orders sync
+        # populates it, so the old denominator stays as the fallback and
+        # 'aov_basis' says which one was used. A number is allowed to be
+        # approximate; it is not allowed to be silently approximate.
+        **_aov_fields(c),
         'last_order_date': last_order.isoformat() if last_order else None,
         'days_since_last_order': days_since,
         'first_order_date': c.first_order_date.isoformat() if c.first_order_date else None,
@@ -600,9 +627,16 @@ def _serialize_customer(c, vip_threshold):
         # statement, so the badge, the count and the filter always agree.
         # Falls back to computing only when the column has never been written.
         'segment': c.segment or compute_segment(c, vip_threshold),
+        # So the page can say how far from VIP someone is instead of printing
+        # a fixed sentence per segment. Without it the only honest thing a
+        # milestone can say for a Loyal customer is nothing.
+        'vip_threshold': float(vip_threshold or 0),
         'rfm_r': c.rfm_r,
         'rfm_f': c.rfm_f,
         'rfm_m': c.rfm_m,
+        'rfm_r_pct': c.rfm_r_pct,
+        'rfm_f_pct': c.rfm_f_pct,
+        'rfm_m_pct': c.rfm_m_pct,
         'rfm_score': f"{c.rfm_r}.{c.rfm_f}.{c.rfm_m}" if c.rfm_r is not None else None,
     }
 
@@ -1604,31 +1638,60 @@ def recompute_rfm_endpoint():
 
 def recompute_rfm():
     """
-    Score every customer WITH orders 1-5 on Recency, Frequency, Monetary using
-    quintiles (NTILE 5) across the whole buyer base. Recency is inverted so
-    fewer days since last order = higher score. Zero-order customers are left
-    NULL (kept aside as 'no orders yet'). One SQL statement — fast at scale.
+    Score every customer WITH orders 1-5 on Recency, Frequency, Monetary against
+    the whole buyer base. Zero-order customers are left NULL (kept aside as 'no
+    orders yet'). One SQL statement — fast at scale.
+
+    PERCENT_RANK, not NTILE. NTILE fills five buckets of equal COUNT, so it
+    splits tied values across them arbitrarily: 19,972 customers with exactly
+    one order were being scored 1, 2 or 3 depending on nothing but the order
+    rows came back in. 76% of scored customers sat in a tie group that got
+    split that way. Two identical customers, different scores, under a caption
+    claiming "quintile across all buyers".
+
+    PERCENT_RANK gives every tied row the same value, and a tie group takes its
+    LOWEST position — one order always scores 1, which is what being at the
+    floor means. Monetary still lands almost perfectly even (7,455 / 7,448 /
+    7,451 / 7,451 / 7,452) because spend has few ties. Frequency leaves bucket
+    2 empty, and that is the honest answer when 54% of buyers are tied at one
+    order: there is no way to divide that group into fifths that is not made up.
+
+    The percentiles are stored because the tiles need them to caption a score
+    truthfully, and computing them live costs 5.5 seconds against columns that
+    are not indexed. Inside the window function they are free.
     """
     from sqlalchemy import text
     sql = text("""
-        WITH scored AS (
+        WITH pr AS (
             SELECT
                 id,
-                NTILE(5) OVER (ORDER BY last_order_date ASC NULLS FIRST)  AS r,
-                NTILE(5) OVER (ORDER BY total_orders ASC)                 AS f,
-                NTILE(5) OVER (ORDER BY total_spent ASC)                  AS m
+                PERCENT_RANK() OVER (ORDER BY last_order_date ASC) AS r_pr,
+                PERCENT_RANK() OVER (ORDER BY total_orders  ASC)   AS f_pr,
+                PERCENT_RANK() OVER (ORDER BY total_spent   ASC)   AS m_pr
             FROM customers_cache
             WHERE total_orders > 0 AND last_order_date IS NOT NULL
+        ),
+        scored AS (
+            SELECT id,
+                LEAST(5, GREATEST(1, FLOOR(r_pr * 5)::int + 1)) AS r,
+                LEAST(5, GREATEST(1, FLOOR(f_pr * 5)::int + 1)) AS f,
+                LEAST(5, GREATEST(1, FLOOR(m_pr * 5)::int + 1)) AS m,
+                ROUND(r_pr * 100)::smallint AS r_pct,
+                ROUND(f_pr * 100)::smallint AS f_pct,
+                ROUND(m_pr * 100)::smallint AS m_pct
+            FROM pr
         )
         UPDATE customers_cache c
-        SET rfm_r = s.r, rfm_f = s.f, rfm_m = s.m
+        SET rfm_r = s.r, rfm_f = s.f, rfm_m = s.m,
+            rfm_r_pct = s.r_pct, rfm_f_pct = s.f_pct, rfm_m_pct = s.m_pct
         FROM scored s
         WHERE c.id = s.id
     """)
     db.session.execute(sql)
     # Clear scores for anyone with no orders (in case they had scores before).
     db.session.execute(text(
-        "UPDATE customers_cache SET rfm_r=NULL, rfm_f=NULL, rfm_m=NULL "
+        "UPDATE customers_cache SET rfm_r=NULL, rfm_f=NULL, rfm_m=NULL, "
+        "rfm_r_pct=NULL, rfm_f_pct=NULL, rfm_m_pct=NULL "
         "WHERE total_orders = 0 OR last_order_date IS NULL"
     ))
     db.session.commit()

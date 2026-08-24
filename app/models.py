@@ -529,6 +529,16 @@ class CustomerCache(db.Model):
     rfm_r = db.Column(db.SmallInteger, nullable=True)
     rfm_f = db.Column(db.SmallInteger, nullable=True)
     rfm_m = db.Column(db.SmallInteger, nullable=True)
+    # Denominator for AOV. total_orders counts every order Shopify has
+    # ever recorded; total_spent is net of refunds over PAID orders. Dividing
+    # one by the other understated AOV by 63%. Step 50.
+    paid_orders         = db.Column(db.Integer)
+    # Where the score came from, 0-100. Lets a tile say "more than 94% of
+    # buyers" instead of "top 20%", which is false whenever a tie group is
+    # larger than a fifth of the base. Computed free inside recompute_rfm.
+    rfm_r_pct           = db.Column(db.SmallInteger)
+    rfm_f_pct           = db.Column(db.SmallInteger)
+    rfm_m_pct           = db.Column(db.SmallInteger)
     first_order_date    = db.Column(db.DateTime, nullable=True)
     shopify_created_at  = db.Column(db.DateTime, nullable=True)
     cached_at           = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
