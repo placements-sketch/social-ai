@@ -37,7 +37,7 @@ function BarList({ items, labelKey, valueKey, valueFormat }) {
           <div className="flex-1 h-4 rounded bg-gray-100 overflow-hidden">
             <div className="h-full bg-brand-400 rounded" style={{ width: `${((it[valueKey] || 0) / max) * 100}%` }} />
           </div>
-          <span className="text-xs font-semibold text-gray-700 tabular-nums w-10 text-right shrink-0">
+          <span className="text-xs font-semibold text-gray-700 tabular-nums w-12 text-right shrink-0">
             {valueFormat ? valueFormat(it[valueKey]) : it[valueKey]}
           </span>
         </div>
@@ -76,7 +76,7 @@ export default function CustomerProfileExtras({ customerId }) {
     )
   }
 
-  const { rfm, customer_since, spend_by_brand, top_items } = data
+  const { rfm, customer_since, items_by_brand, top_items } = data
 
   return (
     <div className="space-y-5">
@@ -90,12 +90,26 @@ export default function CustomerProfileExtras({ customerId }) {
           learned from the VIP badge two inches above it. Advice that cannot be
           wrong also cannot be useful. */}
 
-      {/* Spend by brand */}
+      {/* Items bought per brand.
+          This was labelled "Spend by Brand" and showed no money at all — the
+          numbers are item counts. orders_cache.products stores only the line
+          titles (no price, no quantity), so spend per brand is not computable
+          from what we hold; the count is the honest measure and the heading now
+          says so. */}
       <div className="card p-5">
-        <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-4">
-          <Tag size={14} className="text-brand-500" /> Spend by Brand
+        <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <Tag size={14} className="text-brand-500" /> Items Bought by Brand
         </h2>
-        <BarList items={spend_by_brand} labelKey="brand" valueKey="items" />
+        <p className="text-[11px] text-gray-400 mb-4">
+          Individual items, all time · top {(items_by_brand || []).length} brands
+        </p>
+        <BarList items={items_by_brand} labelKey="brand" valueKey="items" />
+        {(items_by_brand || []).some(b => b.brand === 'Other') && (
+          <p className="text-[11px] text-gray-400 mt-3 pt-3 border-t border-gray-100">
+            <span className="font-semibold">Other</span> — items whose brand is no
+            longer in the catalogue, so there is nothing left to match them against.
+          </p>
+        )}
       </div>
 
       {/* Top items purchased */}

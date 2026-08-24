@@ -1042,7 +1042,7 @@ def customer_profile(customer_id):
     # Done in Python, not SQL. `title ILIKE vendor || '%'` across ~200 vendors is
     # a correlated scan no index can serve — it ran for over two minutes for one
     # customer. In memory it is a few hundred thousand string comparisons.
-    spend_by_brand = []
+    items_by_brand = []
     try:
         vendors = [v for (v,) in db.session.execute(db.text(
             "SELECT DISTINCT vendor FROM products_cache "
@@ -1094,10 +1094,10 @@ def customer_profile(customer_id):
             tn = _norm(t)
             brand = next((v for pre, v in candidates if tn.startswith(pre)), 'Other')
             counts[brand] = counts.get(brand, 0) + 1
-        spend_by_brand = [{'brand': b, 'items': n} for b, n in
+        items_by_brand = [{'brand': b, 'items': n} for b, n in
                           sorted(counts.items(), key=lambda kv: -kv[1])[:6]]
     except Exception as e:
-        log_event("warn", "customers.profile.spend_by_brand_failed", str(e))
+        log_event("warn", "customers.profile.items_by_brand_failed", str(e))
 
     since_year = c.first_order_date.year if c.first_order_date else (
         c.shopify_created_at.year if c.shopify_created_at else None)
@@ -1112,7 +1112,7 @@ def customer_profile(customer_id):
         'suggested_action': SEGMENT_ACTIONS.get(segment, 'Engage with a personalized recommendation.'),
         'spend_over_time': spend_over_time,
         'top_items': top_items,
-        'spend_by_brand': spend_by_brand,
+        'items_by_brand': items_by_brand,
     }), 200
 
 # ─────────────────────────────────────────────
