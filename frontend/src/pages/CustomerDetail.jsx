@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo, Fragment } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
   Repeat, Tag, Heart, Crown, Sparkles,
   Loader2, AlertCircle, Package, ChevronLeft, ChevronRight,
-  Activity, Clock, Award, Target, Zap, ExternalLink, Hash, CheckCircle2,
+  Activity, Clock, Award, Target, Zap, ExternalLink, CheckCircle2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
@@ -112,10 +112,40 @@ function RfmPillar({ icon: Icon, label, score, caption, scaleLabel }) {
  * bookmarked, shared in Slack, or survive a refresh — losing /customers/:id to
  * gain a panel would be a straight downgrade for anyone who links to a customer.
  */
-// ─── Expanded order row ──────────────────────────────────────
-// What a row can show is limited by what orders_cache holds: line TITLES, but
-// no per-line price or quantity. So this shows the order-level money, which
-// does reconcile, and lists the items without inventing figures against them.
+// Payment and fulfilment are different questions — "have they paid" and "has it
+// gone out" — so they get the same chip but never share one.
+function StatusChip({ kind, value }) {
+  const label = (value || (kind === 'ship' ? 'unfulfilled' : 'unknown')).replace(/_/g, ' ')
+  const tone = kind === 'ship'
+    ? (value === 'fulfilled' ? 'bg-green-500/10 text-green-600'
+      : value === 'partial' ? 'bg-amber-500/10 text-amber-600'
+      : 'bg-gray-500/10 text-gray-500')
+    : ({ paid: 'bg-green-500/10 text-green-600',
+         partially_paid: 'bg-blue-500/10 text-blue-500',
+         partially_refunded: 'bg-amber-500/10 text-amber-600',
+         pending: 'bg-amber-500/10 text-amber-600',
+         refunded: 'bg-red-500/10 text-red-500',
+         voided: 'bg-red-500/10 text-red-500' }[value] || 'bg-gray-500/10 text-gray-500')
+  return (
+    <span className={clsx('inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', tone)}>
+      {label}
+    </span>
+  )
+}
+
+function Section({ title, children, className }) {
+  return (
+    <div className={className}>
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400 mb-2.5">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+// ─── Expanded order ──────────────────────────────────────────
+// Limited by what orders_cache holds: line TITLES, but no per-line price or
+// quantity. So this shows order-level money, which reconciles, and lists the
+// items without inventing figures against them.
 function OrderDetail({ order: o }) {
   const cur = o.currency || 'KES'
   const money = v => `${cur} ${formatKES(v)}`
@@ -126,111 +156,97 @@ function OrderDetail({ order: o }) {
   // Adding it as a fourth line reconciles only 2.3% of orders.
   const lines = [
     { label: `Items (${o.items ?? o.products?.length ?? 0})`, value: o.gross_sales, sign: 1 },
-    { label: 'Discounts',  value: o.discounts, sign: -1, hideIfZero: true },
-    { label: 'Delivery',   value: o.shipping,  sign: 1,  zeroLabel: 'Free' },
+    { label: 'Discounts', value: o.discounts, sign: -1, hideIfZero: true },
+    { label: 'Delivery', value: o.shipping, sign: 1, zeroLabel: 'Free' },
   ].filter(l => l.value !== null && l.value !== undefined && !(l.hideIfZero && !l.value))
 
-  // Does it actually add up for THIS order? If a row ever fails to reconcile
-  // the panel says so rather than showing a breakdown that quietly disagrees
-  // with the total printed beside it.
+  // Does it add up for THIS order? If a row ever fails to reconcile the panel
+  // says so rather than showing a breakdown that quietly disagrees with the
+  // total printed beside it.
   const sum = lines.reduce((a, l) => a + l.sign * (l.value || 0), 0)
   const reconciles = Math.abs(sum - (o.total || 0)) <= 1
 
-  const Chip = ({ tone, children }) => (
-    <span className={clsx('inline-block text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded', tone)}>
-      {children}
-    </span>
-  )
-  const payTone = {
-    paid: 'bg-green-50 text-green-700', partially_paid: 'bg-blue-50 text-blue-700',
-    partially_refunded: 'bg-amber-50 text-amber-700', refunded: 'bg-red-50 text-red-700',
-    voided: 'bg-red-50 text-red-700', pending: 'bg-amber-50 text-amber-700',
-  }[o.financial_status] || 'bg-gray-100 text-gray-700'
-
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      {(o.cancelled_at || o.is_test) && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2">
-          <AlertCircle size={13} className="text-red-500 shrink-0" />
-          <p className="text-[11px] text-red-700 font-medium">
-            {o.is_test && 'Test order. '}
-            {o.cancelled_at && `Cancelled on ${formatFullDate(o.cancelled_at)}.`}
-            {' '}It is listed for completeness but is excluded from spend totals.
-          </p>
-        </div>
-      )}
+    <div className="bg-gray-50 px-2 pb-5 pt-1">
+      <div className="pl-[21px] pr-1">
+        {(o.cancelled_at || o.is_test) && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2">
+            <AlertCircle size={13} className="text-red-500 shrink-0 mt-px" />
+            <p className="text-[11px] text-red-500 leading-relaxed">
+              {o.is_test && 'Test order. '}
+              {o.cancelled_at && `Cancelled ${formatFullDate(o.cancelled_at)}. `}
+              Listed for completeness, excluded from spend totals.
+            </p>
+          </div>
+        )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Money */}
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Breakdown</p>
-          <dl className="space-y-1.5">
-            {lines.map(l => (
-              <div key={l.label} className="flex justify-between gap-3 text-xs">
-                <dt className="text-gray-500">{l.label}</dt>
-                <dd className="text-gray-900 font-medium tabular-nums">
-                  {l.value === 0 && l.zeroLabel
-                    ? l.zeroLabel
-                    : `${l.sign < 0 ? '−' : ''}${money(l.value)}`}
-                </dd>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <Section title="Breakdown">
+            <dl className="space-y-2">
+              {lines.map(l => (
+                <div key={l.label} className="flex justify-between gap-4 text-xs">
+                  <dt className="text-gray-500">{l.label}</dt>
+                  <dd className="text-gray-900 font-medium tabular-nums shrink-0">
+                    {l.value === 0 && l.zeroLabel
+                      ? l.zeroLabel
+                      : `${l.sign < 0 ? '−' : ''}${money(l.value)}`}
+                  </dd>
+                </div>
+              ))}
+              <div className="flex justify-between gap-4 pt-2.5 mt-2.5 border-t border-gray-200">
+                <dt className="text-xs font-bold text-gray-900">Total charged</dt>
+                <dd className="text-sm font-bold text-gray-900 tabular-nums shrink-0">{money(o.total)}</dd>
               </div>
-            ))}
-            <div className="flex justify-between gap-3 text-xs pt-1.5 mt-1.5 border-t border-gray-100">
-              <dt className="font-bold text-gray-900">Total charged</dt>
-              <dd className="font-bold text-gray-900 tabular-nums">{money(o.total)}</dd>
-            </div>
+              {!!o.refunded && (
+                <div className="flex justify-between gap-4 text-xs pt-2 border-t border-gray-200">
+                  <dt className="text-red-500 font-semibold">Refunded since</dt>
+                  <dd className="text-red-500 font-semibold tabular-nums shrink-0">−{money(o.refunded)}</dd>
+                </div>
+              )}
+            </dl>
+
             {o.tax !== null && o.tax !== undefined && (
-              <p className="text-[11px] text-gray-400 pt-0.5">
-                Includes {money(o.tax)} VAT — prices are VAT-inclusive, so this is
-                part of the item price above, not added to it.
+              <p className="text-[11px] text-gray-400 leading-relaxed mt-2.5">
+                Includes {money(o.tax)} VAT, already inside the item price.
               </p>
             )}
             {!reconciles && (
-              <p className="text-[11px] text-amber-600 pt-1">
+              <p className="text-[11px] text-amber-600 leading-relaxed mt-2">
                 These lines sum to {money(sum)}, not the total charged. Treat the
                 total as authoritative and re-sync this order.
               </p>
             )}
-            {!!o.refunded && (
-              <div className="flex justify-between gap-3 text-xs pt-1.5 mt-1.5 border-t border-gray-100">
-                <dt className="text-red-600 font-semibold">Refunded since</dt>
-                <dd className="text-red-600 font-semibold tabular-nums">−{money(o.refunded)}</dd>
-              </div>
-            )}
-          </dl>
 
-          <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mt-4 mb-2">Status</p>
-          <div className="flex flex-wrap gap-1.5">
-            <Chip tone={payTone}>{(o.financial_status || 'unknown').replace(/_/g, ' ')}</Chip>
-            <Chip tone={o.fulfillment_status ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'}>
-              {(o.fulfillment_status || 'unfulfilled').replace(/_/g, ' ')}
-            </Chip>
-          </div>
-          <p className="text-[11px] text-gray-400 mt-1.5">Payment · Fulfilment</p>
-        </div>
-
-        {/* Items */}
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-            Items in this order
-          </p>
-          {o.products?.length > 0 ? (
-            <ol className="space-y-1 max-h-56 overflow-y-auto pr-1">
-              {o.products.map((name, i) => (
-                <li key={i} className="flex gap-2 text-xs text-gray-700">
-                  <span className="text-gray-400 tabular-nums shrink-0">{i + 1}.</span>
-                  <span className="leading-snug">{name}</span>
-                </li>
+            <div className="flex gap-6 mt-5">
+              {[['Payment', 'pay', o.financial_status],
+                ['Fulfilment', 'ship', o.fulfillment_status]].map(([label, kind, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">{label}</p>
+                  <StatusChip kind={kind} value={value} />
+                </div>
               ))}
-            </ol>
-          ) : (
-            <p className="text-xs text-gray-400">No line items recorded for this order.</p>
-          )}
-          {o.products?.length > 0 && o.items != null && o.products.length !== o.items && (
-            <p className="text-[11px] text-gray-400 mt-2">
-              {o.items} units across {o.products.length} distinct lines.
-            </p>
-          )}
+            </div>
+          </Section>
+
+          <Section title={`Items in this order${o.products?.length ? ` (${o.products.length})` : ''}`}>
+            {o.products?.length > 0 ? (
+              <ol className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {o.products.map((name, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-gray-600 leading-relaxed">
+                    <span className="text-gray-400 tabular-nums shrink-0">{i + 1}</span>
+                    <span>{name}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-xs text-gray-400">No line items recorded.</p>
+            )}
+            {o.products?.length > 0 && o.items != null && o.products.length !== o.items && (
+              <p className="text-[11px] text-gray-400 mt-3">
+                {o.items} units across {o.products.length} lines.
+              </p>
+            )}
+          </Section>
         </div>
       </div>
     </div>
@@ -542,81 +558,55 @@ export function CustomerDetailView({ customerId, onClose }) {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
-                <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Order</th>
-                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Date</th>
-                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Items</th>
-                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Status</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-widest">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedOrders.map(o => {
-                    const open = expandedOrder === o.id
-                    // The row badge keeps using the collapsed `status`, but the
-                    // expansion shows payment and fulfilment separately — they
-                    // answer different questions and `or` throws one away.
-                    const statusTone =
-                      o.status === 'fulfilled' || o.status === 'shipped' ? 'bg-green-50 text-green-700' :
-                      o.status === 'paid' || o.status === 'partially_paid' ? 'bg-blue-50 text-blue-700' :
-                      o.status === 'pending' ? 'bg-amber-50 text-amber-700' :
-                      o.status === 'refunded' || o.status === 'voided' ? 'bg-red-50 text-red-700' :
-                      'bg-gray-100 text-gray-700'
-                    return (
-                      <Fragment key={o.id}>
-                      <tr
-                        onClick={() => setExpandedOrder(open ? null : o.id)}
-                        aria-expanded={open}
-                        className={clsx(
-                          'border-b border-gray-100 cursor-pointer transition-colors',
-                          open ? 'bg-gray-50/80' : 'hover:bg-gray-50/60'
-                        )}
-                      >
-                        <td className="px-3 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <ChevronRight
-                              size={13}
-                              className={clsx('text-gray-400 transition-transform shrink-0',
-                                              open && 'rotate-90')}
-                            />
-                            <Hash size={11} className="text-gray-400" />
-                            <span className="text-sm font-semibold text-gray-900">{o.order_number}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-xs text-gray-600">{formatFullDate(o.date)}</td>
-                        <td className="px-3 py-3">
-                          <p className="text-xs text-gray-900 font-medium">{o.items} item{o.items === 1 ? '' : 's'}</p>
-                          {o.products?.length > 0 && (
-                            <p className="text-[12px] text-gray-500 truncate max-w-[260px]" title={o.products.join(', ')}>
-                              {o.products.slice(0, 2).join(', ')}
-                              {o.products.length > 2 && ` +${o.products.length - 2} more`}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className={clsx('inline-block text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded', statusTone)}>
-                            {(o.status || 'unknown').replace(/_/g, ' ')}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-right text-sm font-bold text-gray-900">
-                          {o.currency || 'KES'} {formatKES(o.total)}
-                        </td>
-                      </tr>
-                      {open && (
-                        <tr className="border-b border-gray-100 bg-gray-50/40">
-                          <td colSpan={5} className="px-3 pb-4 pt-1">
-                            <OrderDetail order={o} />
-                          </td>
-                        </tr>
+            {/* A list, not a table.
+                The table was min-w-[720px] inside a slide-over about 530px
+                wide, so it scrolled sideways permanently and the expanded panel
+                — living in a colSpan cell — inherited that width and had its
+                right-hand column cut off mid-word. A list has no column widths
+                to satisfy, so it fits the sheet and the full page alike. */}
+            <div className="divide-y divide-gray-100 border-t border-gray-100">
+              {pagedOrders.map(o => {
+                const open = expandedOrder === o.id
+                return (
+                  <div key={o.id}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedOrder(open ? null : o.id)}
+                      aria-expanded={open}
+                      className={clsx(
+                        'w-full text-left px-2 py-3 transition-colors',
+                        open ? 'bg-gray-50' : 'hover:bg-gray-50/70'
                       )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+                    >
+                      <div className="flex items-baseline gap-2">
+                        <ChevronRight
+                          size={13}
+                          className={clsx('text-gray-400 shrink-0 transition-transform self-center',
+                                          open && 'rotate-90')}
+                        />
+                        <span className="text-sm font-bold text-gray-900">#{o.order_number}</span>
+                        <span className="text-[11px] text-gray-400">{formatFullDate(o.date)}</span>
+                        <span className="flex-1" />
+                        <span className="text-sm font-bold text-gray-900 tabular-nums shrink-0">
+                          {o.currency || 'KES'} {formatKES(o.total)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 pl-[21px]">
+                        <p className="text-xs text-gray-500 truncate flex-1 min-w-0">
+                          {o.items} item{o.items === 1 ? '' : 's'}
+                          {o.products?.length > 0 && ` · ${o.products[0]}`}
+                          {o.products?.length > 1 && ` +${o.products.length - 1}`}
+                        </p>
+                        <div className="flex gap-1 shrink-0">
+                          <StatusChip kind="pay" value={o.financial_status} />
+                          <StatusChip kind="ship" value={o.fulfillment_status} />
+                        </div>
+                      </div>
+                    </button>
+                    {open && <OrderDetail order={o} />}
+                  </div>
+                )
+              })}
             </div>
 
             {/* Pagination */}
