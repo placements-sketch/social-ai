@@ -3,11 +3,16 @@ import { Sparkles, Send, Loader2, User, Bot, X, MessageSquareText } from 'lucide
 import clsx from 'clsx'
 import { askCustomerAI } from '../api/customers'
 
+// These are the first thing anyone clicks, so they are effectively the demo.
+// "Revenue by city this month" ran through aggregate_orders, which had no
+// financial_status filter and returned figures 20% high; that is fixed in
+// ai_query.py, and the wording here now says which orders are counted so the
+// answer is not mistaken for Shopify Analytics, which nets off returns.
 const SUGGESTIONS = [
-  'Who are the top 10 spenders in Nairobi this month?',
+  'Top 10 spenders in Nairobi, all time',
   'How many VIP customers do we have?',
   'Which customers are at risk of churning?',
-  'Revenue by city this month',
+  'Revenue by city this month (paid orders)',
 ]
 
 function DataTable({ rows }) {
@@ -21,6 +26,7 @@ function DataTable({ rows }) {
   }
   const label = (k) => k.replace(/_/g, ' ')
   return (
+    <div>
     <div className="mt-2.5 overflow-x-auto rounded-lg border border-gray-200">
       <table className="w-full text-xs min-w-[320px]">
         <thead>
@@ -43,6 +49,12 @@ function DataTable({ rows }) {
           ))}
         </tbody>
       </table>
+    </div>
+    {/* The prose above the table is generated; this line is not. Whatever the
+        model says, the figures came from paid orders and include VAT. */}
+    <p className="text-[11px] text-gray-400 mt-1.5">
+      Paid orders only · KES, VAT included · returns not deducted
+    </p>
     </div>
   )
 }
@@ -210,7 +222,9 @@ export default function CustomerAIChat() {
           // pagination beneath — two assistants fighting for one square inch.
           bottom: 72, right: 24, width: 56, height: 56,
           background: 'linear-gradient(135deg, #c9ff5c, #99e600)',
-          boxShadow: '0 8px 24px -6px rgba(255,89,0,0.5)',
+          // Was rgba(255,89,0,.5) - an ORANGE glow under a green button, left
+          // behind when the palette changed. Matched to #99e600.
+          boxShadow: '0 8px 24px -6px rgba(153,230,0,0.45)',
         }}
         aria-label={open ? 'Close assistant' : 'Open customer assistant'}
       >

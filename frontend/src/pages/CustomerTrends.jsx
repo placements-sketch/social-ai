@@ -78,6 +78,20 @@ export default function CustomerTrends() {
     ...b, label: b.bucket === '180+' ? '180d+' : `${b.bucket}d`,
   }))
 
+  // Derived, not typed in. The caption used to read "the 125,102 who never
+  // ordered are not counted" as a literal in the string. It was already wrong
+  // — 125,123 by the time anyone checked — and it moves with every sync, so it
+  // could only ever drift further. The count is already in the payload as the
+  // never_bought segment row.
+  const neverBought = (data.revenue_by_segment || [])
+    .find(s => s.segment === 'never_bought')?.customers ?? 0
+  const buyers = recencyData.reduce((a, b) => a + (b.customers || 0), 0)
+
+  // 86% of buyers sit in one bucket, which flattens the other four into slivers.
+  // The chart cannot say that itself, so the caption does.
+  const biggest = recencyData.reduce((a, b) => (b.customers > (a?.customers ?? -1) ? b : a), null)
+  const biggestShare = biggest && buyers ? Math.round((biggest.customers / buyers) * 100) : 0
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Revenue contribution by segment */}
@@ -93,8 +107,8 @@ export default function CustomerTrends() {
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={revenueData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
             <CartesianGrid stroke="var(--border)" strokeOpacity={0.6} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false}
                    tickFormatter={compactKES} />
             <Tooltip
               formatter={(v) => [`KES ${formatKES(v)}`, 'Revenue']}
@@ -118,17 +132,23 @@ export default function CustomerTrends() {
           <Clock size={14} className="text-brand-500" /> Customers by Recency
         </h2>
         <p className="text-xs text-gray-400 mb-4">
-          How long since each buyer's last order, from Shopify's last-order date. Buyers
-          only — the 125,102 who never ordered are not counted.
+          How long since each buyer's last order, from Shopify's last-order date.
+          {' '}{formatKES(buyers)} buyers — the {formatKES(neverBought)} who never
+          ordered are not counted.
+          {biggest && biggestShare >= 50 && (
+            <> <span className="text-gray-500">{biggestShare}% of them fall in
+            {' '}{biggest.label} alone, so the remaining bars are small by
+            comparison, not by absence.</span></>
+          )}
         </p>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={recencyData} margin={{ top: 4, right: 8, left: 4, bottom: 4 }}>
             <CartesianGrid stroke="var(--border)" strokeOpacity={0.6} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false}
                    tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
             <Tooltip
-              formatter={(v) => [`${formatKES(v)} customers`, 'Buyers']}
+              formatter={(v) => [`${formatKES(v)} buyers`, 'Customers']}
               contentStyle={TOOLTIP_STYLE}
               labelStyle={TOOLTIP_LABEL}
               itemStyle={TOOLTIP_ITEM}

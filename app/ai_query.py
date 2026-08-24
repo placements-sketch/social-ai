@@ -150,6 +150,25 @@ def aggregate_orders(time_window='this_month', group_by='customer', metric='sum_
     base = db.session.query(OrderCache).join(
         CustomerCache, CustomerCache.shopify_customer_id == OrderCache.shopify_customer_id
     )
+
+    # Paid, non-cancelled, non-test — the same population every other money
+    # figure on the Customers page uses.
+    #
+    # There was no filter at all here, so SUM(total) counted voided, cancelled,
+    # test and unpaid orders as revenue. Measured against production:
+    #
+    #     this month     8,939,615 reported vs   7,435,260 real   (+20%)
+    #     last 90 days  37,801,497 reported vs  33,265,986 real   (+14%)
+    #     all time     792,762,672 reported vs 648,156,830 real   (+22%)
+    #
+    # "Revenue by city this month" is one of the four suggestion chips on the
+    # panel, so this was not a rare path — it was the demo.
+    base = base.filter(
+        OrderCache.financial_status == 'paid',
+        OrderCache.cancelled_at.is_(None),
+        func.coalesce(OrderCache.is_test, False).is_(False),
+    )
+
     if start is not None:
         base = base.filter(OrderCache.order_date >= start)
     if city:
