@@ -1048,10 +1048,37 @@ def customer_profile(customer_id):
             "SELECT DISTINCT vendor FROM products_cache "
             "WHERE vendor IS NOT NULL AND vendor <> ''"
         )).fetchall()]
-        # Longest first, so "Safari by Vivo" wins over "Safari" and
-        # "Vivo Basic" is not swallowed by "Vivo".
-        vendors.sort(key=len, reverse=True)
-        vendors_lc = [(v, v.lower()) for v in vendors]
+
+        # Two things break a plain "does the title start with the vendor name"
+        # test, and both were putting real brands into "Other":
+        #
+        # 1. The vendor is "Safari by Vivo" (452 products) but the titles read
+        #    "Safari Haya Off Shoulder Maxi Dress" — no "by Vivo". So the
+        #    vendor's FIRST WORD has to be a candidate too.
+        # 2. The vendor is "Anel’s Knitwear" with a CURLY apostrophe while the
+        #    title is "Anel's Diamond Poncho" with a straight one. Different
+        #    characters, so the strings never matched.
+        #
+        # First-word candidates are skipped when the word is a stopword or very
+        # short: "The Fashion Frenzy" would otherwise contribute "the" and claim
+        # every title beginning with The.
+        _STOP = {'the', 'and', 'for', 'with', 'shop', 'by', 'of', 'a', 'an', 'my'}
+
+        def _norm(x):
+            return (x or '').lower().replace('’', "'").replace('‘', "'").strip()
+
+        candidates = []
+        for v in vendors:
+            n = _norm(v)
+            if not n:
+                continue
+            candidates.append((n, v))
+            first = n.split()[0] if n.split() else ''
+            if len(first) >= 4 and first not in _STOP and first != n:
+                candidates.append((first, v))
+        # Longest prefix first, so "safari by vivo" is tried before "safari",
+        # and "safari" before the bare "vivo" that also appears in it.
+        candidates.sort(key=lambda c: -len(c[0]))
 
         titles = [t for (t,) in db.session.execute(db.text(f"""
             SELECT title FROM (
@@ -1064,8 +1091,8 @@ def customer_profile(customer_id):
 
         counts = {}
         for t in titles:
-            tl = t.lower()
-            brand = next((v for v, vl in vendors_lc if tl.startswith(vl)), 'Other')
+            tn = _norm(t)
+            brand = next((v for pre, v in candidates if tn.startswith(pre)), 'Other')
             counts[brand] = counts.get(brand, 0) + 1
         spend_by_brand = [{'brand': b, 'items': n} for b, n in
                           sorted(counts.items(), key=lambda kv: -kv[1])[:6]]
