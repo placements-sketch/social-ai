@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
-  Repeat, Tag, Heart, Crown, Sparkles,
+  Repeat, Tag, Heart, Crown, Sparkles, Coins,
   Loader2, AlertCircle, Package, ChevronLeft, ChevronRight,
   Activity, Clock, Award, Target, Zap, ExternalLink, CheckCircle2, XCircle,
   MessageSquare,
@@ -692,18 +692,39 @@ export function CustomerDetailView({ customerId, onClose }) {
         <KpiCard icon={ShoppingBag} label="Total Orders" value={customer.total_orders || 0}
                  sub={customer.first_order_date ? `First ${formatFullDate(customer.first_order_date)}` : 'No orders yet'}
                  tone="bg-blue-50 text-blue-600" />
-        {/* The subtitle used to read "Across 529 orders" while the figure was
-            total_spent (net of refunds, paid orders only) divided by 529. Only
-            336 of those were paid, so the card asserted a denominator that was
-            not the one used and came out 58% low. aov_basis says which
-            denominator the server could actually use. */}
-        <KpiCard icon={Repeat} label="Average Order Value" value={`KES ${formatKES(customer.aov)}`}
-                 sub={customer.aov_basis === 'paid'
-                        ? `Across ${formatCount(customer.aov_orders)} paid orders`
-                        : customer.aov_basis === 'all'
-                          ? `Across all ${formatCount(customer.aov_orders)} orders — paid count not yet synced`
-                          : '—'}
-                 tone="bg-violet-50 text-violet-600" />
+        {/* Lifetime spend leads; AOV rides along as a tag.
+            The card used to headline AOV, and lifetime spend appeared nowhere
+            on this page at all — the Lifetime Spend KPI was removed because the
+            RFM Monetary pillar restated it, and then that pillar's caption was
+            replaced with a percentile. So the page could tell you a customer's
+            average order and their rank against other buyers, but never what
+            they had actually spent. The derived figure was headlining and the
+            underlying one was missing.
+
+            total_spent is Shopify's own figure and is NET of refunds, which is
+            what their customer page shows — said in the tooltip rather than
+            crammed into the sub. */}
+        <KpiCard
+          icon={Coins}
+          label="Total Spent"
+          value={`KES ${formatKES(customer.total_spent)}`}
+          sub={customer.aov_basis === 'none' ? 'No paid orders yet' : (
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              <span
+                title="Total spent ÷ paid orders"
+                className="inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500"
+              >
+                AOV KES {formatKES(customer.aov)}
+              </span>
+              <span>
+                {customer.aov_basis === 'paid'
+                  ? `across ${formatCount(customer.aov_orders)} paid orders`
+                  : `across all ${formatCount(customer.aov_orders)} orders — paid count not yet synced`}
+              </span>
+            </span>
+          )}
+          tone="bg-violet-50 text-violet-600"
+        />
         {/* Was "3d ago" over "3 days ago". */}
         <KpiCard icon={Clock} label="Last Order" value={customer.last_order_date ? formatDateAgo(customer.last_order_date) : 'Never'}
                  sub={customer.last_order_date ? formatFullDate(customer.last_order_date) : 'Yet to convert'}
