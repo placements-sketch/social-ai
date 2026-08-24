@@ -1067,8 +1067,18 @@ def customer_orders(customer_id):
         'id': r.shopify_order_id,
         'order_number': r.order_number,
         'date': r.order_date.isoformat() if r.order_date else None,
-        # The order row carries Shopify's own tax, so no estimate is needed.
-        'total': ex_vat(r.total, tax=r.total_tax),
+        # What the customer paid, exactly as Shopify shows it.
+        #
+        # This returned ex_vat(), so order 219876 appeared as KES 3,465.52 on
+        # this page while Shopify's own order page — and the customer's invoice
+        # — said KES 4,020.00. An order total is not an analytical figure; it is
+        # the amount that changed hands, and an agent reading the history beside
+        # a customer on the phone needs the number the customer is looking at.
+        #
+        # Ex-VAT still has a use (margin), so the tax is sent alongside rather
+        # than being folded in silently. Nothing has to guess at 16% either way.
+        'total': float(r.total or 0),
+        'tax': float(r.total_tax) if r.total_tax is not None else None,
         'currency': r.currency,
         'items': r.items_count,
         'products': r.products or [],

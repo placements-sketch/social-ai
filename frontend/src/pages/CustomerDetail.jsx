@@ -37,30 +37,14 @@ function formatFullDate(iso) {
 }
 
 // ─── RFM score helpers ───────────────────────────────────────────
-function recencyScore(daysSince) {
-  if (daysSince == null) return 0
-  if (daysSince <= 30) return 5
-  if (daysSince <= 60) return 4
-  if (daysSince <= 90) return 3
-  if (daysSince <= 180) return 2
-  return 1
-}
-function frequencyScore(orders) {
-  if (!orders) return 0
-  if (orders >= 10) return 5
-  if (orders >= 5) return 4
-  if (orders >= 3) return 3
-  if (orders >= 2) return 2
-  return 1
-}
-function monetaryScore(spent) {
-  if (!spent) return 0
-  if (spent >= 500000) return 5
-  if (spent >= 100000) return 4
-  if (spent >= 50000) return 3
-  if (spent >= 10000) return 2
-  return 1
-}
+// recencyScore / frequencyScore / monetaryScore used to live here and are gone.
+//
+// They were never called: the page reads customer.rfm_r / rfm_f / rfm_m, which
+// customers.py computes and stores. So these were a second, unused copy of the
+// scoring thresholds sitting in the file that displays the scores — the kind of
+// dead code that gets read as authoritative and then quietly disagrees with the
+// rules actually in force. One set of thresholds, in the place that applies them.
+
 function scoreColor(score) {
   if (score >= 5) return { bar: 'bg-green-500',  text: 'text-green-600',  bg: 'bg-green-50' }
   if (score >= 4) return { bar: 'bg-emerald-500', text: 'text-emerald-600', bg: 'bg-emerald-50' }
@@ -182,63 +166,6 @@ export function CustomerDetailView({ customerId, onClose }) {
       .map(([, v]) => v)
   }, [orders])
 
-  // Lifetime value.
-  //
-  // What this used to do: divide total spend by days since the ACCOUNT was
-  // created, multiply by 365, and print the result in bold as "Projected
-  // Annual". A customer 30 days old who had spent KES 10,775 was shown a
-  // KES 131,096 annual projection — twelve times what they had actually spent.
-  // The 3-year figure was that number times three, with no churn assumption at
-  // all: a customer who never returns still projected three more years.
-  //
-  // Now: the rate is measured over the span the customer has actually been
-  // BUYING (first order to last), not since signup, and nothing is projected
-  // until there is enough history to mean anything — two orders and 90 days.
-  // Below that the card says what it is waiting for instead of inventing a
-  // number.
-  const LTV_MIN_ORDERS = 2
-  const LTV_MIN_DAYS = 90
-
-  const ltvProjection = useMemo(() => {
-    if (!customer?.total_spent) return null
-
-    const first = customer.first_order_date ? new Date(customer.first_order_date) : null
-    const last = customer.last_order_date ? new Date(customer.last_order_date) : null
-    const orders = customer.total_orders || 0
-
-    const ageDays = customer.created_at
-      ? Math.max(1, Math.floor((Date.now() - new Date(customer.created_at).getTime()) / 86400000))
-      : null
-
-    // Span of actual buying behaviour. One order has no span, however long ago
-    // the account was opened.
-    const spanDays = (first && last) ? Math.max(1, Math.round((last - first) / 86400000)) : 0
-
-    const enough = orders >= LTV_MIN_ORDERS && spanDays >= LTV_MIN_DAYS
-    if (!enough) {
-      return {
-        ageDays,
-        spanDays,
-        orders,
-        enough: false,
-        needMoreOrders: Math.max(0, LTV_MIN_ORDERS - orders),
-        needMoreDays: Math.max(0, LTV_MIN_DAYS - spanDays),
-      }
-    }
-
-    const perDay = customer.total_spent / spanDays
-    return {
-      ageDays,
-      spanDays,
-      orders,
-      enough: true,
-      annual: perDay * 365,
-      // A band, not a point. Straight-line extrapolation of two data points is
-      // a guess; presenting one exact figure dresses it up as a measurement.
-      annualLow: perDay * 365 * 0.7,
-      annualHigh: perDay * 365 * 1.3,
-    }
-  }, [customer])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(orders.length / ORDERS_PER_PAGE))
@@ -479,10 +406,11 @@ export function CustomerDetailView({ customerId, onClose }) {
       {/* ─── SUGGESTED ACTION · SPEND BY BRAND · TOP ITEMS ──── */}
       <CustomerProfileExtras customerId={id} />
 
-      {/* ─── SPEND TREND + LTV PROJECTION ───────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Trend */}
-        <div className="card p-5 lg:col-span-2">
+      {/* ─── SPEND TREND ─────────────────────────────────────── */}
+      {/* Full width now. This was a 3-column grid with the trend at col-span-2
+          and the Lifetime Value card beside it; with that card removed a grid
+          would leave a third of the row empty. */}
+        <div className="card p-5">
           <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
             <Activity size={14} className="text-brand-500" /> Spending Trend
           </h2>
@@ -517,58 +445,16 @@ export function CustomerDetailView({ customerId, onClose }) {
           )}
         </div>
 
-        {/* LTV projection */}
-        <div className="card p-5 relative overflow-hidden">
-          <div className="absolute -right-8 -top-8 w-28 h-28 rounded-full bg-gradient-to-br from-brand-200/40 to-brand-400/20 blur-xl" />
-          <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2 relative">
-            <Award size={14} className="text-brand-500" /> Lifetime Value
-          </h2>
-          {ltvProjection ? (
-            <div className="space-y-4 relative">
-              {/* Measured. This one is a fact. */}
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">Spent so far</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">KES {formatKES(customer.total_spent)}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  across {formatCount(ltvProjection.orders)} order{ltvProjection.orders === 1 ? '' : 's'}
-                  {ltvProjection.spanDays > 0 && ` over ${formatCount(ltvProjection.spanDays)} days`}
-                </p>
-              </div>
+        {/* The Lifetime Value card is gone.
 
-              {/* Estimated. This one is clearly marked as a guess. */}
-              <div className="border-t border-gray-100 pt-3">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
-                  If they keep this up
-                </p>
-                {ltvProjection.enough ? (
-                  <>
-                    <p className="text-lg font-bold text-brand-600 mt-1">
-                      KES {formatKES(ltvProjection.annualLow)} – {formatKES(ltvProjection.annualHigh)}
-                      <span className="text-xs font-semibold text-gray-400"> / year</span>
-                    </p>
-                    <p className="text-[12px] text-gray-400 mt-1 leading-relaxed">
-                      Estimated from their spend rate across {formatCount(ltvProjection.spanDays)} days
-                      of buying. A range, not a forecast — it assumes nothing about
-                      whether they come back.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-[12px] text-gray-400 mt-1 leading-relaxed">
-                    Not enough history to estimate.
-                    {ltvProjection.needMoreOrders > 0
-                      ? ` Needs at least ${LTV_MIN_ORDERS} orders — this customer has ${ltvProjection.orders}.`
-                      : ` Needs ${LTV_MIN_DAYS} days between first and last order — so far ${formatCount(ltvProjection.spanDays)}.`}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-400 text-center py-12 relative">
-              Insufficient history to project value
-            </p>
-          )}
-        </div>
-      </div>
+            "Spent so far" restated the KPI card at the top of the page, and
+            the projection beneath it — "KES 243,726 - 452,634 / year" —
+            extrapolated a spend rate over 1,544 days into a forward range.
+            Its own caption admitted it "assumes nothing about whether they
+            come back", which is the entire question a lifetime-value number
+            is asked to answer. A range that wide, presented in the brand
+            colour next to real figures, reads as a forecast and is not one.
+            Nobody could act on it, and it invited being quoted. */}
 
       {/* ─── ORDER HISTORY ──────────────────────────────────── */}
       <div className="card p-5">

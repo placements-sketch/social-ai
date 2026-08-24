@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader2, Award, Repeat, Coins, CalendarDays, Package, Tag, Lightbulb } from 'lucide-react'
+import { Loader2, Award, Repeat, Coins, CalendarDays, Package, Tag } from 'lucide-react'
 import { getCustomerProfile } from '../api/customers'
 
 function formatKES(n) {
@@ -76,22 +76,19 @@ export default function CustomerProfileExtras({ customerId }) {
     )
   }
 
-  const { rfm, customer_since, suggested_action, spend_by_brand, top_items } = data
+  const { rfm, customer_since, spend_by_brand, top_items } = data
 
   return (
     <div className="space-y-5">
 
-      {/* Suggested action */}
-      {suggested_action && (
-        <div className="card p-5">
-          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-2">
-            <Lightbulb size={14} className="text-brand-500" /> Suggested Action
-          </h2>
-          <div className="rounded-xl bg-brand-50 border border-brand-100 px-4 py-3">
-            <p className="text-sm text-gray-800 leading-relaxed">{suggested_action}</p>
-          </div>
-        </div>
-      )}
+      {/* Suggested Action is gone.
+
+          It was SEGMENT_ACTIONS[segment] — one fixed sentence per segment, the
+          same "Send VIP invite + exclusive early access to new drops" on every
+          VIP in the book. It read as advice about this customer and was a lookup
+          on a single field, so it told an agent nothing they had not already
+          learned from the VIP badge two inches above it. Advice that cannot be
+          wrong also cannot be useful. */}
 
       {/* Spend by brand */}
       <div className="card p-5">
