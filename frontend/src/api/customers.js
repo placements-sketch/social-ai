@@ -83,6 +83,16 @@ export function getCustomerOrders(id) {
   )
 }
 
+/** Chats linked to this Shopify customer (link lives on the social user). */
+export function getCustomerConversations(id) {
+  return handle(
+    fetch(`${API_BASE}/customers/${id}/conversations`, {
+      method: 'GET',
+      headers: authHeaders(),
+    })
+  )
+}
+
 /** Last-sync metadata + current sync job (for status banner). */
 export function getCustomersSyncStatus() {
   return handle(

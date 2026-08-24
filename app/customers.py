@@ -1225,6 +1225,72 @@ def _dec_f(v):
     return float(v) if v is not None else None
 
 
+@customers_bp.route('/customers/<int:customer_id>/conversations', methods=['GET'])
+@jwt_required()
+def customer_conversations(customer_id):
+    """Chats linked to this Shopify customer.
+
+    The link lives on the SOCIAL user (users.shopify_customer_id), not on the
+    conversation, so it follows the person into every thread they open. That
+    means one Shopify customer can surface several conversations, across
+    channels, and each one is listed rather than collapsed.
+
+    Not a foreign key on purpose — customers_cache is rebuilt by the sync, and
+    a FK would either block the rebuild or cascade the links away with it. So
+    the join is by id string and a link can outlive the cached row it points
+    at. That is a real state, and it is reported rather than hidden: a chat
+    linked to an id we can no longer resolve still appears.
+    """
+    _user, _err = _require_viewer()
+    if _err:
+        return _err
+
+    from app.models import User, Conversation, AuthUser
+
+    c = CustomerCache.query.get(customer_id)
+    if not c:
+        return jsonify({'error': 'Customer not found'}), 404
+
+    linked_users = (User.query
+                    .filter_by(shopify_customer_id=c.shopify_customer_id)
+                    .all())
+    if not linked_users:
+        return jsonify({'conversations': [], 'total': 0}), 200
+
+    by_id = {u.id: u for u in linked_users}
+    convs = (Conversation.query
+             .filter(Conversation.user_id.in_(list(by_id.keys())))
+             .order_by(Conversation.last_message_at.desc().nullslast())
+             .all())
+
+    # One lookup for every agent named across the set, rather than one per row.
+    agent_ids = {cv.assigned_to for cv in convs if cv.assigned_to}
+    agents = ({a.id: a.full_name for a in
+               AuthUser.query.filter(AuthUser.id.in_(agent_ids)).all()}
+              if agent_ids else {})
+
+    out = []
+    for cv in convs:
+        u = by_id.get(cv.user_id)
+        out.append({
+            'id': cv.id,
+            'channel': cv.channel,
+            'status': cv.status,
+            'ai_enabled': bool(cv.ai_enabled),
+            'unread_count': cv.unread_count or 0,
+            'last_message': cv.last_message,
+            'last_message_at': cv.last_message_at.isoformat() if cv.last_message_at else None,
+            'assigned_to': agents.get(cv.assigned_to),
+            'resolved_at': cv.resolved_at.isoformat() if cv.resolved_at else None,
+            'social_name': getattr(u, 'name', None),
+            'social_id': getattr(u, 'id', None),
+            'linked_at': u.shopify_linked_at.isoformat()
+                         if u is not None and u.shopify_linked_at else None,
+        })
+
+    return jsonify({'conversations': out, 'total': len(out)}), 200
+
+
 @customers_bp.route('/customers/<int:customer_id>/orders', methods=['GET'])
 @jwt_required()
 def customer_orders(customer_id):

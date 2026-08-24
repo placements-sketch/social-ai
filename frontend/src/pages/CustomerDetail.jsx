@@ -1,15 +1,16 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
   Repeat, Tag, Heart, Crown, Sparkles,
   Loader2, AlertCircle, Package, ChevronLeft, ChevronRight,
   Activity, Clock, Award, Target, Zap, ExternalLink, CheckCircle2, XCircle,
+  MessageSquare,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useCountAnimation } from '../hooks/useCountAnimation'
 import { formatDateAgo, formatTimeAgo, parseBackendTime } from '../utils/time'
-import { getCustomer, getCustomerOrders } from '../api/customers'
+import { getCustomer, getCustomerOrders, getCustomerConversations } from '../api/customers'
 import CustomerProfileExtras from './CustomerProfileExtras'
 import { SEGMENT_META } from '../utils/segments'
 
@@ -52,26 +53,39 @@ function scoreColor(score) {
 }
 
 // ─── KPI card with animated value ──────────────────────────────────
-function KpiCard({ icon: Icon, label, value, sub, accent }) {
+// Matches the KpiCard on the Customers page.
+//
+// This one still had the two decorative gradients that page dropped: a blob
+// bleeding off the top-right corner and a second gradient behind a white icon.
+// Two pages, one product, two different cards - and the busier one was on the
+// page you reach by clicking a row on the other.
+//
+// The sub also had `truncate`, which cut "Across all 529 orders - paid count
+// not yet synced" down to a clause that changed its meaning. It wraps now.
+function KpiCard({ icon: Icon, label, value, sub, tone }) {
   const numeric = typeof value === 'number'
     ? value
     : parseFloat(String(value).replace(/[^0-9.-]/g, '')) || 0
-  const animated = useCountAnimation(numeric, 1200)
+  const animated = useCountAnimation(numeric, 1500, numeric % 1 !== 0)
   const formatted = typeof value === 'number'
     ? Math.round(animated).toLocaleString()
-    : String(value).replace(/[\d,.]+/, Math.round(animated).toLocaleString())
+    : String(value).replace(/[\d,.]+/, (numeric < 100 ? animated.toFixed(0) : Math.round(animated).toLocaleString()))
 
   return (
-    <div className="relative card p-4 overflow-hidden group hover:shadow-md transition-shadow">
-      <div className={clsx('absolute -right-6 -top-6 w-20 h-20 rounded-full opacity-10 bg-gradient-to-br', accent)} />
-      <div className="relative">
-        <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center mb-3 bg-gradient-to-br', accent)}>
-          <Icon size={16} className="text-white" />
-        </div>
-        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
-        <p className="text-xl font-bold text-gray-900 mt-1 truncate">{formatted}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
+    <div className="card p-4 group">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest leading-relaxed">
+          {label}
+        </p>
+        <span className={clsx(
+          'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors',
+          tone || 'bg-gray-100 text-gray-500'
+        )}>
+          <Icon size={14} />
+        </span>
       </div>
+      <p className="text-2xl font-bold text-gray-900 mt-2 tabular-nums truncate">{formatted}</p>
+      {sub && <p className="text-xs text-gray-400 mt-1 leading-snug">{sub}</p>}
     </div>
   )
 }
@@ -308,6 +322,116 @@ function TagRow({ tags }) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+
+// ─── Linked chats ────────────────────────────────────────────
+// The link is stored on the SOCIAL user, not the conversation, so one Shopify
+// customer can own several threads across channels. Each is listed; none are
+// collapsed into a count.
+function LinkedChats({ customerId }) {
+  const [state, setState] = useState({ loading: true, rows: [], error: null })
+
+  useEffect(() => {
+    let alive = true
+    setState({ loading: true, rows: [], error: null })
+    getCustomerConversations(customerId)
+      .then(d => { if (alive) setState({ loading: false, rows: d.conversations || [], error: null }) })
+      .catch(e => { if (alive) setState({ loading: false, rows: [], error: e.message || 'Failed to load' }) })
+    return () => { alive = false }
+  }, [customerId])
+
+  const { loading, rows, error } = state
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <MessageSquare size={14} className="text-brand-500" /> Linked Chats
+        </h2>
+        {rows.length > 0 && (
+          <span className="text-xs text-gray-500">
+            <span className="font-bold text-gray-900">{rows.length}</span> linked
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-gray-400 py-6 justify-center">
+          <Loader2 size={14} className="animate-spin" /> Loading chats…
+        </div>
+      ) : error ? (
+        <p className="text-xs text-red-500 py-6 text-center">{error}</p>
+      ) : rows.length === 0 ? (
+        /* An empty state that says how to make it non-empty. Nobody has linked
+           anything yet, and "No linked chats" alone would read as a defect. */
+        <div className="text-center py-10">
+          <MessageSquare size={26} className="text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-500 font-medium">No chats linked yet</p>
+          <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto leading-relaxed">
+            Open a conversation in Messages and use <span className="font-semibold text-gray-500">Link
+            customer</span> to attach it to this Shopify record. The link is
+            saved against the person, so it follows them into every thread they
+            open afterwards.
+          </p>
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100 border-t border-gray-100">
+          {rows.map(cv => (
+            <Link
+              key={cv.id}
+              to={`/messages?conversation=${cv.id}`}
+              className="flex items-start gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-[var(--surface-2)] transition-colors"
+            >
+              <span className="w-7 h-7 rounded-lg bg-gray-500/10 text-gray-500 flex items-center justify-center shrink-0 mt-0.5">
+                <MessageSquare size={13} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-gray-900 truncate">
+                    {cv.social_name || `Conversation #${cv.id}`}
+                  </span>
+                  <span className="text-[11px] text-gray-400 capitalize">{cv.channel}</span>
+                  {cv.unread_count > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-brand-500 text-black">
+                      {cv.unread_count} unread
+                    </span>
+                  )}
+                </div>
+                {cv.last_message && (
+                  <p className="text-xs text-gray-500 truncate mt-0.5">{cv.last_message}</p>
+                )}
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className={clsx(
+                    'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+                    cv.resolved_at ? 'bg-green-500/10 text-green-600'
+                      : cv.status === 'active' ? 'bg-blue-500/10 text-blue-500'
+                      : 'bg-gray-500/10 text-gray-500'
+                  )}>
+                    {cv.resolved_at ? 'resolved' : (cv.status || 'unknown')}
+                  </span>
+                  {/* Whether the assistant is answering this thread is the
+                      thing an agent most needs to know before replying. */}
+                  <span className={clsx(
+                    'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+                    cv.ai_enabled ? 'bg-violet-500/10 text-violet-500' : 'bg-gray-500/10 text-gray-500'
+                  )}>
+                    AI {cv.ai_enabled ? 'on' : 'off'}
+                  </span>
+                  {cv.assigned_to && (
+                    <span className="text-[11px] text-gray-400">· {cv.assigned_to}</span>
+                  )}
+                </div>
+              </div>
+              <span className="text-[11px] text-gray-400 shrink-0 mt-1">
+                {cv.last_message_at ? formatDateAgo(cv.last_message_at) : '—'}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -567,7 +691,7 @@ export function CustomerDetailView({ customerId, onClose }) {
       <div className="grid grid-cols-3 gap-3">
         <KpiCard icon={ShoppingBag} label="Total Orders" value={customer.total_orders || 0}
                  sub={customer.first_order_date ? `First ${formatFullDate(customer.first_order_date)}` : 'No orders yet'}
-                 accent="from-blue-400 to-blue-600" />
+                 tone="bg-blue-50 text-blue-600" />
         {/* The subtitle used to read "Across 529 orders" while the figure was
             total_spent (net of refunds, paid orders only) divided by 529. Only
             336 of those were paid, so the card asserted a denominator that was
@@ -579,11 +703,11 @@ export function CustomerDetailView({ customerId, onClose }) {
                         : customer.aov_basis === 'all'
                           ? `Across all ${formatCount(customer.aov_orders)} orders — paid count not yet synced`
                           : '—'}
-                 accent="from-violet-400 to-violet-600" />
+                 tone="bg-violet-50 text-violet-600" />
         {/* Was "3d ago" over "3 days ago". */}
         <KpiCard icon={Clock} label="Last Order" value={customer.last_order_date ? formatDateAgo(customer.last_order_date) : 'Never'}
                  sub={customer.last_order_date ? formatFullDate(customer.last_order_date) : 'Yet to convert'}
-                 accent="from-amber-400 to-amber-600" />
+                 tone="bg-amber-50 text-amber-600" />
       </div>
 
       {/* ─── RFM BREAKDOWN ──────────────────────────────────── */}
@@ -638,6 +762,8 @@ export function CustomerDetailView({ customerId, onClose }) {
       {/* The Spending Trend chart moved into CustomerProfileExtras, which is
           where the corrected server-side series is already fetched. Keeping it
           here meant a second component re-deriving the same numbers by hand. */}
+
+      <LinkedChats customerId={id} />
 
       {/* ─── ORDER HISTORY ──────────────────────────────────── */}
       <div className="card p-5">

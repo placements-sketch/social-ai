@@ -644,7 +644,7 @@ export default function Customers() {
                 ? `KES ${formatKES(overview.kpis.net_sales)}` : '—'}
               sub={overview.kpis.net_sales == null
                 ? (overview.kpis.net_sales_note || 'Unavailable')
-                : 'Gross sales − discounts − returns + shipping + taxes'}
+                : 'Gross sales − discounts − returns + delivery (VAT already included)'}
               tone="bg-emerald-50 text-emerald-600"
             />
             <KpiCard
