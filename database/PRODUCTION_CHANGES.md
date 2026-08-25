@@ -3587,3 +3587,42 @@ UPDATE customers_cache c
   FROM pr
  WHERE c.id = pr.id;
 ```
+
+---
+
+### Step 53 — Let the assistant place an unlisted town itself
+
+Kenya has hundreds of towns and the zone list names thirteen. It was never going
+to be complete, and it does not need to be: the tiers already end with a
+catch-all, so the missing piece is not more names but permission to reason.
+
+What was actually missing is guidance on WHICH tier an unnamed town belongs to.
+Kiambu, Kikuyu, Limuru, Kiserian, Kitengela, Athi River and Thika are all
+satellite towns of Nairobi with no entry, while Juja and Ruiru — equally far out
+— are listed as environs. With nothing to go on the assistant could read the
+environs list as exhaustive and quote KES 500 for Kikuyu, which sits closer to
+the city than Juja does.
+
+The hard limit stays: it may pick a tier, never invent a price. Every fee it
+gives has to be one of the four already listed.
+
+APPENDS to delivery.notes — it does not replace it. The concatenation reads the
+live value, so nothing already there can be lost.
+
+```sql
+UPDATE app_settings
+   SET data = jsonb_set(
+         data,
+         '{delivery,notes}',
+         to_jsonb(
+           (data->'delivery'->>'notes') || E'\n\nPLACING A TOWN THAT IS NOT LISTED:\nThe towns named under "Nairobi environs" are EXAMPLES, not the whole list.\nKenya has far more towns than could be listed, so use ordinary geographic\nknowledge to place one that is missing into the tier it belongs to:\n\n- A satellite town in the Nairobi commuter belt — roughly within 40km, e.g.\n  Kiambu, Kikuyu, Limuru, Kiserian, Kitengela, Athi River, Ngong, Ruiru —\n  is NAIROBI ENVIRONS at KES 350.\n- A town beyond that belt — Thika, Naivasha, Nakuru, Machakos, Mombasa,\n  Kisumu, Eldoret and so on — is OTHER TOWNS at KES 500.\n- Anywhere outside Kenya is INTERNATIONAL and is quoted by DHL. Never give a\n  figure for it.\n\nQuote ONE OF THE FEES ALREADY LISTED ABOVE. Never invent a fee, never average\ntwo tiers, and never scale a price by distance — the tiers are the only prices\nthat exist.\n\nIf a place is genuinely ambiguous, or the customer disputes the tier, say which\ntier you believe it falls in, say the exact fee is confirmed at checkout, and\noffer to have someone confirm. Do not argue about geography with a customer who\nlives there.'
+         ),
+         true
+       ),
+       updated_at = now()
+ WHERE data->'delivery'->>'notes' IS NOT NULL
+   AND position('PLACING A TOWN THAT IS NOT LISTED' in data->'delivery'->>'notes') = 0;
+```
+
+The `position(...) = 0` guard makes it safe to re-run: a second execution
+matches nothing rather than appending the block twice.
