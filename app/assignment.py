@@ -69,6 +69,34 @@ def pick_next_agent():
               .filter(AuthUser.role == 'agent', AuthUser.status == 'active')
               .all())
 
+    # Drop agents we cannot actually reach.
+    #
+    # An escalation assigned to agent@company.com looks handled: the
+    # conversation leaves the unassigned queue, the badge clears, and the
+    # notification email goes to a domain Shop Zetu does not own. The customer
+    # is then waiting on someone who will never be told.
+    #
+    # Unassigned is a worse-looking state and a better one — the queue shows it
+    # and a supervisor can act. So a reachable agent always beats an
+    # unreachable one, and if NONE are reachable the conversation stays in the
+    # queue and says why, rather than being quietly parked on a dead mailbox.
+    from app.utils.email import unreachable_reason
+    from app.utils.logger import log_event
+    reachable = [a for a in agents if not unreachable_reason(getattr(a, 'email', None))]
+    if len(reachable) < len(agents):
+        skipped = [a.email for a in agents if unreachable_reason(getattr(a, 'email', None))]
+        log_event("warn", "assignment.unreachable_agents",
+                  f"{len(skipped)} active agent(s) skipped for auto-assignment - "
+                  f"their addresses cannot receive mail: {', '.join(skipped)}")
+    if reachable:
+        agents = reachable
+    elif agents:
+        log_event("error", "assignment.no_reachable_agent",
+                  f"All {len(agents)} active agents have unreachable email addresses "
+                  f"({', '.join(a.email for a in agents)}). Escalations will stay "
+                  f"unassigned until a real address is set.")
+        return None
+
     # Respect the load cap so we still don't pile onto a saturated agent.
     eligible = [a for a in agents if open_counts.get(a.id, 0) < max_load]
     if not eligible:

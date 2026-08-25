@@ -248,7 +248,15 @@ def _trigger(conversation: Conversation, reason: str, detail: str) -> dict:
                 notify_admins(
                     type_='assignment_deferred',
                     title="Escalation waiting — no available agent",
-                    body=f"A {conversation.channel.replace('_',' ')} chat needs a human but all agents are offline or at capacity.",
+                    # "offline or at capacity" was the only reason this could
+                    # happen. Auto-assignment now also declines to hand a chat
+                    # to an agent whose address cannot receive mail, and naming
+                    # one cause for two states sends people looking in the
+                    # wrong place.
+                    body=(f"A {conversation.channel.replace('_',' ')} chat needs a human but "
+                          f"no agent could be assigned - they are at capacity, or their "
+                          f"accounts have no reachable email address. See the logs for "
+                          f"assignment.no_reachable_agent."),
                     severity='warning',
                     resource_type='conversation',
                     resource_id=conversation.id,
