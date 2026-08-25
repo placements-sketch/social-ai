@@ -724,6 +724,15 @@ def integrations_status():
                 'token_days_left': days_left,
                 'token_expired': days_left is not None and days_left < 0,
                 'token_expiring_soon': days_left is not None and 0 <= days_left <= 7,
+                # An unknown expiry is not a safe one.
+                #
+                # With no date stored, days_left is None and both flags above
+                # are False, so the card rendered green and simply omitted the
+                # expiry row - the same shape as a token with years left. These
+                # tokens last 60 days and a daily cron refreshes them; if we do
+                # not hold the date, we cannot tell whether that refresh is
+                # working, and that is worth saying rather than hiding.
+                'token_expiry_unknown': exp is None,
             }
         elif os.getenv('FB_PAGE_ID') and os.getenv('FB_ACCESS_TOKEN'):
             meta = {'connected': True, 'source': 'env'}
@@ -783,7 +792,42 @@ def integrations_status():
         'sender': os.getenv('SMTP_FROM'),
     }
 
-    return jsonify({'integrations': {'meta': meta, 'shopify': shopify, 'brevo': brevo}}), 200
+    # ── Anthropic: the model behind the assistant ──
+    #
+    # This card did not exist. The panel promises "connection health for the
+    # services powering your assistant" and listed Meta, Shopify and Brevo -
+    # everything except the assistant. Claude had failed 18 times in seven days
+    # on no_credit, escalating every one of those conversations to a human, and
+    # this page showed three green ticks.
+    #
+    # A key being present proves nothing about whether it can be used, so the
+    # verdict comes from what actually happened: recent generator failures in
+    # the log. That costs no tokens and catches the states a key check cannot -
+    # exhausted credit, a revoked key, an overloaded model.
+    anthropic = {'configured': bool(os.getenv('ANTHROPIC_API_KEY')),
+                 'recent_failures': 0, 'last_error': None, 'last_error_at': None}
+    try:
+        from app.models import Log
+        since = datetime.utcnow() - timedelta(hours=24)
+        fails = (Log.query
+                 .filter(Log.created_at >= since)
+                 .filter(Log.source.in_(('ai.generator.failure',
+                                         'ai.classifier.fallback',
+                                         'ai.vision.describe_failed')))
+                 .order_by(Log.created_at.desc())
+                 .all())
+        anthropic['recent_failures'] = len(fails)
+        if fails:
+            anthropic['last_error'] = (fails[0].message or '')[:180]
+            anthropic['last_error_at'] = fails[0].created_at.isoformat()
+            # no_credit is worth naming separately: it is not a transient error
+            # and no amount of retrying clears it.
+            anthropic['no_credit'] = any('no_credit' in (f.message or '') for f in fails)
+    except Exception:
+        pass
+
+    return jsonify({'integrations': {'meta': meta, 'shopify': shopify,
+                                     'brevo': brevo, 'anthropic': anthropic}}), 200
 
 def format_business_for_prompt() -> str:
     """Business-info block (name / hours / contact) for the AI system prompt."""

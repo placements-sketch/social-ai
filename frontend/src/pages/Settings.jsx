@@ -63,10 +63,15 @@ export default function Settings({ embedded = false }) {
   // buttons: to learn that Shopify hadn't synced in a month you had to guess
   // which tab to open. A stale feed or a dying token is exactly the thing you
   // came here to find, so it belongs in the navigation, not behind it.
-  const mt = integrations?.meta, sh = integrations?.shopify
+  const mt = integrations?.meta, sh = integrations?.shopify, an = integrations?.anthropic
   const tabAlerts = {
+    // Anthropic counts here too. The rail's whole purpose is to say "something
+    // in there needs you" without opening the tab, and the assistant being out
+    // of credit is the most urgent version of that — every conversation
+    // escalates to a human while the dot is absent.
     integrations: (sh?.stale || sh?.failed_recently > 0 ||
-                   mt?.token_expired || mt?.token_expiring_soon || mt?.connected === false) || false,
+                   mt?.token_expired || mt?.token_expiring_soon || mt?.connected === false ||
+                   an?.configured === false || an?.recent_failures > 0) || false,
   }
 
   const activeTab = TABS.find(t => t.id === tab)
@@ -1399,7 +1404,7 @@ function IntegrationCard({ icon: Icon, name, ok, warn, children }) {
 // to open the tab to find out there is one. Same single request either way.
 function IntegrationsPanel({ data, loading, error, reload }) {
   const load = reload
-  const m = data?.meta, s = data?.shopify, b = data?.brevo
+  const m = data?.meta, s = data?.shopify, b = data?.brevo, a = data?.anthropic
 
   return (
     <div className="space-y-4">
@@ -1431,12 +1436,16 @@ function IntegrationsPanel({ data, loading, error, reload }) {
                 {m.page_name && <Row label="Page" value={m.page_name} />}
                 {m.ig_username && <Row label="Instagram" value={`@${m.ig_username}`} />}
                 {m.source === 'env' && <Row label="Source" value="Legacy env token" />}
-                {m.token_expires_at && (
+                {m.token_expires_at ? (
                   <Row label="Token expires"
                        value={`${fmtDate(m.token_expires_at)}${
                          m.token_days_left != null && m.token_days_left >= 0
                            ? ` · ${m.token_days_left}d left` : ''}`} />
-                )}
+                ) : m.token_expiry_unknown ? (
+                  /* Previously this row simply did not render, which looks
+                     identical to a token with years left. */
+                  <Row label="Token expires" value="Not recorded — expiry cannot be checked" />
+                ) : null}
                 {m.token_expired && (
                   <p className="text-[12px] text-red-600 mt-1.5">
                     This token has expired — Instagram messages are not being sent or received. Reconnect the account.
@@ -1476,6 +1485,50 @@ function IntegrationsPanel({ data, loading, error, reload }) {
               </>
             ) : (
               <p className="text-xs text-gray-500 py-1">No successful sync yet. Trigger a products sync to verify the connection.</p>
+            )}
+          </IntegrationCard>
+
+          {/* The assistant's own model, which this panel did not list.
+              It promised "connection health for the services powering your
+              assistant" and showed Meta, Shopify and Brevo all green while
+              Claude was failing on exhausted credit and escalating every
+              conversation to a human. The one broken integration was the only
+              one you could not see.
+
+              A present API key proves nothing about whether it can be used, so
+              the verdict comes from recent generator failures in the log — that
+              costs no tokens and catches what a key check cannot: spent credit,
+              a revoked key, an overloaded model. */}
+          <IntegrationCard
+            icon={Bot}
+            name="Anthropic · Claude"
+            ok={a?.configured && !a?.recent_failures}
+            warn={a?.configured && a?.recent_failures > 0}
+          >
+            {!a?.configured ? (
+              <p className="text-xs text-gray-500 py-1">
+                No API key set. The assistant cannot generate replies, so every
+                conversation escalates to a human.
+              </p>
+            ) : a?.no_credit ? (
+              <>
+                <p className="text-xs text-red-600 py-1 font-medium">
+                  Out of credit. Replies are failing and every conversation is
+                  escalating to a human.
+                </p>
+                <Row label="Failures (24h)" value={String(a.recent_failures)} />
+                {a.last_error_at && <Row label="Last failure" value={fmtDate(a.last_error_at)} />}
+              </>
+            ) : a?.recent_failures > 0 ? (
+              <>
+                <Row label="Failures (24h)" value={String(a.recent_failures)} />
+                {a.last_error && <Row label="Last error" value={a.last_error} />}
+                {a.last_error_at && <Row label="When" value={fmtDate(a.last_error_at)} />}
+              </>
+            ) : (
+              <p className="text-xs text-gray-500 py-1">
+                No reply, classifier or vision failures in the last 24 hours.
+              </p>
             )}
           </IntegrationCard>
 
