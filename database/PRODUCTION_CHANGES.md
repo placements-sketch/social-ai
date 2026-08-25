@@ -3626,3 +3626,47 @@ UPDATE app_settings
 
 The `position(...) = 0` guard makes it safe to re-run: a second execution
 matches nothing rather than appending the block twice.
+
+---
+
+### Step 54 — Correction to Step 53: the tier list is not a map
+
+Step 53 told the assistant to place an unlisted town by asking whether it sits
+in the Nairobi commuter belt. That implies the opposite test also holds — that
+anywhere inside Nairobi is the KES 250 tier — and the zone list itself says
+otherwise.
+
+**Karen, Kitisuru and Utawala are all inside Nairobi County and are charged the
+KES 350 environs rate.** Nine of the twelve named environs are outside Nairobi
+(Kiambu, Kajiado, Machakos); three are inside it. So "environs" is not an
+administrative boundary and cannot be reasoned about as one — it tracks how far
+a run is from the dispatch point and how dense the route is, which is a business
+fact about Shop Zetu, not a geographic fact about Kenya.
+
+Left as it was, the assistant could "correct" the list: a customer in Karen is
+in Nairobi, so it quotes KES 250, and undercharges by 100 on every such order.
+
+Two rules added:
+
+- A place NAMED in a tier uses that tier, whatever county it sits in. The list
+  wins over any reasoning about where the city ends.
+- An unlisted place on the edge of Nairobi is NOT automatically the KES 250
+  tier. Where it is unclear, say which tier is likely, say the fee is confirmed
+  at checkout, and offer a human — rather than picking the cheaper one.
+
+Appends, with a re-run guard, exactly as Step 53 does.
+
+```sql
+UPDATE app_settings
+   SET data = jsonb_set(
+         data,
+         '{delivery,notes}',
+         to_jsonb(
+           (data->'delivery'->>'notes') || E'\n\nTHE TIER LIST IS NOT A MAP:\nIf a place is NAMED in a tier above, use that tier — whatever county it is in.\nDo NOT reason from whether somewhere is "inside Nairobi": Karen, Kitisuru and\nUtawala are all inside Nairobi and are charged the KES 350 environs rate, while\nmost of the other named environs are outside it. The tiers track how far a\ndelivery run is, not where the city boundary falls.\n\nSo an unlisted place on the edge of Nairobi is NOT automatically KES 250. If it\nis not named and you are not confident, give the tier you think most likely,\nsay the exact fee is confirmed at checkout, and offer to have someone confirm.\nDo not default to the cheaper tier to be helpful — an undercharge is Shop Zetu''s\nloss on every order it happens to.'
+         ),
+         true
+       ),
+       updated_at = now()
+ WHERE data->'delivery'->>'notes' IS NOT NULL
+   AND position('THE TIER LIST IS NOT A MAP' in data->'delivery'->>'notes') = 0;
+```
