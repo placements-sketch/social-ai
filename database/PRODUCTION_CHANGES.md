@@ -3670,3 +3670,44 @@ UPDATE app_settings
  WHERE data->'delivery'->>'notes' IS NOT NULL
    AND position('THE TIER LIST IS NOT A MAP' in data->'delivery'->>'notes') = 0;
 ```
+
+---
+
+### Step 55 — The delivery address sets the fee, not where the customer lives
+
+A real order made this concrete. Olga Amara's city on record is **Thika**, and
+her orders have been shipped at both rates:
+
+    #91601   Mar 2022   KES 500
+    #105152  Sep 2022   KES 500
+    #223058  Aug 2026   KES 350
+    #224127  Aug 2026   KES 350
+
+Nothing about her changed. The August orders deliver to "Utawala next to Quick
+Mart", and Utawala is one of the named environs, so KES 350 is right. Shopify
+computes the rate from the SHIPPING address.
+
+Steps 53 and 54 taught the assistant to place *a town* in a tier, which invites
+the wrong question — "where are you?" A customer in Thika sending an order to a
+shop in Utawala pays 350, and one in Nairobi sending a gift to Nakuru pays 500.
+Asking where they live gets the fee wrong in both directions.
+
+Also confirms two things already relied on elsewhere. The Shopify order reads
+`Taxes KES765.52 - VAT 16% Included`, and 5,550 / 1.16 = 4,784.48 leaving
+exactly 765.52 - VAT is inside the total, as Step 50's breakdown assumed. And
+5,200 - 0 + 350 = 5,550 is the same identity the order rows reconcile against.
+
+```sql
+UPDATE app_settings
+   SET data = jsonb_set(
+         data,
+         '{delivery,notes}',
+         to_jsonb(
+           (data->'delivery'->>'notes') || E'\n\nWHICH ADDRESS THE FEE FOLLOWS:\nThe fee is set by the DELIVERY address, not by where the customer lives or is\nmessaging from. Ask where the order should be SENT, and price that.\n\nA customer in Thika having an order delivered to a shop in Utawala pays the\nKES 350 environs rate, because Utawala is an environs stop. A customer in\nNairobi sending a gift to Nakuru pays KES 500. Asking "where are you?" gets\nboth of these wrong.\n\nShopify calculates the rate from the shipping address at checkout, so any fee\nyou give beforehand is the expected one. Say it that way, and never argue with\nwhat checkout shows.'
+         ),
+         true
+       ),
+       updated_at = now()
+ WHERE data->'delivery'->>'notes' IS NOT NULL
+   AND position('WHICH ADDRESS THE FEE FOLLOWS' in data->'delivery'->>'notes') = 0;
+```
