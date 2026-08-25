@@ -432,11 +432,57 @@ function AIMasterSwitch({ settings, setSettings }) {
   )
 }
 
+// What "Reset to defaults" actually destroys, counted from the live settings.
+//
+// The panel described it as restoring "handoff, business, delivery and
+// notification settings", and reassured that "your data - conversations,
+// customers, products - is not touched". Both true, and together deeply
+// misleading: reset does `row.data = {}`, which wipes 16,587 characters of
+// written content, including ten vendor size charts and the terms and
+// conditions - neither of which has a default to restore, so they do not go
+// back to anything, they just stop existing.
+//
+// Counted rather than listed, because a hardcoded list goes stale the first
+// time someone adds a size chart.
+function resetInventory(settings) {
+  const s = settings || {}
+  const out = []
+  const chars = (v) => (typeof v === 'string' ? v.length : 0)
+
+  const charts = Object.keys(s.size_charts || {}).filter(k => k !== '_aliases')
+  if (charts.length) {
+    out.push({ label: `${charts.length} vendor size chart${charts.length === 1 ? '' : 's'}`,
+               detail: charts.slice(0, 4).join(', ') + (charts.length > 4 ? `, +${charts.length - 4} more` : ''),
+               gone: true })
+  }
+  const terms = chars(s.business?.terms)
+  if (terms) out.push({ label: 'Terms and conditions', detail: `${terms.toLocaleString()} characters`, gone: true })
+
+  const zones = (s.delivery?.zones || []).length
+  if (zones) out.push({ label: `${zones} delivery zone${zones === 1 ? '' : 's'} and their fees` })
+
+  const notes = chars(s.delivery?.notes)
+  if (notes) out.push({ label: 'Delivery rules and free-delivery conditions', detail: `${notes.toLocaleString()} characters` })
+
+  const ret = chars(s.delivery?.returns_policy)
+  if (ret) out.push({ label: 'Returns and exchanges policy', detail: `${ret.toLocaleString()} characters` })
+
+  const about = chars(s.business?.about)
+  if (about) out.push({ label: 'What the business is and how to describe it', detail: `${about.toLocaleString()} characters` })
+
+  if (chars(s.business?.hours) || chars(s.business?.phone) || chars(s.business?.email)) {
+    out.push({ label: 'Opening hours and contact details' })
+  }
+  if (chars(s.handoff?.bridging_reply)) out.push({ label: 'Handoff thresholds and the bridging reply' })
+  return out
+}
+
 function DangerPanel({ settings, setSettings }) {
   const [showReset, setShowReset] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [resetting, setResetting] = useState(false)
   const [msg, setMsg] = useState(null)
+  const inventory = resetInventory(settings)
 
   const exportConfig = () => {
     const blob = new Blob([JSON.stringify(settings ?? {}, null, 2)], { type: 'application/json' })
@@ -481,14 +527,45 @@ function DangerPanel({ settings, setSettings }) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-red-900">Reset all settings</p>
-            <p className="text-xs text-red-700 mt-0.5">Restores handoff, business, delivery, and notification settings to their defaults. Your data — conversations, customers, products — is not touched.</p>
+            <p className="text-xs text-red-700 mt-0.5">
+              This clears everything written on this page and puts the blanks back.
+              Conversations, customers and products are untouched — but everything
+              the assistant knows about the business is not "data" and IS deleted.
+            </p>
 
             {!showReset ? (
               <button onClick={() => setShowReset(true)} className="mt-3 text-xs font-semibold px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">
                 Reset to defaults
               </button>
             ) : (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
+                {/* You could not see what you were about to lose. The old copy
+                    said "settings", which reads as toggles and numbers. */}
+                {inventory.length > 0 && (
+                  <div className="rounded-xl bg-white/70 border border-red-200 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-red-800 mb-2">
+                      This will delete
+                    </p>
+                    <ul className="space-y-1">
+                      {inventory.map((it, i) => (
+                        <li key={i} className="text-xs text-red-800 flex gap-2">
+                          <span className="text-red-400 shrink-0">•</span>
+                          <span>
+                            {it.label}
+                            {it.detail && <span className="text-red-600"> — {it.detail}</span>}
+                            {it.gone && (
+                              <span className="font-semibold"> · has no default, so it is gone rather than reset</span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button onClick={exportConfig}
+                      className="mt-3 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-red-300 text-red-800 hover:bg-red-100 inline-flex items-center gap-1.5">
+                      <Download size={12} /> Export a backup first
+                    </button>
+                  </div>
+                )}
                 <p className="text-xs text-red-800">Type <span className="font-bold font-mono">RESET</span> to confirm.</p>
                 <div className="flex flex-wrap gap-2">
                   <input

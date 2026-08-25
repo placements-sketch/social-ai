@@ -3822,3 +3822,46 @@ UPDATE app_settings
        updated_at = now()
  WHERE position('is quoted by DHL' in data->'delivery'->>'notes') > 0;
 ```
+
+---
+
+### Step 58 — The assistant did not know its own opening hours
+
+`business.hours` is empty, and it is the only hours field the assistant sees on
+a normal reply. `format_business_for_prompt()` runs on EVERY message and emits
+`Opening hours: ...` only `if b.get("hours")` — so with the field blank the line
+is silently dropped and nothing indicates anything is missing.
+
+The real hours are stored, but in the wrong place to be useful.
+`business.terms` says:
+
+    CUSTOMER CARE HOURS
+    - Monday to Friday, 8am to 5pm. Outside those hours say when the team is next
+
+and `terms` is injected ONLY when `returns_asked` is true. So the instruction to
+say when the team is next available reaches the model only if the customer
+happened to be asking about a return.
+
+Meanwhile `handoff.bridging_reply` is:
+
+    "Thanks for reaching out — I'm connecting you with a member of our team
+     who'll get back to you shortly. We appreciate your patience."
+
+At 11pm on a Sunday that is a promise the business cannot keep, and Step 49
+flagged exactly this risk — "the assistant has been promising a human without
+knowing when one exists" — without closing it.
+
+Sets the field from the terms verbatim, and states the distinction that matters
+to someone messaging at night: the shop takes orders at any hour, a person
+answers on weekdays.
+
+```sql
+UPDATE app_settings
+   SET data = jsonb_set(
+         data, '{business,hours}',
+         to_jsonb('Customer care: Monday to Friday, 8am to 5pm (EAT). Shop Zetu is online-only, so orders can be placed at any time, but a person only replies during those hours.'::text),
+         true
+       ),
+       updated_at = now()
+ WHERE COALESCE(data->'business'->>'hours', '') = '';
+```
