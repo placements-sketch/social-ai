@@ -700,6 +700,18 @@ def integrations_status():
     from app.models import MetaConnection, SyncJob
 
     # ── Meta: OAuth connection row, else legacy env token ──
+    #
+    # Reuses _connection_health() rather than re-deriving expiry here.
+    #
+    # This block read `token_expires_at`, which belongs to the Facebook Login
+    # for Business flow. The live @shopzetu connection uses Instagram Login, so
+    # its expiry lives in `ig_login_expires_at` and `token_expires_at` is NULL.
+    # Result: Channels said "Token valid for 53 more days" while this panel said
+    # the expiry was not recorded - same connection, same moment, two answers,
+    # because two pages were reading two different columns.
+    #
+    # There is one correct reading of a connection's health and it already
+    # existed. Calling it is the only way these two cannot drift apart again.
     meta = {'connected': False, 'source': None}
     try:
         conn = (MetaConnection.query
@@ -707,32 +719,22 @@ def integrations_status():
                 .order_by(MetaConnection.connected_at.desc())
                 .first())
         if conn:
-            # The expiry date was already displayed, but it played no part in
-            # the verdict — a token two days from death still showed a green
-            # "Connected". Instagram tokens last 60 days and a daily cron
-            # refreshes them, so anything inside a week means that refresh has
-            # been failing for days and messaging is about to stop dead.
-            exp = conn.token_expires_at
-            days_left = None
-            if exp:
-                days_left = int((exp - datetime.utcnow()).total_seconds() // 86400)
+            from app.auth_instagram import _connection_health
+            h = _connection_health(conn)
             meta = {
-                'connected': True, 'source': 'oauth',
-                'page_name': conn.page_name,
-                'ig_username': conn.ig_username,
-                'token_expires_at': exp.isoformat() if exp else None,
-                'token_days_left': days_left,
-                'token_expired': days_left is not None and days_left < 0,
-                'token_expiring_soon': days_left is not None and 0 <= days_left <= 7,
-                # An unknown expiry is not a safe one.
-                #
-                # With no date stored, days_left is None and both flags above
-                # are False, so the card rendered green and simply omitted the
-                # expiry row - the same shape as a token with years left. These
-                # tokens last 60 days and a daily cron refreshes them; if we do
-                # not hold the date, we cannot tell whether that refresh is
-                # working, and that is worth saying rather than hiding.
-                'token_expiry_unknown': exp is None,
+                'connected': True,
+                'source': h['surface'],
+                'page_name': h['page_name'],
+                'ig_username': h['ig_username'],
+                'token_expires_at': h['expires_at'],
+                'token_days_left': h['days_left'],
+                'token_expired': h['status'] == 'expired',
+                'token_expiring_soon': h['status'] == 'expiring',
+                # Only when the expiry is genuinely unknown AND the connection
+                # has not been verified recently - which is exactly the state
+                # _connection_health calls 'unverified'.
+                'token_expiry_unknown': h['status'] == 'unverified',
+                'last_verified_at': h['last_verified_at'],
             }
         elif os.getenv('FB_PAGE_ID') and os.getenv('FB_ACCESS_TOKEN'):
             meta = {'connected': True, 'source': 'env'}

@@ -1435,7 +1435,14 @@ function IntegrationsPanel({ data, loading, error, reload }) {
               <>
                 {m.page_name && <Row label="Page" value={m.page_name} />}
                 {m.ig_username && <Row label="Instagram" value={`@${m.ig_username}`} />}
-                {m.source === 'env' && <Row label="Source" value="Legacy env token" />}
+                {/* Which auth flow, because the two store their expiry in
+                    different columns and that is what made this panel and the
+                    Channels page disagree. */}
+                <Row label="Signed in with" value={
+                  m.source === 'instagram_login' ? 'Instagram Login'
+                  : m.source === 'facebook_login' ? 'Facebook Login for Business'
+                  : m.source === 'env' ? 'Legacy env token'
+                  : 'Unknown'} />
                 {m.token_expires_at ? (
                   <Row label="Token expires"
                        value={`${fmtDate(m.token_expires_at)}${
