@@ -3711,3 +3711,114 @@ UPDATE app_settings
  WHERE data->'delivery'->>'notes' IS NOT NULL
    AND position('WHICH ADDRESS THE FEE FOLLOWS' in data->'delivery'->>'notes') = 0;
 ```
+
+---
+
+### Step 56 — Split the international zone to match what Shopify actually charges
+
+The single "International (DHL)" row told the assistant the fee **cannot be
+stated in advance**. Shopify's own delivery profile says otherwise: Rwanda and
+Uganda have fixed rates. A customer in Kampala asking "how much?" was being told
+we could not say, when the answer is KES 1,000.
+
+Read from the live store (`deliveryProfiles` on the Admin API):
+
+    Local Delivery (Kenya)   250 / 250 / 350 / 500      <- already correct
+    Rwanda                   Vivo Kigali 1500 (<=4000), 1000 (>4000)
+    Uganda                   Vivo Oasis Mall 1500 (<=4000), 1000 (>4000)
+    Tanzania                 customer arranges, 150 default
+    Garden City Zone         Vivo Garden City, KES 0
+
+**The carrier name is removed rather than corrected.** Customer Experience says
+DHL; Shopify has exactly one carrier service installed, "ShipShap Rate Provider
+(via app)", and no DHL integration. Both can be true — an aggregator books a
+carrier — but the assistant has no reason to name a courier, and where two
+sources disagree, naming neither is the only answer that cannot be wrong.
+
+Two things are deliberately NOT encoded, because I could not establish them:
+the trigger for the separate "Vivo Free Shipping" profile (a flat KES 0 for
+Kenya), and whether the Rwanda/Uganda rates are store COLLECTION rather than
+delivery to an address — the rate names say "Vivo Kigali (Kigali Heights)" and
+"Vivo Uganda Oasis Mall", which reads like collection.
+
+**The four Kenyan zones are unchanged.** Only the international row is replaced,
+and Garden City is added.
+
+Previous value of `delivery.zones`, for recovery:
+
+```sql-ref
+[{"eta":"1-3 business days","fee":"KES 250","name":"Home delivery within Nairobi"},
+ {"eta":"1-3 business days","fee":"KES 250","name":"Vivo store pickup (Nairobi orders only — the customer must name the specific Vivo store in the address section)"},
+ {"eta":"1-3 business days","fee":"KES 350","name":"Nairobi environs (Ngong, Rongai, Thindigua, KU, Juja, Kinoo, Utawala, Ruiru, Syokimau, Ruaka, Karen, Kitisuru)"},
+ {"eta":"3-5 business days","fee":"KES 500","name":"Other towns (outside Nairobi and its environs)"},
+ {"eta":"Varies by destination","fee":"Quoted by DHL at checkout — depends on destination and weight, so it cannot be stated in advance","name":"International (DHL) — anywhere outside Kenya, including Uganda, Rwanda and the rest of the world"}]
+```
+
+```sql
+UPDATE app_settings
+   SET data = jsonb_set(data, '{delivery,zones}', $json$[
+  {"name":"Home delivery within Nairobi",
+   "fee":"KES 250","eta":"1-3 business days"},
+  {"name":"Vivo store pickup (Nairobi orders only — the customer must name the specific Vivo store in the address section)",
+   "fee":"KES 250","eta":"1-3 business days"},
+  {"name":"Nairobi environs (Ngong, Rongai, Thindigua, KU, Juja, Kinoo, Utawala, Ruiru, Syokimau, Ruaka, Karen, Kitisuru)",
+   "fee":"KES 350","eta":"1-3 business days"},
+  {"name":"Other towns (outside Nairobi and its environs)",
+   "fee":"KES 500","eta":"3-5 business days"},
+  {"name":"Vivo Garden City pickup — collected at the store",
+   "fee":"Free","eta":"1-3 business days"},
+  {"name":"Rwanda — Vivo Kigali, Kigali Heights",
+   "fee":"KES 1,500 on orders up to KES 4,000; KES 1,000 on orders above KES 4,000",
+   "eta":"Varies by destination"},
+  {"name":"Uganda — Vivo Uganda, Oasis Mall Kampala",
+   "fee":"KES 1,500 on orders up to KES 4,000; KES 1,000 on orders above KES 4,000",
+   "eta":"Varies by destination"},
+  {"name":"Tanzania — the customer arranges shipping from Nairobi with a company of their choice",
+   "fee":"KES 150 default handling fee; the customer covers the shipping itself",
+   "eta":"Varies by destination"},
+  {"name":"Anywhere else outside Kenya",
+   "fee":"Quoted at checkout — it depends on destination and weight, so it cannot be stated in advance",
+   "eta":"Varies by destination"}
+]$json$::jsonb, true),
+       updated_at = now();
+```
+
+---
+
+### Step 57 — Correction to Step 53: the international line contradicts Step 56
+
+Step 53 wrote into `delivery.notes`:
+
+    - Anywhere outside Kenya is INTERNATIONAL and is quoted by DHL. Never give a
+      figure for it.
+
+Both halves are now wrong. Step 56 established that Rwanda and Uganda have
+fixed fees, so "never give a figure" would have the assistant refuse to answer
+a question it can answer. And it names DHL, which Step 56 deliberately removed
+from the zones — leaving it here would have put the carrier name back into the
+prompt through the other door.
+
+`business.about` also ends "...delivered across Kenya, and internationally by
+DHL." That is Shop Zetu's own description of itself and is NOT touched here —
+whether DHL is the right name is a question for Customer Experience, not
+something to quietly edit out of the company's own copy.
+
+A plain string replacement inside the existing notes. Nothing else in them moves.
+
+```sql
+UPDATE app_settings
+   SET data = jsonb_set(
+         data,
+         '{delivery,notes}',
+         to_jsonb(
+           replace(
+             data->'delivery'->>'notes',
+             E'- Anywhere outside Kenya is INTERNATIONAL and is quoted by DHL. Never give a\n  figure for it.',
+             E'- Anywhere outside Kenya: use the international zones listed above. Rwanda and\n  Uganda have FIXED fees and you should give them. Everywhere else is quoted at\n  checkout. Do not name a courier company.'
+           )
+         ),
+         true
+       ),
+       updated_at = now()
+ WHERE position('is quoted by DHL' in data->'delivery'->>'notes') > 0;
+```
