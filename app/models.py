@@ -341,6 +341,11 @@ class Message(db.Model):
     sender_id = db.Column(db.Integer, db.ForeignKey("auth_users.id"), nullable=True)
     content   = db.Column(db.Text, nullable=False)
     intent = db.Column(db.String(255), nullable=True)    
+    # 'classifier' or 'keywords'. The inbox panel is headed "What the AI
+    # made of this"; when the classifier is down, classify_message falls back
+    # to a keyword list and returns the same shape, so without this the panel
+    # presents a word match as the AI's reading. Step 58.
+    intent_source = db.Column(db.String(16), nullable=True)
     product_keyword = db.Column(db.String(128), nullable=True)
     ai_response_time_ms = db.Column(db.Integer, nullable=True)
     ai_eligible = db.Column(db.Boolean, nullable=True, index=True)
@@ -379,6 +384,8 @@ class Message(db.Model):
         if self.intent or self.product_keyword or self.ai_response_time_ms:
             meta = {
                 'intent': self.intent,
+                # Whether a model read this message, or a keyword list did.
+                'intentSource': self.intent_source,
                 'product': self.product_keyword,
                 'stock': None,
                 'responseTime': (f"{self.ai_response_time_ms} ms"
@@ -397,6 +404,11 @@ class Message(db.Model):
             'content': self.content,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'intent': self.intent,
+            'intent_source': self.intent_source,
+            # NULL means NO model was called — an automation rule or template
+            # wrote this. 82 of 125 outbound 'AI' messages in production are
+            # exactly that, and the inbox labelled all 125 identically.
+            'ai_model': self.ai_model,
             'product_keyword': self.product_keyword,
             'meta': meta,
             'external_id': self.external_id,

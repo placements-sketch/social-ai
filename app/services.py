@@ -734,7 +734,10 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
               conversation_id=(inbound_record.conversation_id if inbound_record else None))
 
     # Update the inbound record's intent now that we know it.
-    _patch_inbound_intent(inbound_record, intents)
+    # Pass the degraded flag through so the row records WHICH reader produced
+    # these intents, not just what they were.
+    _patch_inbound_intent(inbound_record, intents,
+                          degraded=bool(classification.get('degraded')))
 
     # Link this person to their Shopify record when the message proves who they
     # are. Runs on every inbound because the proof usually arrives mid-thread —
@@ -1166,9 +1169,38 @@ def _process_message(message: str, user_id: str, channel: str, external_id: str 
             # Recommendations and stock questions are different questions.
             context_data["_stock_candidates"] = search_products(
                 search_terms, limit=3, include_sold_out=True) or matches
+
+            # Answer "do you have X" from the best AVAILABLE match, not from
+            # whichever row happens to rank first.
+            #
+            # This read matches[0] outright. A customer asked "do you have
+            # fuschia dress"; the top-ranked row was a sold-out one, the
+            # "Out of Stock" rule fired, and she was told "This item is
+            # currently out of stock" — while 14 of the 16 fuschia dresses in
+            # the catalogue were in stock, one of them with 56 units.
+            #
+            # Ranking is by text relevance and knows nothing about inventory,
+            # so for anything broader than one exact product — a colour, a
+            # style, a category — matches[0] is effectively arbitrary. When the
+            # customer names a colour, ANY dress in that colour answers the
+            # question, and "out of stock" is only true when every match is.
+            #
+            # The sold-out row stays the subject when nothing is available, so
+            # the out-of-stock rules still fire on a genuinely sold-out product
+            # and can still name it.
+            _stock_pool = context_data["_stock_candidates"] or matches
+            _available = [p for p in _stock_pool if (p.get("stock_quantity") or 0) > 0]
+            _stock_pick = _available[0] if _available else _stock_pool[0]
+            if _available and _stock_pick is not _stock_pool[0]:
+                log_event("info", "services.stock_pick_available",
+                          f"Top match '{_stock_pool[0].get('name')}' is sold out; "
+                          f"answering from '{_stock_pick.get('name')}' "
+                          f"({len(_available)} of {len(_stock_pool)} matches in stock)",
+                          conversation_id=(inbound_record.conversation_id
+                                           if inbound_record else None))
             context_data["stock"]    = {
-                "product_name": matches[0].get("name"),
-                "quantity":     matches[0].get("stock_quantity", 0),
+                "product_name": _stock_pick.get("name"),
+                "quantity":     _stock_pick.get("stock_quantity", 0),
                 "unit":         "pcs",
             }
             _patch_inbound_product_keyword(inbound_record, product_keyword)
@@ -2480,13 +2512,21 @@ def _mark_ineligible_for_ai(inbound_record):
             pass
 
 
-def _patch_inbound_intent(inbound_record, intents):
-    """Once intents are detected, write the label onto the inbound row."""
+def _patch_inbound_intent(inbound_record, intents, degraded=False):
+    """Once intents are detected, write the label onto the inbound row.
+
+    `degraded` records WHICH reader produced them. classify_message returns the
+    same shape whether the classifier ran or the keyword fallback did, so
+    without this the inbox panel headed "What the AI made of this" presents a
+    word match as the assistant's reading — which is what it has been doing
+    since the credit ran out.
+    """
     if inbound_record is None or not intents:
         return
     try:
         from app import db
         inbound_record.intent = intents_to_label(intents)
+        inbound_record.intent_source = 'keywords' if degraded else 'classifier'
         db.session.commit()
     except Exception as e:
         log_event("error", "services._patch_inbound_intent", str(e))

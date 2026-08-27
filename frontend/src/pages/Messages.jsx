@@ -2050,7 +2050,9 @@ const handleSend = async (retryOf = null) => {
                 )}>
                   <div className="flex items-center gap-1 px-1 text-xs">
                     {msg.from === 'user'  && <User size={11} className="text-gray-400" />}
-                    {msg.from === 'ai'    && <Bot size={11} className="text-brand-500" />}
+                    {msg.from === 'ai' && (msg.ai_model
+                      ? <Bot size={11} className="text-brand-500" />
+                      : <Zap size={11} className="text-gray-400" title="Automation rule — no model was called" />)}
                     {msg.from === 'human' && <UserCheck size={11} className="text-amber-500" />}
                     <span className="text-gray-400 font-medium truncate">
                       {/* The person, not their job title. In a thread three
@@ -2058,8 +2060,16 @@ const handleSend = async (retryOf = null) => {
                           said what — which is exactly what you are reading the
                           history to find out. Falls back to "Agent" for older
                           messages sent before we recorded the sender. */}
+                      {/* "AI" covered two different things. 82 of 125 outbound
+                          'ai' messages in production were written by an
+                          automation rule or a template with no model call at
+                          all — ai_model is NULL on every one of them — and the
+                          inbox labelled them identically to a generated reply.
+                          Someone reading a thread could not tell whether the
+                          assistant had reasoned about a customer or a keyword
+                          rule had fired. */}
                       {msg.from === 'user' ? 'Customer'
-                        : msg.from === 'ai' ? 'AI'
+                        : msg.from === 'ai' ? (msg.ai_model ? 'AI' : 'Auto-reply')
                         : (firstName(msg.sender_user) || 'Agent')}
                       {' · '}{msg.created_at ? formatTimeOfDay(msg.created_at) : msg.time}
                     </span>
@@ -2559,6 +2569,10 @@ function ContextContent({ conv }) {
     .split('|')
     .map(t => t.trim())
     .filter(Boolean)
+  // Which reader produced them. classify_message returns the same shape whether
+  // the classifier ran or the keyword fallback did, so this card was showing a
+  // word match under the heading "What the AI made of this".
+  const intentSource = lastInbound?.intent_source || null
 
   // product_keyword is the search term the AI derived from the customer — from
   // their words, a forwarded post's caption, or vision reading a photo. It is
@@ -2645,16 +2659,35 @@ function ContextContent({ conv }) {
         <div>
           <p className="text-[11px] text-gray-400 font-semibold mb-1.5">Detected intent</p>
           {intents.length > 0 ? (
+            <>
             <div className="flex flex-wrap gap-1">
               {intents.map(i => (
                 <span
                   key={i}
-                  className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 border border-brand-100 capitalize"
+                  className={clsx(
+                    'text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize border',
+                    intentSource === 'keywords'
+                      ? 'bg-gray-500/10 text-gray-500 border-gray-500/20'
+                      : 'bg-brand-50 text-brand-700 border-brand-100'
+                  )}
                 >
                   {prettyIntent(i)}
                 </span>
               ))}
             </div>
+            {intentSource === 'keywords' ? (
+              <p className="text-[11px] text-amber-600 mt-1.5 leading-relaxed">
+                Matched by keyword — the classifier was unavailable, so no model
+                read this message.
+              </p>
+            ) : intentSource === 'classifier' ? (
+              <p className="text-[11px] text-gray-400 mt-1.5">Read by the classifier.</p>
+            ) : (
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Source not recorded — this message predates the change that tracks it.
+              </p>
+            )}
+            </>
           ) : (
             <p className="text-[12px] text-gray-400 italic">
               Nothing classified on the last customer message

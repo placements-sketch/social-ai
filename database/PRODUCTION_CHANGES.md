@@ -3865,3 +3865,29 @@ UPDATE app_settings
        updated_at = now()
  WHERE COALESCE(data->'business'->>'hours', '') = '';
 ```
+
+---
+
+### Step 58 — Record whether an intent came from the classifier or the keyword fallback
+
+The inbox panel is headed **"What the AI made of this"** and lists detected
+intents. For `"Hello do you have fuschia dress"` it showed Greeting, Stock
+Inquiry, Product Inquiry — and every one of those came from a keyword list,
+because the classifier returned HTTP 400 (credit exhausted) and
+`classify_message` fell back.
+
+`classification['degraded']` already carries this and the pipeline already uses
+it — `check_handoff` depends on it to tell "the AI read this and saw nothing
+worrying" from "the AI never ran". It was simply never persisted, so the panel
+could not tell the reader which of those two it was looking at.
+
+NULL on existing rows means "we did not record it", which is honest — those
+messages predate the column and we cannot know retroactively.
+
+```sql
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS intent_source varchar(16);
+
+COMMENT ON COLUMN messages.intent_source IS
+  'classifier | keywords — how the intents on this row were derived. '
+  'NULL means not recorded (rows written before this column existed).';
+```
